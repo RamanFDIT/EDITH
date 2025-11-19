@@ -11,7 +11,9 @@ const GITHUB_TOKEN = process.env.GITHUB_PAT;
  * @param {string} repo - The name of the repository.
  * @returns {Promise<Array<object>>} - A promise that resolves to an array of issue objects.
  */
-export async function getRepoIssues(owner, repo) {
+export async function getRepoIssues(args) {
+  console.log("getRepoIssues called with:", JSON.stringify(args));
+  const { owner, repo } = args;
   if (!GITHUB_TOKEN) {
     throw new Error('GitHub PAT not found in .env file');
   }
@@ -39,7 +41,17 @@ export async function getRepoIssues(owner, repo) {
 
     const data = await response.json();
     console.log(`Tool: Found ${data.length} issues for ${owner}/${repo}.`);
-    return data;
+    
+    const simplifiedIssues = data.map(issue => ({
+      number: issue.number,
+      title: issue.title,
+      state: issue.state,
+      html_url: issue.html_url,
+      body: issue.body ? issue.body.substring(0, 200) : null, // Truncate body
+      user: issue.user ? issue.user.login : 'unknown'
+    }));
+
+    return JSON.stringify(simplifiedIssues);
 
   } catch (error) {
     console.error('Error in getRepoIssues tool:', error);

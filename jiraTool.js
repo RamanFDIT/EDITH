@@ -7,12 +7,12 @@ const JIRA_API_TOKEN = process.env.JIRA_TOKEN;
 const JIRA_EMAIL = process.env.JIRA_EMAIL;
 const JIRA_DOMAIN = process.env.JIRA_DOMAIN;
 
-export async function getJiraIssues(jqlQuery) {
+export async function getJiraIssues({ jqlQuery }) {
     if(!JIRA_API_TOKEN || !JIRA_EMAIL || !JIRA_DOMAIN || !jqlQuery){
         throw new Error("Your Tokens do not load, U silly User");
         return;
     }
-    const url = "https://${JIRA_DOMAIN}/rest/api/3/search";
+    const url = `https://${JIRA_DOMAIN}/rest/api/3/search/jql`;
     const basicAuth = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString('base64');
 
     try{
@@ -34,7 +34,7 @@ export async function getJiraIssues(jqlQuery) {
         throw new Error(`Status isnot 200 U silly user response = ${response.status} and response text = ${response.statusText}`)
     }else{
         const data = await response.json();
-        return data.issues;
+        return JSON.stringify(data.issues);
     }
     }
     catch(error){

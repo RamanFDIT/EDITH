@@ -133,7 +133,7 @@ const tools = [
 				.string()
 				.describe("A valid JQL query string. For example: 'project = CAP AND status = Open'"),
 		}),
-		run: getJiraIssues,
+		func: getJiraIssues,
 	}),
 	new DynamicStructuredTool({
 		name: "get_github_repo_issues",
@@ -142,7 +142,7 @@ const tools = [
 			owner: z.string().describe("The username or organization that owns the repository."),
 			repo: z.string().describe("The name of the repository."),
 		}),
-		run: getRepoIssues,
+		func: getRepoIssues,
 	}),
 ];
 
