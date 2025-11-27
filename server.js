@@ -34,6 +34,20 @@ app.post('/api/ask', async (req, res) => {
 });
 
 // --- Start Server ---
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`Server is listening at http://localhost:3000`);
+});
+
+// Keep-alive to prevent process exit if something is weird
+setInterval(() => {
+  // console.log('[Heartbeat] Server is alive...');
+}, 10000);
+
+// Global Error Handlers
+process.on('uncaughtException', (err) => {
+  console.error('[CRITICAL] Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason);
 });

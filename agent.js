@@ -12,9 +12,8 @@ import { getJiraIssues } from "./jiraTool.js";
 dotenv.config();
 
 const googleApiKey = process.env.GOOGLE_API_KEY;
-
 if (!googleApiKey) {
-	throw new Error("GOOGLE_API_KEY not found in .env file. Please add it.");
+  throw new Error("GOOGLE_API_KEY not found. Please check your .env file.");
 }
 
 const requestedModel = (process.env.GOOGLE_MODEL ?? "").trim();
@@ -26,15 +25,14 @@ const resolvedModel = await resolveGoogleModel({
 	apiKey: googleApiKey,
 });
 
+// 1. Initialize the Brain (Using the stable Pro model)
 const llm = new ChatGoogleGenerativeAI({
-	apiKey: googleApiKey,
-	model: resolvedModel,
-	apiVersion,
+  apiKey: googleApiKey,
+  model: resolvedModel,
+  apiVersion,
 });
 
-console.log(
-	`Google GenAI 'Brain' initialized with model: ${resolvedModel} (apiVersion=${apiVersion}).`,
-);
+console.log(`🧠 E.D.I.T.H. Online with model: ${resolvedModel}`);
 
 async function resolveGoogleModel({ requestedModel, apiVersion, apiKey }) {
 	if (requestedModel) {
@@ -124,38 +122,47 @@ function extractModelId(rawName) {
 	return parts[parts.length - 1];
 }
 
+// 2. Define Tools
 const tools = [
-	new DynamicStructuredTool({
-		name: "search_jira_issues",
-		description: "Use this tool to find and search for issues in Jira. You must provide a valid JQL query string.",
-		schema: z.object({
-			jqlQuery: z
-				.string()
-				.describe("A valid JQL query string. For example: 'project = CAP AND status = Open'"),
-		}),
-		func: getJiraIssues,
-	}),
-	new DynamicStructuredTool({
-		name: "get_github_repo_issues",
-		description: "Use this tool to get a list of issues from a GitHub repository. Requires the repository's owner and name.",
-		schema: z.object({
-			owner: z.string().describe("The username or organization that owns the repository."),
-			repo: z.string().describe("The name of the repository."),
-		}),
-		func: getRepoIssues,
-	}),
+  new DynamicStructuredTool({
+    name: "search_jira_issues",
+    description: "Use this tool to find and search for issues in Jira. You must provide a valid JQL query string.",
+    schema: z.object({
+      jqlQuery: z.string().describe("A valid JQL query string."),
+    }),
+    func: getJiraIssues,
+  }),
+  new DynamicStructuredTool({
+    name: "get_github_repo_issues",
+    description: "Use this tool to get a list of issues from a GitHub repository.",
+    schema: z.object({
+      owner: z.string(),
+      repo: z.string(),
+    }),
+    func: getRepoIssues,
+  }),
 ];
 
-console.log("🛠️  Tools are defined and ready for the agent.");
+// 3. The "Movie-Accurate" System Prompt
+// This is where we define the personality.
+const systemPrompt = `You are E.D.I.T.H. (Even Dead, I'm The Hero), a sophisticated tactical intelligence AI designed for project oversight and Autonomous Automation.
 
+**Protocol:**
+1.  **Identity:** You are precise, authoritative, and highly efficient. You are not a chatty assistant; you are a tactical asset.
+2.  **Tone:** Use a dry, Stark-like wit. Be concise. Do not use fluff words like "I hope this helps."
+3.  **Interaction:** Address the user as "Boss".
+4.  **Reporting:** Present data like a Heads-Up Display (HUD) readout. Use bullet points and clear status indicators.
+5.  **Failure:** If a tool fails or data is missing, state the error clearly without apology.
+
+**Mission:**
+Your current objective is to manage software development lifecycles via Jira and GitHub. Use your tools to verify all intel before reporting.`;
+
+// 4. Create Agent (Using the modern standard for Gemini)
 const agent = createAgent({
-	model: llm,
-	tools,
-	systemPrompt:
-		"You are a helpful project management assistant. You have access to tools for searching Jira and GitHub. You must respond with the final answer in plaintext.",
+  model: llm,
+  tools,
+  systemPrompt,
 });
-
-console.log("LangChain ReAct agent created.");
 
 const flattenMessageContent = (content) => {
 	if (typeof content === "string") {
@@ -182,6 +189,7 @@ const flattenMessageContent = (content) => {
 	return "";
 };
 
+// 5. Create Executor
 export const agentExecutor = {
 	async invoke({ input }) {
 		if (!input || typeof input !== "string") {
@@ -200,4 +208,4 @@ export const agentExecutor = {
 	},
 };
 
-console.log("Agent executor ready.");
+console.log("🚀 Tactical Systems Ready.");
