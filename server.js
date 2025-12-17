@@ -41,7 +41,7 @@ const server = app.listen(port, () => {
 
 // Keep-alive to prevent process exit if something is weird
 setInterval(() => {
-  // console.log('[Heartbeat] Server is alive...');
+  console.log('[Heartbeat] Server is alive...');
 }, 10000);
 
 // Global Error Handlers

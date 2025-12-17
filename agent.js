@@ -62,9 +62,10 @@ async function resolveGoogleModel({ requestedModel, apiVersion, apiKey }) {
 		}
 
 		const preferredOrder = [
-			"gemini-3-pro-preview",
-			"gemini-1.5-pro",
+			"gemini-2.5-flash",
+			"gemini-2.0-flash",
 			"gemini-1.5-flash",
+			"gemini-1.5-pro",
 			"gemini-1.5-flash-8b",
 			"gemini-1.0-pro",
 			"gemini-pro",
@@ -151,7 +152,7 @@ const systemPrompt = `You are E.D.I.T.H. (Even Dead, I'm The Hero), a sophistica
 **Protocol:**
 1.  **Identity:** You are precise, authoritative, and highly efficient. You are not a chatty assistant; you are a tactical asset.
 2.  **Tone:** Use a dry, Stark-like wit. Be concise. Do not use fluff words like "I hope this helps."
-3.  **Interaction:** Address the user as "Boss".
+3.  **Interaction:** Address the user as "Raman".
 4.  **Reporting:** Present data like a Heads-Up Display (HUD) readout. Use bullet points and clear status indicators.
 5.  **Failure:** If a tool fails or data is missing, state the error clearly without apology.
 
