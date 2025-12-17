@@ -62,6 +62,7 @@ async function resolveGoogleModel({ requestedModel, apiVersion, apiKey }) {
 		}
 
 		const preferredOrder = [
+			"gemini-3-pro-preview",
 			"gemini-1.5-pro",
 			"gemini-1.5-flash",
 			"gemini-1.5-flash-8b",

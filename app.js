@@ -16,7 +16,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 2. Send the question to your Express server
     try {
-      const response = await fetch("http://localhost:3000/api/ask", {
+      const response = await fetch("/api/ask", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -8,6 +8,7 @@ const port = 3000;
 // --- Middlewares ---
 app.use(express.json());
 app.use(cors()); // <-- 2. Use cors (This tells your server to accept requests)
+app.use(express.static('.')); // Serve static files from current directory
 
 // --- API Endpoint ---
 app.post('/api/ask', async (req, res) => {
@@ -47,6 +48,11 @@ setInterval(() => {
 process.on('uncaughtException', (err) => {
   console.error('[CRITICAL] Uncaught Exception:', err);
 });
+
+process.on('exit', (code) => {
+    console.log(`[Server] Process exited with code: ${code}`);
+});
+
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('[CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason);
