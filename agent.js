@@ -28,7 +28,7 @@ const tools = [
   new DynamicStructuredTool({
     name: "search_jira_issues",
     description: "Use this tool to find and search for issues in Jira. The input must be a JSON object containing the JQL query.",
-    // FIX 1: The "Universal Schema" - Accepts ANY variable name the AI chooses
+    // FIX 1: The "Universal Schema" - Accepts ANY name the AI decides to use.
     schema: z.object({
       jql: z.string().optional().describe("A valid JQL query string."),
       jql_query: z.string().optional().describe("A valid JQL query string."),
@@ -77,7 +77,7 @@ export const agentExecutor = new AgentExecutor({
   agent,
   tools,
   verbose: true,
-  // FIX 2: Auto-fix errors instead of crashing silently
+  // FIX 2: This helps the agent recover if it messes up the input format
   handleParsingErrors: true, 
 });
 
