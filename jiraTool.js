@@ -1,7 +1,7 @@
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
 
-dotenv.config(); // Load variables from .env file
+dotenv.config();
 
 const JIRA_API_TOKEN = process.env.JIRA_TOKEN;
 const JIRA_EMAIL = process.env.JIRA_EMAIL;
@@ -9,36 +9,38 @@ const JIRA_DOMAIN = process.env.JIRA_DOMAIN;
 
 export async function getJiraIssues({ jqlQuery }) {
     if(!JIRA_API_TOKEN || !JIRA_EMAIL || !JIRA_DOMAIN || !jqlQuery){
-        throw new Error("Your Tokens do not load, U silly User");
-        return;
+        throw new Error("Missing Jira credentials or JQL query.");
     }
-    const url = `https://${JIRA_DOMAIN}/rest/api/3/search/jql`;
+    
+    // FIX: Removed '/jql' from the end
+    const url = `https://${JIRA_DOMAIN}/rest/api/3/search`;
     const basicAuth = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString('base64');
 
-    try{
+    try {
         const response = await fetch(url, {
-        method: 'POST', // Jira search uses POST
-        headers: {
-            'Authorization': `Basic ${basicAuth}`,
-            'Accept': 'application/json',
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            jql: jqlQuery,
-            maxResults: 5, // Limit results for this test
-            fields: ['key', 'summary', 'status', 'created', 'assignee'] // Specify which fields to return
-        })
-    });
+            method: 'POST',
+            headers: {
+                'Authorization': `Basic ${basicAuth}`,
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                jql: jqlQuery,
+                maxResults: 5,
+                fields: ['key', 'summary', 'status', 'created', 'assignee']
+            })
+        });
     
-    if(!response.ok){
-        throw new Error(`Status isnot 200 U silly user response = ${response.status} and response text = ${response.statusText}`)
-    }else{
-        const data = await response.json();
-        return JSON.stringify(data.issues);
-    }
-    }
-    catch(error){
+        if(!response.ok){
+            // Improve error logging
+            const errorText = await response.text();
+            throw new Error(`Jira API Error: ${response.status} ${response.statusText} - ${errorText}`);
+        } else {
+            const data = await response.json();
+            return JSON.stringify(data.issues);
+        }
+    } catch(error){
         console.error('Error fetching Jira issues:', error);
-        throw error;
+        throw error; // Propagate error so the Agent knows it failed
     }
 };
