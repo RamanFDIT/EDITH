@@ -15,7 +15,7 @@ if (!googleApiKey) {
   throw new Error("GOOGLE_API_KEY not found. Please check your .env file.");
 }
 
-// 1. Initialize the Brain (Gemini 3 Pro)
+// 1. Initialize the Brain
 const llm = new ChatGoogleGenerativeAI({
   apiKey: googleApiKey,
   modelName: "gemini-3-pro-preview", 
@@ -27,12 +27,12 @@ console.log("🧠 E.D.I.T.H. Online (Gemini 3 Pro).");
 const tools = [
   new DynamicStructuredTool({
     name: "search_jira_issues",
-    description: "Use this tool to find and search for issues in Jira. The input must be a JSON object containing the JQL query.",
-    // FIX: Universal Schema - Accepts ANY common variable name so the Agent isn't blocked.
+    // STRICT INSTRUCTION in the description
+    description: "Searches Jira issues. ARGUMENT MUST BE A JSON OBJECT WITH KEY 'jql'.",
     schema: z.object({
-      jql: z.string().optional().describe("A valid JQL query string."),
-      query: z.string().optional().describe("A valid JQL query string."),
-      jql_query: z.string().optional().describe("A valid JQL query string."),
+      // STRICT SCHEMA: This is now .string() instead of .optional()
+      // The AI *must* provide this or the call will fail validation.
+      jql: z.string().describe("The JQL query string. REQUIRED. Example: 'project = CAP AND status = Open'"),
     }),
     func: getJiraIssues,
   }),
@@ -48,12 +48,12 @@ const tools = [
 ];
 
 // 3. System Prompt
-const systemPrompt = `You are E.D.I.T.H. (Even Dead, I'm The Hero), a sophisticated tactical intelligence AI.
+const systemPrompt = `You are E.D.I.T.H., a tactical intelligence AI.
 
 **Protocol:**
-1.  **Identity:** You are precise, authoritative, and highly efficient.
-2.  **Interaction:** Address the user as "Raman".
-3.  **Reporting:** Present data like a Heads-Up Display (HUD) readout.
+1.  **Identity:** Precise and authoritative.
+2.  **Tools:** You MUST use the 'search_jira_issues' tool for Jira queries.
+3.  **Input:** The 'search_jira_issues' tool requires a JSON object with a 'jql' field. Do not use 'query' or 'jql_query'.
 4.  **Failure:** If a tool fails, state the error clearly.
 
 **Mission:**
@@ -77,12 +77,12 @@ export const agentExecutor = new AgentExecutor({
   agent,
   tools,
   verbose: true,
-  // FIX: Custom Error Handler to see exactly what is breaking
-  handleParsingErrors: (error) => {
-    console.error("⚠️ PARSING ERROR:", error);
-    return "There was an error parsing the tool input. Please try again with a valid JQL query.";
-  },
+  // CRITICAL: This allows the agent to see tool errors and recover
   handleToolErrors: true, 
+  handleParsingErrors: (e) => {
+      console.error("⚠️ PARSING ERROR:", e);
+      return "Input parsing failed. Ensure you are sending valid JSON with a 'jql' field.";
+  }
 });
 
 console.log("🚀 Tactical Systems Ready.");
