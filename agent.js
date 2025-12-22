@@ -18,7 +18,7 @@ if (!googleApiKey) {
 // 1. Initialize the Brain (Gemini 3 Pro)
 const llm = new ChatGoogleGenerativeAI({
   apiKey: googleApiKey,
-  modelName: "gemini-3-pro-preview", // Uses the model you want
+  modelName: "gemini-3-pro-preview", 
 });
 
 console.log("🧠 E.D.I.T.H. Online (Gemini 3 Pro).");
@@ -27,9 +27,10 @@ console.log("🧠 E.D.I.T.H. Online (Gemini 3 Pro).");
 const tools = [
   new DynamicStructuredTool({
     name: "search_jira_issues",
-    description: "Use this tool to find and search for issues in Jira. You must provide a valid JQL query string.",
+    description: "Use this tool to find and search for issues in Jira. The input must be a JSON object with a single key named 'jql'.",
     schema: z.object({
-      jqlQuery: z.string().describe("A valid JQL query string. For example: 'project = CAP AND status = Open'"),
+      // FIX: Rename this to 'jql' to match the AI's natural behavior
+      jql: z.string().describe("A valid JQL query string. For example: 'project = CAP AND status = Open'"),
     }),
     func: getJiraIssues,
   }),
@@ -62,18 +63,17 @@ const prompt = ChatPromptTemplate.fromMessages([
   new MessagesPlaceholder("agent_scratchpad"),
 ]);
 
-// 4. Create the Agent using the CORRECT function
+// 4. Create the Agent
 const agent = await createToolCallingAgent({
   llm,
   tools,
   prompt,
 });
 
-// 5. Create and Export the Executor (This handles the loop and memory)
+// 5. Create Executor
 export const agentExecutor = new AgentExecutor({
   agent,
   tools,
-  // Optional: Add verbose: true to see the "thinking" in your console
   verbose: true, 
 });
 
