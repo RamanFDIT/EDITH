@@ -27,10 +27,12 @@ console.log("🧠 E.D.I.T.H. Online (Gemini 3 Pro).");
 const tools = [
   new DynamicStructuredTool({
     name: "search_jira_issues",
-    description: "Use this tool to find and search for issues in Jira. The input must be a JSON object containing the JQL query string.",
-    // FIX 1: Simplify Schema. We use 'query' because it is a standard term the AI understands.
+    description: "Use this tool to find and search for issues in Jira. The input must be a JSON object containing the JQL query.",
+    // FIX: Universal Schema - Accepts ANY common variable name so the Agent isn't blocked.
     schema: z.object({
-      query: z.string().describe("The JQL query string. Example: 'project = CAP AND status = Open'"),
+      jql: z.string().optional().describe("A valid JQL query string."),
+      query: z.string().optional().describe("A valid JQL query string."),
+      jql_query: z.string().optional().describe("A valid JQL query string."),
     }),
     func: getJiraIssues,
   }),
@@ -75,8 +77,11 @@ export const agentExecutor = new AgentExecutor({
   agent,
   tools,
   verbose: true,
-  // FIX 2: Enable this to catch tool errors and show them to the AI
-  handleParsingErrors: true,
+  // FIX: Custom Error Handler to see exactly what is breaking
+  handleParsingErrors: (error) => {
+    console.error("⚠️ PARSING ERROR:", error);
+    return "There was an error parsing the tool input. Please try again with a valid JQL query.";
+  },
   handleToolErrors: true, 
 });
 
