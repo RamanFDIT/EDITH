@@ -12,15 +12,16 @@ if (JIRA_DOMAIN) {
     JIRA_DOMAIN = JIRA_DOMAIN.replace(/^https?:\/\//, '').replace(/\/$/, '');
 }
 
-// FIX: Accept 'jql' instead of 'jqlQuery'
-// We also use a fallback in case the AI uses the other name
 export async function getJiraIssues(input) {
-    const jql = input.jql || input.jqlQuery || input.jql_query;
+    console.log("🔍 Jira Tool Invoked with Input:", JSON.stringify(input));
+
+    // FIX: Look for 'query' first, then fallbacks
+    const jql = input.query || input.jql || input.jqlQuery || input.jql_query;
 
     if(!JIRA_API_TOKEN || !JIRA_EMAIL || !JIRA_DOMAIN || !jql){
         console.error("❌ E.D.I.T.H. Tool Error: Missing Credentials or Query.");
-        console.error("   Input received:", JSON.stringify(input));
-        throw new Error("Missing Jira credentials or JQL query. Check .env file.");
+        // Throwing a string error helps the Agent understand what went wrong
+        throw new Error("Missing Jira credentials or JQL query. Please check .env file and ensure query is provided.");
     }
     
     const url = `https://${JIRA_DOMAIN}/rest/api/3/search`;
@@ -55,6 +56,7 @@ export async function getJiraIssues(input) {
         }
     } catch(error){
         console.error('❌ Network Error in Jira Tool:', error);
-        throw error;
+        // This ensures the error goes back to the Agent so it can explain it to you
+        return `Error searching Jira: ${error.message}`;
     }
 };
