@@ -12,7 +12,7 @@ export async function getJiraIssues({ jqlQuery }) {
         throw new Error("Your Tokens do not load, U silly User");
         return;
     }
-    const url = `https://${JIRA_DOMAIN}/rest/api/3/search`;
+    const url = `https://${JIRA_DOMAIN}/rest/api/3/search/jql`;
     const basicAuth = Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString('base64');
 
     try{
