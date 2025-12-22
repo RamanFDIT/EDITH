@@ -27,10 +27,12 @@ console.log("🧠 E.D.I.T.H. Online (Gemini 3 Pro).");
 const tools = [
   new DynamicStructuredTool({
     name: "search_jira_issues",
-    description: "Use this tool to find and search for issues in Jira. The input must be a JSON object with a single key named 'jql'.",
+    description: "Use this tool to find and search for issues in Jira. The input must be a JSON object containing the JQL query.",
+    // FIX 1: The "Universal Schema" - Accepts ANY variable name the AI chooses
     schema: z.object({
-      // FIX: Rename this to 'jql' to match the AI's natural behavior
-      jql: z.string().describe("A valid JQL query string. For example: 'project = CAP AND status = Open'"),
+      jql: z.string().optional().describe("A valid JQL query string."),
+      jql_query: z.string().optional().describe("A valid JQL query string."),
+      jqlQuery: z.string().optional().describe("A valid JQL query string."),
     }),
     func: getJiraIssues,
   }),
@@ -74,7 +76,9 @@ const agent = await createToolCallingAgent({
 export const agentExecutor = new AgentExecutor({
   agent,
   tools,
-  verbose: true, 
+  verbose: true,
+  // FIX 2: Auto-fix errors instead of crashing silently
+  handleParsingErrors: true, 
 });
 
 console.log("🚀 Tactical Systems Ready.");
