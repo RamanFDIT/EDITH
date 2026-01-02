@@ -3,57 +3,138 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// FIX: Check for GITHUB_TOKEN (matches README) OR GITHUB_PAT (common backup)
+// Check both variable names to ensure connection
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GITHUB_PAT;
 
-export async function getRepoIssues(args) {
-  console.log("🔍 GitHub Tool Invoked with:", JSON.stringify(args));
-  
-  const { owner, repo } = args;
-
-  if (!GITHUB_TOKEN) {
-    console.error("❌ E.D.I.T.H. Tool Error: Missing GitHub Token.");
-    throw new Error('GitHub Token not found in .env file (Checked GITHUB_TOKEN and GITHUB_PAT).');
-  }
-  if (!owner || !repo) {
-    throw new Error('Both "owner" and "repo" parameters are required.');
-  }
-
-  const url = `https://api.github.com/repos/${owner}/${repo}/issues`;
-  console.log(`🔍 Accessing GitHub: ${url}`);
-
-  try {
+// --- HELPER: Generic Fetcher ---
+async function githubFetch(url) {
+    if (!GITHUB_TOKEN) throw new Error('GitHub Token not found in .env');
+    
+    console.log(`🔍 Accessing GitHub: ${url}`);
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${GITHUB_TOKEN}`,
-        'Accept': 'application/vnd.github.v3+json', 
-        'X-GitHub-Api-Version': '2022-11-28'     
+        'Accept': 'application/vnd.github.v3+json',
+        'X-GitHub-Api-Version': '2022-11-28'
       }
     });
 
     if (!response.ok) {
-      throw new Error(`GitHub API Error! Status: ${response.status} - ${response.statusText}`);
+        throw new Error(`GitHub Status: ${response.status} ${response.statusText}`);
     }
+    return await response.json();
+}
 
-    const data = await response.json();
-    console.log(`✅ Success. Found ${data.length} issues.`);
-    
-    // Simplify the data to save tokens
-    const simplifiedIssues = data.map(issue => ({
-      number: issue.number,
-      title: issue.title,
-      state: issue.state,
-      html_url: issue.html_url,
-      // Fix: Handle null body gracefully
-      body: issue.body ? issue.body.substring(0, 200) + "..." : "No description",
-      user: issue.user ? issue.user.login : 'unknown'
-    }));
+// --- EXISTING TOOLS (Issues) ---
 
-    return JSON.stringify(simplifiedIssues);
-
+export async function getRepoIssues(args) {
+  const { owner, repo } = args;
+  if (!owner || !repo) throw new Error('Owner and Repo required.');
+  
+  try {
+    const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/issues`);
+    return JSON.stringify(data.map(i => ({ 
+        number: i.number, 
+        title: i.title, 
+        state: i.state, 
+        user: i.user.login 
+    })));
   } catch (error) {
-    console.error('❌ Network Error in GitHub Tool:', error);
-    return `Error fetching GitHub issues: ${error.message}`;
+    return `Error fetching issues: ${error.message}`;
   }
+}
+
+export async function createRepoIssue(args) {
+    console.log("📝 GitHub Create Issue Invoked:", JSON.stringify(args));
+    const { owner, repo, title, body } = args;
+
+    if (!GITHUB_TOKEN) throw new Error('GitHub Token not found.');
+    if (!owner || !repo || !title) throw new Error('Owner, Repo, and Title are required.');
+
+    try {
+        const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                'Accept': 'application/vnd.github.v3+json',
+                'X-GitHub-Api-Version': '2022-11-28',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ title, body: body || "Created by E.D.I.T.H." })
+        });
+
+        if (!response.ok) throw new Error(`GitHub API Error: ${await response.text()}`);
+        const data = await response.json();
+        return `Success! Created Issue #${data.number}. URL: ${data.html_url}`;
+    } catch (error) {
+        return `Error creating issue: ${error.message}`;
+    }
+}
+
+// --- NEW TOOLS (Commits & PRs) ---
+
+export async function listCommits(args) {
+    const { owner, repo, limit = 5 } = args;
+    try {
+        const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/commits?per_page=${limit}`);
+        return JSON.stringify(data.map(c => ({
+            sha: c.sha.substring(0, 7),
+            message: c.commit.message.split('\n')[0], // First line only
+            author: c.commit.author.name,
+            date: c.commit.author.date
+        })));
+    } catch (error) {
+        return `Error listing commits: ${error.message}`;
+    }
+}
+
+export async function listPullRequests(args) {
+    const { owner, repo, state = 'open' } = args;
+    try {
+        const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/pulls?state=${state}`);
+        return JSON.stringify(data.map(pr => ({
+            number: pr.number,
+            title: pr.title,
+            user: pr.user.login,
+            state: pr.state,
+            url: pr.html_url
+        })));
+    } catch (error) {
+        return `Error listing PRs: ${error.message}`;
+    }
+}
+
+export async function getPullRequest(args) {
+    const { owner, repo, pullNumber } = args;
+    try {
+        const pr = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${pullNumber}`);
+        return JSON.stringify({
+            number: pr.number,
+            title: pr.title,
+            body: pr.body,
+            state: pr.state,
+            merged: pr.merged,
+            commits: pr.commits,
+            changed_files: pr.changed_files
+        });
+    } catch (error) {
+        return `Error getting PR #${pullNumber}: ${error.message}`;
+    }
+}
+
+export async function getCommit(args) {
+    const { owner, repo, sha } = args;
+    try {
+        const c = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/commits/${sha}`);
+        return JSON.stringify({
+            sha: c.sha,
+            author: c.commit.author.name,
+            message: c.commit.message,
+            stats: c.stats, // shows additions/deletions
+            files: c.files.map(f => f.filename) // shows which files changed
+        });
+    } catch (error) {
+        return `Error getting commit ${sha}: ${error.message}`;
+    }
 }
