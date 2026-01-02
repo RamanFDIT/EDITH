@@ -1,34 +1,31 @@
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
 
-dotenv.config(); // Load variables from .env file
+dotenv.config();
 
-const GITHUB_TOKEN = process.env.GITHUB_PAT;
+// FIX: Check for GITHUB_TOKEN (matches README) OR GITHUB_PAT (common backup)
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GITHUB_PAT;
 
-/**
- * Fetches issues for a specific GitHub repository.
- * @param {string} owner - The owner of the repository (username or organization).
- * @param {string} repo - The name of the repository.
- * @returns {Promise<Array<object>>} - A promise that resolves to an array of issue objects.
- */
 export async function getRepoIssues(args) {
-  console.log("getRepoIssues called with:", JSON.stringify(args));
+  console.log("🔍 GitHub Tool Invoked with:", JSON.stringify(args));
+  
   const { owner, repo } = args;
+
   if (!GITHUB_TOKEN) {
-    throw new Error('GitHub PAT not found in .env file');
+    console.error("❌ E.D.I.T.H. Tool Error: Missing GitHub Token.");
+    throw new Error('GitHub Token not found in .env file (Checked GITHUB_TOKEN and GITHUB_PAT).');
   }
   if (!owner || !repo) {
-    throw new Error('Both owner and repo parameters are required for getRepoIssues.');
+    throw new Error('Both "owner" and "repo" parameters are required.');
   }
 
   const url = `https://api.github.com/repos/${owner}/${repo}/issues`;
-  console.log(`Tool: Fetching issues from: ${url}`);
+  console.log(`🔍 Accessing GitHub: ${url}`);
 
   try {
     const response = await fetch(url, {
       method: 'GET',
       headers: {
-        // --- Concept from Docs ---
         'Authorization': `Bearer ${GITHUB_TOKEN}`,
         'Accept': 'application/vnd.github.v3+json', 
         'X-GitHub-Api-Version': '2022-11-28'     
@@ -40,24 +37,23 @@ export async function getRepoIssues(args) {
     }
 
     const data = await response.json();
-    console.log(`Tool: Found ${data.length} issues for ${owner}/${repo}.`);
+    console.log(`✅ Success. Found ${data.length} issues.`);
     
+    // Simplify the data to save tokens
     const simplifiedIssues = data.map(issue => ({
       number: issue.number,
       title: issue.title,
       state: issue.state,
       html_url: issue.html_url,
-      body: issue.body ? issue.body.substring(0, 200) : null, // Truncate body
+      // Fix: Handle null body gracefully
+      body: issue.body ? issue.body.substring(0, 200) + "..." : "No description",
       user: issue.user ? issue.user.login : 'unknown'
     }));
 
     return JSON.stringify(simplifiedIssues);
 
   } catch (error) {
-    console.error('Error in getRepoIssues tool:', error);
-    throw error;
+    console.error('❌ Network Error in GitHub Tool:', error);
+    return `Error fetching GitHub issues: ${error.message}`;
   }
 }
-
-
-
