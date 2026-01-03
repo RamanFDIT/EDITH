@@ -104,9 +104,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     } catch (error) {
       console.error(error);
-      const errMsg = "Connection lost. Tactical systems offline.";
+      const errMsg = `System Error: ${error.message || "Connection lost. Tactical systems offline."}`;
       addMessage(errMsg, "assistant");
-      speak(errMsg);
+      speak("System error detected.");
     }
   });
 

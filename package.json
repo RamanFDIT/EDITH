@@ -9,15 +9,16 @@
     "app": "electron ."
   },
   "dependencies": {
-    "@langchain/google-genai": "^0.0.x",
+    "@langchain/core": "^0.3.0",
+    "@langchain/google-genai": "^0.1.0",
     "cors": "^2.8.5",
-    "dotenv": "^16.0.0",
-    "express": "^4.18.0",
-    "langchain": "^0.0.x",
-    "node-fetch": "^3.0.0",
-    "zod": "^3.0.0"
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "langchain": "^0.3.0",
+    "node-fetch": "^3.3.2",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
-    "electron": "^28.0.0"
+    "electron": "^33.0.0"
   }
 }
