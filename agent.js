@@ -5,11 +5,12 @@ import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import dotenv from "dotenv";
 
-// Import ALL GitHub functions
+// Import ALL GitHub functions including createRepository
 import { 
   getRepoIssues, createRepoIssue, 
   listCommits, listPullRequests, 
-  getPullRequest, getCommit 
+  getPullRequest, getCommit,
+  createRepository 
 } from "./githubTool.js";
 import { getJiraIssues, createJiraIssue } from "./jiraTool.js";
 
@@ -23,7 +24,7 @@ const llm = new ChatGoogleGenerativeAI({
   modelName: "gemini-3-pro-preview", 
 });
 
-console.log("🧠 E.D.I.T.H. Online (Gemini 3 Pro) - Full GitHub Access Enabled.");
+console.log("🧠 E.D.I.T.H. Online (Gemini 3 Pro) - Repository Creation Enabled.");
 
 const tools = [
   // --- JIRA TOOLS ---
@@ -69,14 +70,24 @@ const tools = [
     func: createRepoIssue,
   }),
 
-  // --- GITHUB TOOLS (Commits & PRs) ---
+  // --- GITHUB TOOLS (Repos, Commits, PRs) ---
+  new DynamicStructuredTool({
+    name: "create_github_repository",
+    description: "Create a new GitHub repository for the authenticated user.",
+    schema: z.object({
+      name: z.string().describe("The name of the new repository. NO SPACES."),
+      description: z.string().optional().describe("Short description of the project."),
+      isPrivate: z.boolean().optional().describe("Set to true for private repo, false for public."),
+    }),
+    func: createRepository,
+  }),
   new DynamicStructuredTool({
     name: "list_github_commits",
     description: "List recent commits in a repo.",
     schema: z.object({
       owner: z.string(),
       repo: z.string(),
-      limit: z.number().optional().describe("Number of commits to return (default 5)"),
+      limit: z.number().optional(),
     }),
     func: listCommits,
   }),
@@ -86,7 +97,7 @@ const tools = [
     schema: z.object({
       owner: z.string(),
       repo: z.string(),
-      state: z.enum(['open', 'closed', 'all']).optional().describe("Filter by state (default 'open')"),
+      state: z.enum(['open', 'closed', 'all']).optional(),
     }),
     func: listPullRequests,
   }),
@@ -96,7 +107,7 @@ const tools = [
     schema: z.object({
       owner: z.string(),
       repo: z.string(),
-      pullNumber: z.number().describe("The PR number (e.g. 42)"),
+      pullNumber: z.number(),
     }),
     func: getPullRequest,
   }),
@@ -106,7 +117,7 @@ const tools = [
     schema: z.object({
       owner: z.string(),
       repo: z.string(),
-      sha: z.string().describe("The full or partial commit hash"),
+      sha: z.string(),
     }),
     func: getCommit,
   }),
@@ -116,8 +127,8 @@ const systemPrompt = `You are E.D.I.T.H., a tactical intelligence AI.
 
 **Protocol:**
 1.  **Identity:** Precise, authoritative, and helpful.
-2.  **Capabilities:** You can SEARCH/CREATE Jira tickets, and MANAGE GitHub Issues, Commits, and Pull Requests.
-3.  **Input:** If a user asks for "recent changes", use 'list_github_commits'. If they ask "what's being reviewed", use 'list_github_pull_requests'.
+2.  **Capabilities:** You can SEARCH/CREATE Jira tickets, and MANAGE GitHub Issues, Commits, PRs, and REPOSITORIES.
+3.  **Input:** If user says "Create a new repo", use 'create_github_repository'.
 
 **Mission:**
 Manage software development lifecycles via Jira and GitHub.`;

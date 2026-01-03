@@ -26,12 +26,46 @@ async function githubFetch(url) {
     return await response.json();
 }
 
-// --- EXISTING TOOLS (Issues) ---
+// --- REPOSITORY MANAGEMENT (NEW) ---
+export async function createRepository(args) {
+    console.log("📝 GitHub Create Repo Invoked:", JSON.stringify(args));
+    const { name, description, isPrivate } = args;
 
+    if (!GITHUB_TOKEN) throw new Error('GitHub Token not found.');
+    if (!name) throw new Error('Repository name is required.');
+
+    try {
+        const response = await fetch('https://api.github.com/user/repos', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                'Accept': 'application/vnd.github.v3+json',
+                'X-GitHub-Api-Version': '2022-11-28',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name: name,
+                description: description || "Created by E.D.I.T.H.",
+                private: !!isPrivate
+            })
+        });
+
+        if (!response.ok) {
+            const txt = await response.text();
+            throw new Error(`GitHub API Error: ${txt}`);
+        }
+
+        const data = await response.json();
+        return `Success! Created Repository '${data.full_name}'. URL: ${data.html_url}`;
+    } catch (error) {
+        return `Error creating repository: ${error.message}`;
+    }
+}
+
+// --- ISSUES ---
 export async function getRepoIssues(args) {
   const { owner, repo } = args;
   if (!owner || !repo) throw new Error('Owner and Repo required.');
-  
   try {
     const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/issues`);
     return JSON.stringify(data.map(i => ({ 
@@ -72,15 +106,14 @@ export async function createRepoIssue(args) {
     }
 }
 
-// --- NEW TOOLS (Commits & PRs) ---
-
+// --- COMMITS & PRs ---
 export async function listCommits(args) {
     const { owner, repo, limit = 5 } = args;
     try {
         const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/commits?per_page=${limit}`);
         return JSON.stringify(data.map(c => ({
             sha: c.sha.substring(0, 7),
-            message: c.commit.message.split('\n')[0], // First line only
+            message: c.commit.message.split('\n')[0],
             author: c.commit.author.name,
             date: c.commit.author.date
         })));
@@ -131,8 +164,8 @@ export async function getCommit(args) {
             sha: c.sha,
             author: c.commit.author.name,
             message: c.commit.message,
-            stats: c.stats, // shows additions/deletions
-            files: c.files.map(f => f.filename) // shows which files changed
+            stats: c.stats,
+            files: c.files.map(f => f.filename)
         });
     } catch (error) {
         return `Error getting commit ${sha}: ${error.message}`;
