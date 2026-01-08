@@ -22,12 +22,20 @@ app.post('/api/ask', async (req, res) => {
 
     console.log(`[Server] Received question: ${question}`);
 
+    // ... inside app.post('/api/ask', ...)
+
     const result = await agentExecutor.invoke({
       input: question,
     });
 
-    console.log(`[Server] Sending answer: ${result.output}`);
-    res.json({ answer: result.output });
+    // FIX: Ensure output is always a string
+    const finalAnswer = typeof result.output === 'string' 
+        ? result.output 
+        : JSON.stringify(result.output);
+
+    console.log(`[Server] Sending answer: ${finalAnswer}`);
+    res.json({ answer: finalAnswer });
+
   } catch (error) {
     console.error('[Server] Error calling agent:', error);
     res.status(500).json({ error: 'Failed to process your request' });

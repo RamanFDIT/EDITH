@@ -63,13 +63,16 @@ document.addEventListener("DOMContentLoaded", () => {
           return;
       }
       
-      // Clean up text (remove markdown like ** or ## for smoother speech)
-      const cleanText = text.replace(/[*#]/g, ''); 
+      // SAFETY CHECK: If text is not a string (e.g., an object/error), convert it
+      let textToSpeak = typeof text === 'string' ? text : JSON.stringify(text);
+
+      // Clean up text
+      const cleanText = textToSpeak.replace(/[*#]/g, ''); 
 
       const utterThis = new SpeechSynthesisUtterance(cleanText);
       utterThis.voice = edithVoice;
-      utterThis.pitch = 1.0; // Standard pitch
-      utterThis.rate = 1.1;  // Slightly faster for efficiency
+      utterThis.pitch = 1.0; 
+      utterThis.rate = 1.1; 
       
       synth.speak(utterThis);
   }
