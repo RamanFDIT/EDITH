@@ -1,6 +1,5 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { AgentExecutor, createToolCallingAgent } from "langchain/agents";
-import { ChatPromptTemplate, MessagesPlaceholder } from "@langchain/core/prompts";
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import dotenv from "dotenv";
@@ -20,7 +19,7 @@ if (!googleApiKey) throw new Error("GOOGLE_API_KEY not found.");
 
 const llm = new ChatGoogleGenerativeAI({
   apiKey: googleApiKey,
-  modelName: "gemini-3-pro-preview", 
+  model: "gemini-3-pro-preview", 
 });
 
 console.log("🧠 E.D.I.T.H. Online (Gemini 3 Pro) - Full GitHub Access Enabled.");
@@ -122,24 +121,10 @@ const systemPrompt = `You are E.D.I.T.H., a tactical intelligence AI.
 **Mission:**
 Manage software development lifecycles via Jira and GitHub.`;
 
-const prompt = ChatPromptTemplate.fromMessages([
-  ["system", systemPrompt],
-  ["human", "{input}"],
-  new MessagesPlaceholder("agent_scratchpad"),
-]);
-
-const agent = await createToolCallingAgent({
+export const agentExecutor = createReactAgent({
   llm,
   tools,
-  prompt,
-});
-
-export const agentExecutor = new AgentExecutor({
-  agent,
-  tools,
-  verbose: true,
-  handleToolErrors: true, 
-  handleParsingErrors: (e) => `Error parsing input: ${e}. Please try again with valid JSON.`,
+  stateModifier: systemPrompt,
 });
 
 console.log("🚀 Tactical Systems Ready.");

@@ -23,11 +23,25 @@ app.post('/api/ask', async (req, res) => {
     console.log(`[Server] Received question: ${question}`);
 
     const result = await agentExecutor.invoke({
-      input: question,
+      messages: [{ role: "user", content: question }],
     });
 
-    console.log(`[Server] Sending answer: ${result.output}`);
-    res.json({ answer: result.output });
+    console.log('[Server] Full Agent Result:', JSON.stringify(result, null, 2));
+
+    const messages = result.messages;
+    let answer = "";
+    if (messages && messages.length > 0) {
+        answer = messages[messages.length - 1].content;
+    } else {
+        answer = "I'm sorry, I couldn't generate a response.";
+    }
+
+    if (typeof answer === 'object') {
+        answer = JSON.stringify(answer);
+    }
+
+    console.log(`[Server] Sending answer: ${answer}`);
+    res.json({ answer: answer });
   } catch (error) {
     console.error('[Server] Error calling agent:', error);
     res.status(500).json({ error: 'Failed to process your request' });
