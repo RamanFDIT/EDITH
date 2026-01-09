@@ -1,5 +1,5 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { AgentExecutor, createStructuredChatAgent } from "langchain/agents"; // <-- CHANGED AGENT TYPE
+import { AgentExecutor, createStructuredChatAgent } from "langchain/agents";
 import { pull } from "langchain/hub";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
@@ -21,10 +21,11 @@ if (!googleApiKey) throw new Error("GOOGLE_API_KEY not found.");
 
 const llm = new ChatGoogleGenerativeAI({
   apiKey: googleApiKey,
+  // FIX: Use the 'latest' alias to avoid 404 errors
   modelName: "gemini-1.5-flash", 
 });
 
-console.log("🧠 E.D.I.T.H. Online (Gemini 1.5 Flash - Structured Mode)");
+console.log("🧠 E.D.I.T.H. Online (Gemini 1.5 Flash - Structured)");
 
 // Helper to wrap functions
 const wrap = (fn) => (args) => fn(args);
@@ -116,7 +117,6 @@ const tools = [
 ];
 
 // PULL STANDARD PROMPT FOR STRUCTURED AGENTS
-// This handles the "scratchpad" and input formatting automatically
 const prompt = await pull("hwchase17/structured-chat-agent");
 
 const agent = await createStructuredChatAgent({
@@ -130,7 +130,7 @@ export const agentExecutor = new AgentExecutor({
   tools,
   verbose: true,
   handleToolErrors: true, 
-  handleParsingErrors: true, // Auto-fix parsing errors
+  handleParsingErrors: true, 
 });
 
 console.log("🚀 Tactical Systems Ready.");

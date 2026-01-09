@@ -39,34 +39,16 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // --- 2. VOICE SYNTHESIS SETUP (TTS) ---
-  const synth = window.speechSynthesis;
-  let edithVoice = null;
-
-  function loadVoices() {
-      const voices = synth.getVoices();
-      // Try to find a "Google UK English Female" or standard female voice for that Jarvis/EDITH feel
-      edithVoice = voices.find(voice => voice.name.includes('Google UK English Female')) 
-                || voices.find(voice => voice.name.includes('Microsoft Hazel')) 
-                || voices.find(voice => voice.name.includes('Samantha'))
-                || voices[0];
-  }
-
-  // Load voices immediately and whenever they change
-  loadVoices();
-  if (speechSynthesis.onvoiceschanged !== undefined) {
-      speechSynthesis.onvoiceschanged = loadVoices;
-  }
-
   function speak(text) {
       if (synth.speaking) {
           console.error('speechSynthesis.speaking');
           return;
       }
       
-      // SAFETY CHECK: If text is not a string (e.g., an object/error), convert it
-      let textToSpeak = typeof text === 'string' ? text : JSON.stringify(text);
+      // SAFETY CHECK: If text is NOT a string (e.g. it's an error object), convert it to text
+      let textToSpeak = typeof text === 'string' ? text : "Command executed.";
 
-      // Clean up text
+      // Clean up text (remove markdown)
       const cleanText = textToSpeak.replace(/[*#]/g, ''); 
 
       const utterThis = new SpeechSynthesisUtterance(cleanText);
@@ -89,7 +71,7 @@ document.addEventListener("DOMContentLoaded", () => {
     userInput.value = "";
 
     try {
-      const response = await fetch("/api/ask", {
+      const response = await fetch("http://localhost:3000/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: question }),
