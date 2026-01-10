@@ -1,16 +1,14 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { AgentExecutor, createStructuredChatAgent } from "langchain/agents";
-import { pull } from "langchain/hub";
-import { tool } from "@langchain/core/tools";
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import dotenv from "dotenv";
 
-// Import your existing functions
+// Import ALL GitHub functions
 import { 
   getRepoIssues, createRepoIssue, 
   listCommits, listPullRequests, 
-  getPullRequest, getCommit,
-  createRepository 
+  getPullRequest, getCommit 
 } from "./githubTool.js";
 import { getJiraIssues, createJiraIssue } from "./jiraTool.js";
 
@@ -21,25 +19,22 @@ if (!googleApiKey) throw new Error("GOOGLE_API_KEY not found.");
 
 const llm = new ChatGoogleGenerativeAI({
   apiKey: googleApiKey,
-  // FIX: Use the 'latest' alias to avoid 404 errors
-  modelName: "gemini-1.5-flash", 
+  model: "gemini-3-pro-preview", 
 });
 
-console.log("🧠 E.D.I.T.H. Online (Gemini 1.5 Flash - Structured)");
-
-// Helper to wrap functions
-const wrap = (fn) => (args) => fn(args);
+console.log("🧠 E.D.I.T.H. Online (Gemini 3 Pro) - Full GitHub Access Enabled.");
 
 const tools = [
   // --- JIRA TOOLS ---
-  tool(wrap(getJiraIssues), {
+  new DynamicStructuredTool({
     name: "search_jira_issues",
     description: "Search Jira issues. ARGUMENT MUST BE A JSON OBJECT WITH KEY 'jql'.",
     schema: z.object({
-      jql: z.string().describe("The JQL query string."),
+      jql: z.string().describe("The JQL query string. REQUIRED."),
     }),
+    func: getJiraIssues,
   }),
-  tool(wrap(createJiraIssue), {
+  new DynamicStructuredTool({
     name: "create_jira_issue",
     description: "Create a Jira ticket.",
     schema: z.object({
@@ -48,18 +43,20 @@ const tools = [
       description: z.string().optional(),
       issueType: z.string().optional(),
     }),
+    func: createJiraIssue,
   }),
 
-  // --- GITHUB TOOLS ---
-  tool(wrap(getRepoIssues), {
+  // --- GITHUB TOOLS (Issues) ---
+  new DynamicStructuredTool({
     name: "get_github_issues",
     description: "List issues in a GitHub repo.",
     schema: z.object({
-      owner: z.string().describe("The owner of the repo"),
-      repo: z.string().describe("The repository name"),
+      owner: z.string(),
+      repo: z.string(),
     }),
+    func: getRepoIssues,
   }),
-  tool(wrap(createRepoIssue), {
+  new DynamicStructuredTool({
     name: "create_github_issue",
     description: "Create a GitHub issue.",
     schema: z.object({
@@ -68,69 +65,66 @@ const tools = [
       title: z.string(),
       body: z.string().optional(),
     }),
+    func: createRepoIssue,
   }),
-  tool(wrap(createRepository), {
-    name: "create_github_repository",
-    description: "Create a new GitHub repository.",
-    schema: z.object({
-      name: z.string().describe("The name of the new repository."),
-      description: z.string().optional(),
-      isPrivate: z.boolean().optional(),
-    }),
-  }),
-  tool(wrap(listCommits), {
+
+  // --- GITHUB TOOLS (Commits & PRs) ---
+  new DynamicStructuredTool({
     name: "list_github_commits",
     description: "List recent commits in a repo.",
     schema: z.object({
       owner: z.string(),
       repo: z.string(),
-      limit: z.number().optional(),
+      limit: z.number().optional().describe("Number of commits to return (default 5)"),
     }),
+    func: listCommits,
   }),
-  tool(wrap(listPullRequests), {
+  new DynamicStructuredTool({
     name: "list_github_pull_requests",
-    description: "List pull requests.",
+    description: "List pull requests in a repo.",
     schema: z.object({
       owner: z.string(),
       repo: z.string(),
-      state: z.enum(['open', 'closed', 'all']).optional(),
+      state: z.enum(['open', 'closed', 'all']).optional().describe("Filter by state (default 'open')"),
     }),
+    func: listPullRequests,
   }),
-  tool(wrap(getPullRequest), {
+  new DynamicStructuredTool({
     name: "get_github_pull_request_details",
     description: "Get full details of a specific Pull Request.",
     schema: z.object({
       owner: z.string(),
       repo: z.string(),
-      pullNumber: z.number(),
+      pullNumber: z.number().describe("The PR number (e.g. 42)"),
     }),
+    func: getPullRequest,
   }),
-  tool(wrap(getCommit), {
+  new DynamicStructuredTool({
     name: "get_github_commit_details",
-    description: "Get full details of a specific commit.",
+    description: "Get full details of a specific commit by SHA.",
     schema: z.object({
       owner: z.string(),
       repo: z.string(),
-      sha: z.string(),
+      sha: z.string().describe("The full or partial commit hash"),
     }),
+    func: getCommit,
   }),
 ];
 
-// PULL STANDARD PROMPT FOR STRUCTURED AGENTS
-const prompt = await pull("hwchase17/structured-chat-agent");
+const systemPrompt = `You are E.D.I.T.H., a tactical intelligence AI.
 
-const agent = await createStructuredChatAgent({
+**Protocol:**
+1.  **Identity:** Precise, authoritative, and helpful.
+2.  **Capabilities:** You can SEARCH/CREATE Jira tickets, and MANAGE GitHub Issues, Commits, and Pull Requests.
+3.  **Input:** If a user asks for "recent changes", use 'list_github_commits'. If they ask "what's being reviewed", use 'list_github_pull_requests'.
+
+**Mission:**
+Manage software development lifecycles via Jira and GitHub.`;
+
+export const agentExecutor = createReactAgent({
   llm,
   tools,
-  prompt,
-});
-
-export const agentExecutor = new AgentExecutor({
-  agent,
-  tools,
-  verbose: true,
-  handleToolErrors: true, 
-  handleParsingErrors: true, 
+  stateModifier: systemPrompt,
 });
 
 console.log("🚀 Tactical Systems Ready.");
