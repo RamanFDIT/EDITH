@@ -8,7 +8,7 @@ import dotenv from "dotenv";
 import { 
   getRepoIssues, createRepoIssue, 
   listCommits, listPullRequests, 
-  getPullRequest, getCommit 
+  getPullRequest, getCommit, createRepository 
 } from "./githubTool.js";
 import { getJiraIssues, createJiraIssue } from "./jiraTool.js";
 
@@ -44,6 +44,18 @@ const tools = [
       issueType: z.string().optional(),
     }),
     func: createJiraIssue,
+  }),
+
+  // --- GITHUB TOOLS (Repo) ---
+  new DynamicStructuredTool({
+    name: "create_github_repository",
+    description: "Create a new GitHub repository.",
+    schema: z.object({
+      name: z.string().describe("The name of the repository"),
+      description: z.string().optional().describe("Description of the repository"),
+      isPrivate: z.boolean().optional().describe("Whether the repo should be private (default false)"),
+    }),
+    func: createRepository,
   }),
 
   // --- GITHUB TOOLS (Issues) ---

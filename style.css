@@ -123,22 +123,3 @@ button {
 }
 
 button:hover { background: var(--primary-color); color: #000; }
-
-/* Voice Button Styling */
-#voice-btn {
-    margin-left: -50px; /* Overlap input */
-    border: none;
-    background: transparent;
-    font-size: 1.2rem;
-}
-
-#voice-btn.listening {
-    color: #ff3333; /* Red when listening */
-    animation: pulse 1s infinite;
-}
-
-@keyframes pulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.2); }
-    100% { transform: scale(1); }
-}
