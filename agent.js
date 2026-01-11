@@ -1,5 +1,8 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import { RunnableWithMessageHistory, RunnableSequence } from "@langchain/core/runnables";
+import { HumanMessage } from "@langchain/core/messages";
+import { InMemoryChatMessageHistory } from "@langchain/core/chat_history";
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import dotenv from "dotenv";
@@ -19,7 +22,7 @@ if (!googleApiKey) throw new Error("GOOGLE_API_KEY not found.");
 
 const llm = new ChatGoogleGenerativeAI({
   apiKey: googleApiKey,
-  model: "gemini-3-pro-preview", 
+  model: "gemini-3-flash-preview", 
 });
 
 console.log("🧠 E.D.I.T.H. Online (Gemini 3 Pro) - Full GitHub Access Enabled.");
@@ -122,6 +125,14 @@ const tools = [
     func: getCommit,
   }),
 ];
+const messageHistoryStore = {};
+
+function getMessageHistory(sessionId) {
+  if (!messageHistoryStore[sessionId]) {
+    messageHistoryStore[sessionId] = new InMemoryChatMessageHistory();
+  }
+  return messageHistoryStore[sessionId];
+}
 
 const systemPrompt = `You are E.D.I.T.H., a tactical intelligence AI.
 
@@ -133,10 +144,35 @@ const systemPrompt = `You are E.D.I.T.H., a tactical intelligence AI.
 **Mission:**
 Manage software development lifecycles via Jira and GitHub.`;
 
-export const agentExecutor = createReactAgent({
+const agentGraph = createReactAgent({
   llm,
   tools,
   stateModifier: systemPrompt,
+});
+
+const agentWithInputAdapter = (input) => {
+    const { input: userQuery, chat_history } = input;
+    return {
+        messages: [...chat_history, new HumanMessage(userQuery)]
+    };
+};
+
+const outputAdapter = (state) => {
+   const lastMessage = state.messages[state.messages.length - 1];
+   return { output: lastMessage.content };
+};
+
+const agentChain = RunnableSequence.from([
+    agentWithInputAdapter,
+    agentGraph,
+    outputAdapter
+]);
+
+export const agentExecutor = new RunnableWithMessageHistory({
+  runnable: agentChain,
+  getMessageHistory: getMessageHistory,
+  inputMessagesKey: "input",
+  historyMessagesKey: "chat_history", 
 });
 
 console.log("🚀 Tactical Systems Ready.");

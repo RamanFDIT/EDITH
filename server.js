@@ -16,35 +16,26 @@ app.post('/api/ask', async (req, res) => {
     const { question } = req.body;
 
     if (!question) {
-      console.log('Request failed: No question provided.');
       return res.status(400).json({ error: 'Question is required' });
     }
 
     console.log(`[Server] Received question: ${question}`);
 
-    const result = await agentExecutor.invoke({
-      messages: [{ role: "user", content: question }],
-    });
+    // FIX: Pass "configurable" with a sessionId
+    const result = await agentExecutor.invoke(
+      { input: question }, 
+      { configurable: { sessionId: "user-1" } } // <--- This key enables memory!
+    );
 
-    console.log('[Server] Full Agent Result:', JSON.stringify(result, null, 2));
+    const finalAnswer = typeof result.output === 'string' 
+        ? result.output 
+        : JSON.stringify(result.output);
 
-    const messages = result.messages;
-    let answer = "";
-    if (messages && messages.length > 0) {
-        answer = messages[messages.length - 1].content;
-    } else {
-        answer = "I'm sorry, I couldn't generate a response.";
-    }
-
-    if (typeof answer === 'object') {
-        answer = JSON.stringify(answer);
-    }
-
-    console.log(`[Server] Sending answer: ${answer}`);
-    res.json({ answer: answer });
+    console.log(`[Server] Sending answer: ${finalAnswer}`);
+    res.json({ answer: finalAnswer });
   } catch (error) {
     console.error('[Server] Error calling agent:', error);
-    res.status(500).json({ error: 'Failed to process your request' });
+    res.json({ answer: "Tactical error. Check server logs." }); 
   }
 });
 
