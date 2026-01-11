@@ -14,6 +14,7 @@ import {
   getPullRequest, getCommit, createRepository 
 } from "./githubTool.js";
 import { getJiraIssues, createJiraIssue } from "./jiraTool.js";
+import { EDITH_SYSTEM_PROMPT } from "./systemPrompt.js";
 
 dotenv.config();
 
@@ -134,15 +135,7 @@ function getMessageHistory(sessionId) {
   return messageHistoryStore[sessionId];
 }
 
-const systemPrompt = `You are E.D.I.T.H., a tactical intelligence AI.
-
-**Protocol:**
-1.  **Identity:** Precise, authoritative, and helpful.
-2.  **Capabilities:** You can SEARCH/CREATE Jira tickets, and MANAGE GitHub Issues, Commits, and Pull Requests.
-3.  **Input:** If a user asks for "recent changes", use 'list_github_commits'. If they ask "what's being reviewed", use 'list_github_pull_requests'.
-
-**Mission:**
-Manage software development lifecycles via Jira and GitHub.`;
+const systemPrompt = `${EDITH_SYSTEM_PROMPT}`;
 
 const agentGraph = createReactAgent({
   llm,
