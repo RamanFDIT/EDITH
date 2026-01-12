@@ -1,4 +1,5 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+// import { ChatOllama } from "@langchain/ollama";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { RunnableWithMessageHistory, RunnableSequence } from "@langchain/core/runnables";
 import { HumanMessage } from "@langchain/core/messages";
@@ -15,7 +16,7 @@ import {
 } from "./githubTool.js";
 import { getJiraIssues, createJiraIssue } from "./jiraTool.js";
 import { EDITH_SYSTEM_PROMPT } from "./systemPrompt.js";
-import { getSystemStatus, executeSystemCommand, openApplicationDynamic } from "./systemTool.js";
+import { getSystemStatus, executeSystemCommand, openApplication } from "./systemTool.js";
 
 dotenv.config();
 
@@ -135,10 +136,9 @@ const tools = [
   }),
   new DynamicStructuredTool({
     name: "execute_terminal_command",
-    description: "⚠️ EXECUTE SHELL COMMANDS. Requires 'authCode'. Use for file manipulation, running scripts, or system ops.",
+    description: "⚠️ EXECUTE SHELL COMMANDS. Use for file manipulation, running scripts, or system ops.",
     schema: z.object({
       command: z.string().describe("The shell command to run (e.g., 'ls -la', 'mkdir test')."),
-      authCode: z.string().describe("The security code provided by the user."),
     }),
     func: executeSystemCommand,
   }),
@@ -146,9 +146,10 @@ const tools = [
     name: "launch_application",
     description: "Launch any application on the user's computer. ARGUMENT is the app name.",
     schema: z.object({
-      appName: z.string().describe("The name of the application (e.g., 'Google Chrome', 'Spotify', 'Notepad', 'Code')."),
+      appName: z.string().describe("The name of the application (e.g., 'Google Chrome', 'Spotify')."),
+      target: z.string().optional().describe("Optional URL or file to open with the application (e.g., 'https://figma.com', 'mydoc.txt')."),
     }),
-    func: openApplicationDynamic,
+    func: openApplication,
   }),
 ];
 const messageHistoryStore = {};
