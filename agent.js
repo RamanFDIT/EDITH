@@ -1,4 +1,5 @@
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+// import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { ChatOllama } from "@langchain/ollama";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { RunnableWithMessageHistory, RunnableSequence } from "@langchain/core/runnables";
 import { HumanMessage } from "@langchain/core/messages";
@@ -22,12 +23,13 @@ dotenv.config();
 const googleApiKey = process.env.GOOGLE_API_KEY;
 if (!googleApiKey) throw new Error("GOOGLE_API_KEY not found.");
 
-const llm = new ChatGoogleGenerativeAI({
-  apiKey: googleApiKey,
-  model: "gemini-3-flash-preview", 
+const llm = new ChatOllama({
+  model: "llama3.1",   // Must match the model you installed (llama3.1, mistral, etc.)
+  temperature: 0,      // Keep it 0 for precise tool use
+  baseUrl: "http://localhost:11434", // Default Ollama URL
 });
 
-console.log("🧠 E.D.I.T.H. Online (Gemini 3 Pro) - Full GitHub Access Enabled.");
+console.log("🧠 E.D.I.T.H. Online (Local Llama 3.1) - Running on Secure Local Hardware.");
 
 const tools = [
   // --- JIRA TOOLS ---
