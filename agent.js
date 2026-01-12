@@ -161,7 +161,7 @@ function getMessageHistory(sessionId) {
   return messageHistoryStore[sessionId];
 }
 
-const systemPrompt = \\\;
+const systemPrompt = EDITH_SYSTEM_PROMPT;
 
 const agentGraph = createReactAgent({
   llm,
