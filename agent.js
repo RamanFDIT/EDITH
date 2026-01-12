@@ -15,6 +15,7 @@ import {
 } from "./githubTool.js";
 import { getJiraIssues, createJiraIssue } from "./jiraTool.js";
 import { EDITH_SYSTEM_PROMPT } from "./systemPrompt.js";
+import { getSystemStatus, executeSystemCommand, openApplicationDynamic } from "./systemTool.js";
 
 dotenv.config();
 
@@ -124,6 +125,30 @@ const tools = [
       sha: z.string().describe("The full or partial commit hash"),
     }),
     func: getCommit,
+  }),
+  // --- SYSTEM LEVEL TOOLS ---
+  new DynamicStructuredTool({
+    name: "system_status_report",
+    description: "Get current hardware and OS status.",
+    schema: z.object({}),
+    func: getSystemStatus,
+  }),
+  new DynamicStructuredTool({
+    name: "execute_terminal_command",
+    description: "⚠️ EXECUTE SHELL COMMANDS. Requires 'authCode'. Use for file manipulation, running scripts, or system ops.",
+    schema: z.object({
+      command: z.string().describe("The shell command to run (e.g., 'ls -la', 'mkdir test')."),
+      authCode: z.string().describe("The security code provided by the user."),
+    }),
+    func: executeSystemCommand,
+  }),
+  new DynamicStructuredTool({
+    name: "launch_application",
+    description: "Launch any application on the user's computer. ARGUMENT is the app name.",
+    schema: z.object({
+      appName: z.string().describe("The name of the application (e.g., 'Google Chrome', 'Spotify', 'Notepad', 'Code')."),
+    }),
+    func: openApplicationDynamic,
   }),
 ];
 const messageHistoryStore = {};
