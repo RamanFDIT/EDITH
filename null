@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import PyPDF2; print('PyPDF2 exists')
+    ^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'PyPDF2'

@@ -1,5 +1,5 @@
-// import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { ChatOllama } from "@langchain/ollama";
+﻿import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+// import { ChatOllama } from "@langchain/ollama";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { RunnableWithMessageHistory, RunnableSequence } from "@langchain/core/runnables";
 import { HumanMessage } from "@langchain/core/messages";
@@ -16,20 +16,19 @@ import {
 } from "./githubTool.js";
 import { getJiraIssues, createJiraIssue } from "./jiraTool.js";
 import { EDITH_SYSTEM_PROMPT } from "./systemPrompt.js";
-import { getSystemStatus, executeSystemCommand, openApplicationDynamic } from "./systemTool.js";
+import { getSystemStatus, executeSystemCommand, openApplication } from "./systemTool.js";
 
 dotenv.config();
 
 const googleApiKey = process.env.GOOGLE_API_KEY;
 if (!googleApiKey) throw new Error("GOOGLE_API_KEY not found.");
 
-const llm = new ChatOllama({
-  model: "llama3.1",   // Must match the model you installed (llama3.1, mistral, etc.)
-  temperature: 0,      // Keep it 0 for precise tool use
-  baseUrl: "http://localhost:11434", // Default Ollama URL
+const llm = new ChatGoogleGenerativeAI({
+  apiKey: googleApiKey,
+  model: "gemini-3-flash-preview", 
 });
 
-console.log("🧠 E.D.I.T.H. Online (Local Llama 3.1) - Running on Secure Local Hardware.");
+console.log(" E.D.I.T.H. Online (Gemini 3 Pro) - Full GitHub Access Enabled.");
 
 const tools = [
   // --- JIRA TOOLS ---
@@ -137,10 +136,9 @@ const tools = [
   }),
   new DynamicStructuredTool({
     name: "execute_terminal_command",
-    description: "⚠️ EXECUTE SHELL COMMANDS. Requires 'authCode'. Use for file manipulation, running scripts, or system ops.",
+    description: " EXECUTE SHELL COMMANDS. Use for file manipulation, running scripts, or system ops.",
     schema: z.object({
       command: z.string().describe("The shell command to run (e.g., 'ls -la', 'mkdir test')."),
-      authCode: z.string().describe("The security code provided by the user."),
     }),
     func: executeSystemCommand,
   }),
@@ -148,9 +146,10 @@ const tools = [
     name: "launch_application",
     description: "Launch any application on the user's computer. ARGUMENT is the app name.",
     schema: z.object({
-      appName: z.string().describe("The name of the application (e.g., 'Google Chrome', 'Spotify', 'Notepad', 'Code')."),
+      appName: z.string().describe("The name of the application (e.g., 'Google Chrome', 'Spotify')."),
+      target: z.string().optional().describe("Optional URL or file to open with the application (e.g., 'https://figma.com', 'mydoc.txt')."),
     }),
-    func: openApplicationDynamic,
+    func: openApplication,
   }),
 ];
 const messageHistoryStore = {};
@@ -162,7 +161,7 @@ function getMessageHistory(sessionId) {
   return messageHistoryStore[sessionId];
 }
 
-const systemPrompt = `${EDITH_SYSTEM_PROMPT}`;
+const systemPrompt = \\\;
 
 const agentGraph = createReactAgent({
   llm,
@@ -195,4 +194,4 @@ export const agentExecutor = new RunnableWithMessageHistory({
   historyMessagesKey: "chat_history", 
 });
 
-console.log("🚀 Tactical Systems Ready.");
+console.log(" Tactical Systems Ready.");
