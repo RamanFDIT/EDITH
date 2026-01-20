@@ -86,38 +86,58 @@ app.post('/api/ask', async (req, res) => {
     }
 
     // --- TTS Generation ---
-    try {
-        if (completeResponse.trim().length > 0) {
-             console.log("Generating speech for response...");
-             const audioPath = await generateSpeech({ text: completeResponse });
+    // - Replace lines ~88 to ~119 with this logic
+
+    let sentenceBuffer = "";
+
+    for await (const event of stream) {
+        const eventType = event.event;
+        
+        if (eventType === "on_chat_model_stream") {
+            const content = event.data?.chunk?.content;
+            if (content) {
+                res.write(`data: ${JSON.stringify({ type: "token", content })}\n\n`);
+                
+                // Add to buffer and check for sentence end
+                sentenceBuffer += content;
+                if (/[.?!]\s$/.test(sentenceBuffer) && sentenceBuffer.length > 5) {
+                    // Send this chunk to TTS immediately (don't await!)
+                    generateAudioChunk(sentenceBuffer.trim());
+                    sentenceBuffer = ""; // Clear buffer
+                }
+            }
+        } else if (eventType === "on_tool_start") {
+             res.write(`data: ${JSON.stringify({ type: "tool_start", name: event.name, input: event.data?.input })}\n\n`);
+        } else if (eventType === "on_tool_end") {
+             res.write(`data: ${JSON.stringify({ type: "tool_end", name: event.name, output: event.data?.output })}\n\n`);
+        }
+    }
+
+    // Process any remaining text in the buffer
+    if (sentenceBuffer.trim().length > 0) {
+        generateAudioChunk(sentenceBuffer.trim());
+    }
+    
+    // Helper function for Fire-and-Forget Audio
+    async function generateAudioChunk(text) {
+        try {
+             // console.log("Generating audio chunk:", text);
+             const audioPath = await generateSpeech({ text });
              if (audioPath && !audioPath.startsWith("Error")) {
                   const audioUrl = '/temp/' + path.basename(audioPath);
+                  // Send a new type 'audio' or 'audio_chunk'
                   res.write(`data: ${JSON.stringify({ type: "audio", url: audioUrl })}\n\n`);
-             } else {
-                 console.log("TTS Error:", audioPath);
              }
-        }
-    } catch (e) {
-        console.error("Auto-TTS Exception:", e);
+        } catch (e) { console.error("TTS Chunk Error:", e); }
     }
 
     res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
     res.end();
 
   } catch (error) {
-    if (error.message && error.message.includes("AbortError")) {
-        console.log('[Server] Stream aborted by user or timeout.');
-        return;
-    }
-
-    console.error('[Server] Error calling agent:', error);
-    // If headers already sent, we can't send JSON error, but we can send an SSE error event
-    if (res.headersSent) {
-        res.write(`data: ${JSON.stringify({ type: "error", content: error.message || "Tactical error." })}\n\n`);
-        res.end();
-    } else {
-        res.status(500).json({ answer: `Tactical error: ${error.message}` }); 
-    }
+    console.error("[Server] Error processing request:", error);
+    res.write(`data: ${JSON.stringify({ type: "error", content: error.message })}\n\n`);
+    res.end();
   }
 });
 

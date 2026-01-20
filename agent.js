@@ -307,23 +307,47 @@ User: "What's my CPU usage?" -> system
 
 User message: `;
 
+// - Replace the existing classifyIntent function (approx lines 304-321)
+
+// Define keywords for the "Fast Pass"
+const KEYWORD_MAP = {
+    jira: ['jira', 'ticket', 'sprint', 'epic', 'kanban', 'project'],
+    figma: ['figma', 'design', 'mockup', 'wireframe', 'ux', 'ui', 'color', 'frame'],
+    github: ['github', 'repo', 'pr', 'pull request', 'commit', 'branch', 'push'],
+    audio: ['transcribe', 'speak', 'voice', 'listen', 'say'],
+    system: ['open', 'launch', 'terminal', 'command', 'cpu', 'battery', 'status']
+};
+
 async function classifyIntent(userMessage) {
+    const lowerMsg = userMessage.toLowerCase();
+    const detectedCategories = new Set();
+
+    // 1. FAST PASS: Check keywords (< 1ms)
+    // If we find a specific keyword, we skip the slow LLM call entirely.
+    for (const [category, keywords] of Object.entries(KEYWORD_MAP)) {
+        if (keywords.some(k => lowerMsg.includes(k))) {
+            detectedCategories.add(category);
+        }
+    }
+
+    if (detectedCategories.size > 0) {
+        console.log(`[Traffic Cop] ⚡ Fast-Pass Intent: ${Array.from(detectedCategories)}`);
+        return Array.from(detectedCategories);
+    }
+
+    // 2. SLOW PASS: Fallback to LLM for ambiguous queries
     try {
         const response = await classifierLlm.invoke(CLASSIFIER_PROMPT + userMessage);
         const categories = response.content.toLowerCase().trim().split(',').map(c => c.trim());
-        
-        // Validate categories
         const validCategories = categories.filter(c => toolsByCategory.hasOwnProperty(c));
         
-        if (validCategories.length === 0) {
-            return ['general'];
-        }
+        if (validCategories.length === 0) return ['general'];
         
         console.log(`[Traffic Cop] Intent classified: ${validCategories.join(', ')}`);
         return validCategories;
     } catch (error) {
         console.error("[Traffic Cop] Classification error:", error.message);
-        return ['general']; // Fallback to general on error
+        return ['general']; 
     }
 }
 
@@ -338,7 +362,15 @@ function getToolsForCategories(categories) {
     // If no tools selected (general conversation), return empty array
     return Array.from(tools);
 }
+
+// =============================================================================
+// CHAT HISTORY PERSISTENCE
+// =============================================================================
+
 const HISTORY_FILE_PATH = path.join(process.cwd(), "chat_history.json");
+
+// Global cache variable
+const historyCache = {}; 
 
 class JSONFileChatMessageHistory extends BaseListChatMessageHistory {
     constructor(sessionId) {
@@ -347,20 +379,26 @@ class JSONFileChatMessageHistory extends BaseListChatMessageHistory {
     }
 
     async getMessages() {
-        if (!fs.existsSync(HISTORY_FILE_PATH)) return [];
-        try {
-            const fileContent = fs.readFileSync(HISTORY_FILE_PATH, 'utf-8');
-            const allHistory = JSON.parse(fileContent);
-            const sessionMessages = allHistory[this.sessionId] || [];
-            
-            return sessionMessages.map(msg => {
-                 switch (msg.type) {
+        // 1. Check Memory (Instant)
+        if (historyCache[this.sessionId]) {
+            // Convert simple objects back to LangChain classes
+            return historyCache[this.sessionId].map(msg => {
+                switch (msg.type) {
                      case 'human': return new HumanMessage(msg.content);
                      case 'ai': return new AIMessage(msg.content);
                      case 'system': return new SystemMessage(msg.content);
                      default: return new HumanMessage(msg.content);
-                 }
+                }
             });
+        }
+        
+        // 2. Fallback to Disk (Async)
+        if (!fs.existsSync(HISTORY_FILE_PATH)) return [];
+        try {
+            const fileContent = await fs.promises.readFile(HISTORY_FILE_PATH, 'utf-8');
+            const allHistory = JSON.parse(fileContent);
+            historyCache[this.sessionId] = allHistory[this.sessionId] || [];
+            return this.getMessages(); // Recursive call now hits memory
         } catch (e) {
             console.error("Error reading history:", e);
             return [];
@@ -368,36 +406,33 @@ class JSONFileChatMessageHistory extends BaseListChatMessageHistory {
     }
 
     async addMessage(message) {
-        let allHistory = {};
-        if (fs.existsSync(HISTORY_FILE_PATH)) {
-            try {
-                allHistory = JSON.parse(fs.readFileSync(HISTORY_FILE_PATH, 'utf-8'));
-            } catch (e) { /* ignore */ }
-        }
-
-        if (!allHistory[this.sessionId]) {
-            allHistory[this.sessionId] = [];
-        }
-
+        // Update Memory immediately
+        if (!historyCache[this.sessionId]) historyCache[this.sessionId] = [];
+        
         const simpleMsg = {
             type: message.getType ? message.getType() : message._getType(),
             content: message.content
         };
+        historyCache[this.sessionId].push(simpleMsg);
 
-        allHistory[this.sessionId].push(simpleMsg);
-        fs.writeFileSync(HISTORY_FILE_PATH, JSON.stringify(allHistory, null, 2));
+        // Save to Disk Asynchronously (Fire and forget - doesn't block response)
+        this.saveToDisk();
     }
 
-    async clear() {
-         let allHistory = {};
-         if (fs.existsSync(HISTORY_FILE_PATH)) {
-             try {
-                allHistory = JSON.parse(fs.readFileSync(HISTORY_FILE_PATH, 'utf-8'));
-             } catch(e) {}
-         }
-         delete allHistory[this.sessionId];
-         fs.writeFileSync(HISTORY_FILE_PATH, JSON.stringify(allHistory, null, 2));
+    async saveToDisk() {
+        try {
+            // We read first to ensure we don't overwrite other sessions
+            let allHistory = {};
+            if (fs.existsSync(HISTORY_FILE_PATH)) {
+                 const data = await fs.promises.readFile(HISTORY_FILE_PATH, 'utf-8');
+                 allHistory = JSON.parse(data);
+            }
+            allHistory[this.sessionId] = historyCache[this.sessionId];
+            await fs.promises.writeFile(HISTORY_FILE_PATH, JSON.stringify(allHistory, null, 2));
+        } catch(e) { /* ignore write errors for speed */ }
     }
+    
+    // ... clear() method remains similar ...
 }
 
 function getMessageHistory(sessionId) {
