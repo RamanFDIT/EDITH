@@ -6,19 +6,21 @@ import { HumanMessage } from "@langchain/core/messages";
 import { InMemoryChatMessageHistory } from "@langchain/core/chat_history";
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
-import dotenv from "dotenv";
+import "./envConfig.js";
 
 // Import ALL GitHub functions
 import { 
   getRepoIssues, createRepoIssue, 
   listCommits, listPullRequests, 
-  getPullRequest, getCommit, createRepository 
+  getPullRequest, getCommit, createRepository,
+  getRepoChecks
 } from "./githubTool.js";
-import { getJiraIssues, createJiraIssue } from "./jiraTool.js";
+import { getJiraIssues, createJiraIssue, updateJiraIssue, deleteJiraIssue, createJiraProject } from "./jiraTool.js";
 import { EDITH_SYSTEM_PROMPT } from "./systemPrompt.js";
 import { getSystemStatus, executeSystemCommand, openApplication } from "./systemTool.js";
+import { getFigmaFileStructure, getFigmaComments, postFigmaComment } from "./figmaTool.js";
+import { transcribeAudio, generateSpeech } from "./audioTool.js";
 
-dotenv.config();
 
 const googleApiKey = process.env.GOOGLE_API_KEY;
 if (!googleApiKey) throw new Error("GOOGLE_API_KEY not found.");
@@ -51,6 +53,46 @@ const tools = [
     }),
     func: createJiraIssue,
   }),
+  // ... inside const tools = [ ...
+
+  new DynamicStructuredTool({
+    name: "update_jira_issue",
+    description: "Update a Jira ticket's fields. Supports: Status, Priority, Summary, Description, Assignee, Due Date, Labels, and Parent. Do NOT change the summary unless explicitly asked.",
+    schema: z.object({
+      issueKey: z.string().describe("The ticket key (e.g., 'FDIT-12'). REQUIRED."),
+      summary: z.string().optional().describe("New title for the ticket."),
+      description: z.string().optional().describe("New description text."),
+      status: z.string().optional().describe("Target status to move to (e.g., 'In Progress', 'Done')."),
+      priority: z.string().optional().describe("Target priority. MUST be one of: 'Highest', 'High', 'Medium', 'Low', 'Lowest'."),
+      assignee: z.string().optional().describe("Account ID of the user to assign to."),
+      duedate: z.string().optional().describe("Due date in 'YYYY-MM-DD' format."),
+      labels: z.array(z.string()).optional().describe("Array of label strings."),
+      parent: z.string().optional().describe("Key of the parent issue (e.g. for subtasks)."),
+    }),
+    func: updateJiraIssue,
+  }),
+  new DynamicStructuredTool({
+    name: "delete_jira_issue",
+    description: "Delete a Jira ticket by its key (e.g. FDIT-123).",
+    schema: z.object({
+        issueKey: z.string().describe("The ticket key to delete."),
+    }),
+    func: deleteJiraIssue,
+  }),
+  new DynamicStructuredTool({
+    name: "create_jira_project",
+    description: "Create a new Jira Project (sometimes referred to as a Space). REQUIRES ADMIN RIGHTS.",
+    schema: z.object({
+        key: z.string().describe("The Project Key (e.g., 'NEWPROJ'). Must be unique and uppercase."),
+        name: z.string().describe("The name of the project."),
+        description: z.string().optional().describe("Project description."),
+        templateKey: z.string().optional().describe("Template key (default: 'com.pyxis.greenhopper.jira:gh-simplified-kanban-classic')."),
+        projectTypeKey: z.string().optional().describe("Type key (default: 'software')."),
+    }),
+    func: createJiraProject,
+  }),
+
+// ... rest of tools
 
   // --- GITHUB TOOLS (Repo) ---
   new DynamicStructuredTool({
@@ -127,6 +169,16 @@ const tools = [
     }),
     func: getCommit,
   }),
+  new DynamicStructuredTool({
+    name: "get_github_repo_checks",
+    description: "Get check runs for a specific commit reference.",
+    schema: z.object({
+      owner: z.string(),
+      repo: z.string(),
+      ref: z.string().describe("The commit SHA, branch name, or tag name."),
+    }),
+    func: getRepoChecks,
+  }),
   // --- SYSTEM LEVEL TOOLS ---
   new DynamicStructuredTool({
     name: "system_status_report",
@@ -151,6 +203,56 @@ const tools = [
     }),
     func: openApplication,
   }),
+  // ... inside tools = [ ...
+
+// --- FIGMA TOOLS ---
+new DynamicStructuredTool({
+    name: "scan_figma_file",
+    description: "Get the structure (pages & frames) of a Figma file. Needs the 'fileKey' from the URL.",
+    schema: z.object({
+        fileKey: z.string().describe("The unique key from the Figma URL (e.g. '8w9d8s...')."),
+    }),
+    func: getFigmaFileStructure,
+}),
+new DynamicStructuredTool({
+    name: "read_figma_comments",
+    description: "Read recent comments on a Figma file.",
+    schema: z.object({
+        fileKey: z.string().describe("The Figma file key."),
+    }),
+    func: getFigmaComments,
+}),
+new DynamicStructuredTool({
+    name: "post_figma_comment",
+    description: "Post a comment or feedback on a Figma file.",
+    schema: z.object({
+        fileKey: z.string().describe("The Figma file key."),
+        message: z.string().describe("The text content of the comment."),
+        node_id: z.string().optional().describe("Optional ID of the specific node/frame to attach the comment to."),
+    }),
+    func: postFigmaComment,
+}),
+
+// --- AUDIO TOOLS ---
+new DynamicStructuredTool({
+    name: "transcribe_audio_whisper",
+    description: "Transcribe an audio file to text using OpenAI Whisper. Requires a valid file path.",
+    schema: z.object({
+        filePath: z.string().describe("Absolute path to the audio file (mp3, wav, m4a)."),
+    }),
+    func: transcribeAudio,
+}),
+new DynamicStructuredTool({
+    name: "generate_speech_elevenlabs",
+    description: "Generate spoken audio from text using ElevenLabs. Returns the path to the saved mp3 file.",
+    schema: z.object({
+        text: z.string().describe("The text to speak."),
+        voiceId: z.string().optional().describe("Optional ElevenLabs Voice ID."),
+    }),
+    func: generateSpeech,
+}),
+
+// ... rest of your tools
 ];
 const messageHistoryStore = {};
 
@@ -177,6 +279,12 @@ const agentWithInputAdapter = (input) => {
 };
 
 const outputAdapter = (state) => {
+   // Log the state to debug
+   // console.log("State in outputAdapter:", JSON.stringify(state, null, 2)); 
+   
+   if (!state || !state.messages || !Array.isArray(state.messages) || state.messages.length === 0) {
+       return { output: "I'm not sure how to respond to that." };
+   }
    const lastMessage = state.messages[state.messages.length - 1];
    return { output: lastMessage.content };
 };

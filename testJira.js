@@ -1,7 +1,5 @@
 import fetch from 'node-fetch';
-import dotenv from 'dotenv';
-
-dotenv.config();
+import './envConfig.js';
 
 // 1. Load Credentials
 const token = process.env.JIRA_TOKEN || process.env.JIRA_API_TOKEN;

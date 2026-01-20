@@ -1,9 +1,23 @@
 import express from 'express';
 import { agentExecutor } from './agent.js'; 
-import cors from 'cors'; // <-- 1. Import cors
+import cors from 'cors'; 
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { transcribeAudio, generateSpeech } from './audioTool.js';
 
 const app = express();
 const port = 3000;
+
+// --- CONFIG: Multer (File Uploads) ---
+const uploadDir = 'temp';
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadDir),
+    filename: (req, file, cb) => cb(null, `voice-${Date.now()}.webm`)
+});
+const upload = multer({ storage: storage });
 
 // --- Middlewares ---
 app.use(express.json());
@@ -27,30 +41,130 @@ app.post('/api/ask', async (req, res) => {
     if (!isUnlocked) {
          if (question.toLowerCase() === PASSWORD.toLowerCase()) {
              isUnlocked = true;
-             return res.json({ answer: "✅ AUTHENTICATION VERIFIED. E.D.I.T.H. Online. Awaiting orders."});
+             // Send as SSE 
+             res.setHeader('Content-Type', 'text/event-stream');
+             res.write(`data: ${JSON.stringify({ type: "token", content: "✅ AUTHENTICATION VERIFIED. E.D.I.T.H. Online. Awaiting orders." })}\n\n`);
+             res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+             res.end();
+             return;
          } else {
-             return res.json({ answer: "🔒 ACCESS DENIED. Authorization Code Required." });
+             // Send as SSE
+             res.setHeader('Content-Type', 'text/event-stream');
+             res.write(`data: ${JSON.stringify({ type: "token", content: "🔒 ACCESS DENIED. Authorization Code Required." })}\n\n`);
+             res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+             res.end();
+             return;
          }
     }
 
     console.log(`[Server] Received question: ${question}`);
 
+    // Set headers for SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
 
-    // FIX: Pass "configurable" with a sessionId
-    const result = await agentExecutor.invoke(
-      { input: question }, 
-      { configurable: { sessionId: "user-1" } } // <--- This key enables memory!
+    const stream = agentExecutor.streamEvents(
+      { input: question },
+      {
+        configurable: { sessionId: "user-1" },
+        version: "v2"
+      }
     );
+    
+    let completeResponse = "";
 
-    const finalAnswer = typeof result.output === 'string' 
-        ? result.output 
-        : JSON.stringify(result.output);
+    for await (const event of stream) {
+        const eventType = event.event;
+        
+        if (eventType === "on_chat_model_stream") {
+            const content = event.data.chunk.content;
+            if (content) {
+                completeResponse += content;
+                res.write(`data: ${JSON.stringify({ type: "token", content })}\n\n`);
+            }
+        } else if (eventType === "on_tool_start") {
+             res.write(`data: ${JSON.stringify({ type: "tool_start", name: event.name, input: event.data.input })}\n\n`);
+        } else if (eventType === "on_tool_end") {
+             res.write(`data: ${JSON.stringify({ type: "tool_end", name: event.name, output: event.data.output })}\n\n`);
+        }
+    }
 
-    console.log(`[Server] Sending answer: ${finalAnswer}`);
-    res.json({ answer: finalAnswer });
+    // --- TTS Generation ---
+    try {
+        if (completeResponse.trim().length > 0) {
+             console.log("Generating speech for response...");
+             const audioPath = await generateSpeech({ text: completeResponse });
+             if (audioPath && !audioPath.startsWith("Error")) {
+                  const audioUrl = '/temp/' + path.basename(audioPath);
+                  res.write(`data: ${JSON.stringify({ type: "audio", url: audioUrl })}\n\n`);
+             } else {
+                 console.log("TTS Error:", audioPath);
+             }
+        }
+    } catch (e) {
+        console.error("Auto-TTS Exception:", e);
+    }
+
+    res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+    res.end();
+
   } catch (error) {
+    if (error.message && error.message.includes("AbortError")) {
+        console.log('[Server] Stream aborted by user or timeout.');
+        return;
+    }
+
     console.error('[Server] Error calling agent:', error);
-    res.json({ answer: "Tactical error. Check server logs." }); 
+    // If headers already sent, we can't send JSON error, but we can send an SSE error event
+    if (res.headersSent) {
+        res.write(`data: ${JSON.stringify({ type: "error", content: error.message || "Tactical error." })}\n\n`);
+        res.end();
+    } else {
+        res.status(500).json({ answer: `Tactical error: ${error.message}` }); 
+    }
+  }
+});
+
+// --- API: Voice Interaction ---
+app.post('/api/voice', upload.single('audio'), async (req, res) => {
+  try {
+    if (!req.file) throw new Error("No audio file uploaded.");
+    
+    const audioPath = req.file.path;
+    
+    // 1. Transcribe
+    const userText = await transcribeAudio({ filePath: audioPath });
+    if (typeof userText === 'string' && userText.startsWith("Error")) throw new Error(userText);
+    
+    console.log(`[Voice] User said: "${userText}"`);
+
+    // 2. Ask Agent
+    // We use a separate session for voice or share? Let's use "voice-session" for now to keep context clean-ish.
+    const result = await agentExecutor.invoke(
+      { input: userText },
+      { configurable: { sessionId: "voice-session" } }
+    );
+    
+    const assistantText = result.output; 
+
+    // 3. Generate Speech
+    const outputAudioPath = await generateSpeech({ text: assistantText });
+    
+    let audioUrl = null;
+    if (outputAudioPath && !outputAudioPath.startsWith("Error")) {
+        audioUrl = '/temp/' + path.basename(outputAudioPath);
+    }
+
+    res.json({
+        userText,
+        answer: assistantText, 
+        audioUrl
+    });
+
+  } catch (error) {
+    console.error("[Voice] Error:", error);
+    res.status(500).json({ error: error.message });
   }
 });
 

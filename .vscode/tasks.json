@@ -1,0 +1,30 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "ls jiraTool.js",
+			"type": "shell",
+			"command": "ls",
+			"args": [
+				"ls",
+				"jiraTool.js"
+			]
+		},
+		{
+			"label": "cat jiraTool.js",
+			"type": "shell",
+			"command": "cat",
+			"args": [
+				"jiraTool.js"
+			]
+		},
+		{
+			"label": "cat agent.js",
+			"type": "shell",
+			"command": "cat",
+			"args": [
+				"agent.js"
+			]
+		}
+	]
+}

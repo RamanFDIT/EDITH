@@ -1,11 +1,9 @@
 import fetch from 'node-fetch';
-import dotenv from 'dotenv';
+import './envConfig.js';
 
-dotenv.config();
-
-const JIRA_API_TOKEN = process.env.JIRA_API_TOKEN || process.env.JIRA_TOKEN;
-const JIRA_EMAIL = process.env.JIRA_EMAIL;
-let JIRA_DOMAIN = process.env.JIRA_DOMAIN;
+const JIRA_API_TOKEN = (process.env.JIRA_API_TOKEN || process.env.JIRA_TOKEN || '').trim();
+const JIRA_EMAIL = (process.env.JIRA_EMAIL || '').trim();
+let JIRA_DOMAIN = (process.env.JIRA_DOMAIN || '').trim();
 
 // SANITIZER
 if (JIRA_DOMAIN) {
@@ -117,5 +115,203 @@ export async function createJiraIssue(input) {
 
     } catch (error) {
         return `Error creating ticket: ${error.message}`;
+    }
+}
+
+// --- TOOL 3: UPDATE ISSUE & STATUS ---
+export async function updateJiraIssue(input) {
+    console.log("📝 Jira Update Invoked:", JSON.stringify(input));
+    const { issueKey, summary, description, status, priority, assignee, duedate, labels, parent } = input;
+
+    if (!JIRA_API_TOKEN || !JIRA_EMAIL || !JIRA_DOMAIN) {
+        throw new Error("Missing Jira credentials.");
+    }
+    if (!issueKey) throw new Error("Issue Key (e.g., FDIT-1) is required.");
+
+    if (!status && !summary && !description && !priority && !assignee && !duedate && !labels && !parent) {
+        return "⚠️ No updates requested. Please provide status, summary, description, priority, assignee, due date, labels, or parent.";
+    }
+
+    let results = [];
+
+    // 1. HANDLE STATUS CHANGE (Transitions)
+    if (status) {
+        try {
+            // A. Get available transitions for this ticket
+            const transUrl = `https://${JIRA_DOMAIN}/rest/api/3/issue/${issueKey}/transitions`;
+            const transRes = await fetch(transUrl, {
+                method: 'GET',
+                headers: { 'Authorization': getAuthHeader(), 'Accept': 'application/json' }
+            });
+            
+            if (!transRes.ok) {
+                const errText = await transRes.text();
+                throw new Error(`Could not fetch transitions (Status: ${transRes.status}): ${errText}`);
+            }
+            const transData = await transRes.json();
+
+            // B. Find the transition ID that matches the requested status name
+            const transition = transData.transitions.find(t => 
+                t.name.toLowerCase() === status.toLowerCase() || 
+                (t.to && t.to.name.toLowerCase() === status.toLowerCase())
+            );
+
+            if (!transition) {
+                results.push(`❌ Could not move to '${status}'. Available states: ${transData.transitions.map(t => `${t.name} (-> ${t.to ? t.to.name : '?'})`).join(", ")}`);
+            } else {
+                // C. Perform the transition
+                const moveRes = await fetch(transUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': getAuthHeader(),
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ transition: { id: transition.id } })
+                });
+
+                if (moveRes.status === 204) {
+                    results.push(`✅ Status updated to '${transition.name}'`);
+                } else {
+                    const errorText = await moveRes.text();
+                    results.push(`❌ Failed to move status. Code: ${moveRes.status}. Response: ${errorText}`);
+                }
+            }
+        } catch (e) {
+            results.push(`❌ Status Error: ${e.message}`);
+        }
+    }
+
+    // 2. HANDLE FIELD UPDATES (Summary / Description / Priority / Assignee / DueDate / Labels / Parent)
+    if (summary || description || priority || assignee || duedate || labels || parent) {
+        try {
+            const bodyData = { fields: {} };
+            if (summary) bodyData.fields.summary = summary;
+            if (priority) bodyData.fields.priority = { name: priority };
+            if (assignee) bodyData.fields.assignee = { accountId: assignee };
+            if (duedate) bodyData.fields.duedate = duedate;
+            if (labels) bodyData.fields.labels = Array.isArray(labels) ? labels : labels.split(',').map(l => l.trim());
+            if (parent) bodyData.fields.parent = { key: parent };
+            if (description) {
+                bodyData.fields.description = {
+                    type: "doc",
+                    version: 1,
+                    content: [{
+                        type: "paragraph",
+                        content: [{ type: "text", text: description }]
+                    }]
+                };
+            }
+
+            const updateUrl = `https://${JIRA_DOMAIN}/rest/api/3/issue/${issueKey}`;
+            const updateRes = await fetch(updateUrl, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': getAuthHeader(),
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(bodyData)
+            });
+
+            if (updateRes.status === 204) {
+                results.push(`✅ Fields updated successfully.`);
+            } else {
+                const txt = await updateRes.text();
+                results.push(`❌ Update Failed: ${txt}`);
+            }
+        } catch (e) {
+            results.push(`❌ Field Update Error: ${e.message}`);
+        }
+    }
+
+    return results.join(" ");
+}
+
+// --- TOOL 4: DELETE ISSUE ---
+export async function deleteJiraIssue(input) {
+    console.log("🗑️ Jira Delete Invoked:", JSON.stringify(input));
+    const { issueKey } = input;
+
+    if (!JIRA_API_TOKEN || !JIRA_EMAIL || !JIRA_DOMAIN) {
+        throw new Error("Missing Jira credentials.");
+    }
+    if (!issueKey) throw new Error("Issue Key (e.g., FDIT-1) is required.");
+
+    const url = `https://${JIRA_DOMAIN}/rest/api/3/issue/${issueKey}`;
+
+    try {
+        const response = await fetch(url, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': getAuthHeader(),
+                'Accept': 'application/json'
+            }
+        });
+
+        if (response.status === 204) {
+             return `✅ Successfully deleted ticket ${issueKey}.`;
+        } else {
+            const txt = await response.text();
+            throw new Error(`Failed to delete issue: ${response.status} - ${txt}`);
+        }
+    } catch (error) {
+        return `Error deleting ticket: ${error.message}`;
+    }
+}
+
+// --- TOOL 5: CREATE JIRA PROJECT ---
+export async function createJiraProject(input) {
+    console.log("🏗️ Jira Create Project Invoked:", JSON.stringify(input));
+    const { key, name, templateKey, projectTypeKey, description } = input;
+
+    if (!JIRA_API_TOKEN || !JIRA_EMAIL || !JIRA_DOMAIN) {
+        throw new Error("Missing Jira credentials.");
+    }
+    if (!key || !name) throw new Error("Project Key (e.g., 'TEST') and Name are required.");
+
+    try {
+        // 1. Fetch Current User to assign as Lead
+        const myselfUrl = `https://${JIRA_DOMAIN}/rest/api/3/myself`;
+        const myselfRes = await fetch(myselfUrl, {
+            method: 'GET',
+            headers: { 'Authorization': getAuthHeader(), 'Accept': 'application/json' }
+        });
+        
+        if (!myselfRes.ok) throw new Error("Could not fetch current user to assign as Project Lead.");
+        const myself = await myselfRes.json();
+        const leadAccountId = myself.accountId;
+
+        // 2. Create Project
+        const url = `https://${JIRA_DOMAIN}/rest/api/3/project`;
+        const bodyData = {
+            key: key.toUpperCase(),
+            name: name,
+            projectTypeKey: projectTypeKey || "software", // 'software' or 'business'
+            projectTemplateKey: templateKey || "com.pyxis.greenhopper.jira:gh-simplified-kanban-classic", 
+            description: description || `Project created by EDITH for ${name}`,
+            leadAccountId: leadAccountId,
+            assigneeType: "PROJECT_LEAD"
+        };
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': getAuthHeader(),
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(bodyData)
+        });
+
+        if (response.status === 201) {
+            const data = await response.json();
+            return `✅ Successfully created project '${name}' (Key: ${data.key}). ID: ${data.id}. Link: https://${JIRA_DOMAIN}/browse/${data.key}`;
+        } else {
+            const txt = await response.text();
+            throw new Error(`Failed to create project: ${response.status} - ${txt}`);
+        }
+    } catch (error) {
+        return `Error creating project: ${error.message}`;
     }
 }

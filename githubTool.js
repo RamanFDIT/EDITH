@@ -1,7 +1,5 @@
 import fetch from 'node-fetch';
-import dotenv from 'dotenv';
-
-dotenv.config();
+import './envConfig.js';
 
 // Check both variable names to ensure connection
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GITHUB_PAT;
@@ -169,5 +167,16 @@ export async function getCommit(args) {
         });
     } catch (error) {
         return `Error getting commit ${sha}: ${error.message}`;
+    }
+}
+
+export async function getRepoChecks(args) {
+    const { owner, repo, ref } = args;
+    if (!owner || !repo || !ref) throw new Error('Owner, Repo, and Ref are required.');
+    try {
+        const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/commits/${ref}/check-runs`);
+        return JSON.stringify(data);
+    } catch (error) {
+        return `Error getting checks for ${ref}: ${error.message}`;
     }
 }

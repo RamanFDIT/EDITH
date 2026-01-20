@@ -3,7 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 // 1. IMPORT YOUR SERVER (This starts E.D.I.T.H.'s brain)
-import './server.js'; 
+// import './server.js'; // DISABLED: Using PM2 external server
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

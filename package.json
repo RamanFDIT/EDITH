@@ -1,14 +1,17 @@
 {
-  "name": "node-js",
+  "name": "edith",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Assistant",
+  "main": "main.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
   },
   "keywords": [],
-  "author": "",
+  "author": "Ramandeep Singh",
   "license": "ISC",
   "dependencies": {
     "@langchain/core": "^1.1.12",
@@ -16,9 +19,22 @@
     "@langchain/ollama": "^1.1.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
+    "elevenlabs": "^1.59.0",
     "express": "^5.1.0",
     "langchain": "^1.2.7",
+    "multer": "^2.0.2",
     "node-fetch": "^3.3.2",
+    "openai": "^6.16.0",
     "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "electron": "^39.2.7",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.raman.edith",
+    "win": {
+      "target": "nsis"
+    }
   }
 }
