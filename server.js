@@ -1,5 +1,5 @@
 import express from 'express';
-import { agentExecutor } from './agent.js'; 
+import { agentExecutor, streamWithSemanticRouting } from './agent.js'; 
 import cors from 'cors'; 
 import multer from 'multer';
 import path from 'path';
@@ -64,13 +64,8 @@ app.post('/api/ask', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-    const stream = agentExecutor.streamEvents(
-      { input: question },
-      {
-        configurable: { sessionId: "user-1" },
-        version: "v2"
-      }
-    );
+    // Use the Traffic Cop streaming function
+    const stream = streamWithSemanticRouting(question, "user-1");
     
     let completeResponse = "";
 
@@ -78,15 +73,15 @@ app.post('/api/ask', async (req, res) => {
         const eventType = event.event;
         
         if (eventType === "on_chat_model_stream") {
-            const content = event.data.chunk.content;
+            const content = event.data?.chunk?.content;
             if (content) {
                 completeResponse += content;
                 res.write(`data: ${JSON.stringify({ type: "token", content })}\n\n`);
             }
         } else if (eventType === "on_tool_start") {
-             res.write(`data: ${JSON.stringify({ type: "tool_start", name: event.name, input: event.data.input })}\n\n`);
+             res.write(`data: ${JSON.stringify({ type: "tool_start", name: event.name, input: event.data?.input })}\n\n`);
         } else if (eventType === "on_tool_end") {
-             res.write(`data: ${JSON.stringify({ type: "tool_end", name: event.name, output: event.data.output })}\n\n`);
+             res.write(`data: ${JSON.stringify({ type: "tool_end", name: event.name, output: event.data?.output })}\n\n`);
         }
     }
 
@@ -134,7 +129,16 @@ app.post('/api/voice', upload.single('audio'), async (req, res) => {
     const audioPath = req.file.path;
     
     // 1. Transcribe
-    const userText = await transcribeAudio({ filePath: audioPath });
+    let userText;
+    try {
+        userText = await transcribeAudio({ filePath: audioPath });
+    } finally {
+        // Delete the file strictly after use so we don't save recordings
+        fs.unlink(audioPath, (err) => {
+            if (err) console.error(`[Server] Failed to delete voice file: ${err.message}`);
+        });
+    }
+
     if (typeof userText === 'string' && userText.startsWith("Error")) throw new Error(userText);
     
     console.log(`[Voice] User said: "${userText}"`);
