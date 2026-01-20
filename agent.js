@@ -46,7 +46,8 @@ console.log(" E.D.I.T.H. Online (Gemini 3 Pro) - Semantic Classification Enabled
 // TOOL DEFINITIONS BY CATEGORY
 // =============================================================================
 
-const jiraTools = [
+// --- JIRA READ TOOLS ---
+const jiraReadTools = [
   new DynamicStructuredTool({
     name: "search_jira_issues",
     description: "Search Jira issues. ARGUMENT MUST BE A JSON OBJECT WITH KEY 'jql'.",
@@ -55,6 +56,10 @@ const jiraTools = [
     }),
     func: getJiraIssues,
   }),
+];
+
+// --- JIRA WRITE TOOLS ---
+const jiraWriteTools = [
   new DynamicStructuredTool({
     name: "create_jira_issue",
     description: "Create a Jira ticket.",
@@ -104,17 +109,11 @@ const jiraTools = [
   }),
 ];
 
-const githubTools = [
-  new DynamicStructuredTool({
-    name: "create_github_repository",
-    description: "Create a new GitHub repository.",
-    schema: z.object({
-      name: z.string().describe("The name of the repository"),
-      description: z.string().optional().describe("Description of the repository"),
-      isPrivate: z.boolean().optional().describe("Whether the repo should be private (default false)"),
-    }),
-    func: createRepository,
-  }),
+// Combined jira tools for backwards compatibility
+const jiraTools = [...jiraReadTools, ...jiraWriteTools];
+
+// --- GITHUB READ TOOLS ---
+const githubReadTools = [
   new DynamicStructuredTool({
     name: "get_github_issues",
     description: "List issues in a GitHub repo.",
@@ -123,17 +122,6 @@ const githubTools = [
       repo: z.string(),
     }),
     func: getRepoIssues,
-  }),
-  new DynamicStructuredTool({
-    name: "create_github_issue",
-    description: "Create a GitHub issue.",
-    schema: z.object({
-      owner: z.string(),
-      repo: z.string(),
-      title: z.string(),
-      body: z.string().optional(),
-    }),
-    func: createRepoIssue,
   }),
   new DynamicStructuredTool({
     name: "list_github_commits",
@@ -186,6 +174,34 @@ const githubTools = [
     func: getRepoChecks,
   }),
 ];
+
+// --- GITHUB WRITE TOOLS ---
+const githubWriteTools = [
+  new DynamicStructuredTool({
+    name: "create_github_repository",
+    description: "Create a new GitHub repository.",
+    schema: z.object({
+      name: z.string().describe("The name of the repository"),
+      description: z.string().optional().describe("Description of the repository"),
+      isPrivate: z.boolean().optional().describe("Whether the repo should be private (default false)"),
+    }),
+    func: createRepository,
+  }),
+  new DynamicStructuredTool({
+    name: "create_github_issue",
+    description: "Create a GitHub issue.",
+    schema: z.object({
+      owner: z.string(),
+      repo: z.string(),
+      title: z.string(),
+      body: z.string().optional(),
+    }),
+    func: createRepoIssue,
+  }),
+];
+
+// Combined github tools for backwards compatibility
+const githubTools = [...githubReadTools, ...githubWriteTools];
 
 const systemTools = [
   new DynamicStructuredTool({
@@ -264,8 +280,10 @@ const audioTools = [
 
 // Map categories to their tool arrays
 const toolsByCategory = {
-  jira: jiraTools,
-  github: githubTools,
+  jira_read: jiraReadTools,
+  jira_write: jiraWriteTools,
+  github_read: githubReadTools,
+  github_write: githubWriteTools,
   system: systemTools,
   figma: figmaTools,
   audio: audioTools,
@@ -283,8 +301,10 @@ const CLASSIFIER_PROMPT = `You are a fast intent classifier for an AI assistant 
 Your ONLY job is to classify the user's message into ONE OR MORE categories.
 
 CATEGORIES:
-- jira: Anything about tickets, issues, epics, sprints, backlogs, project management, task tracking, JIRA
-- github: Anything about repositories, commits, pull requests, code reviews, branches, GitHub
+- jira_read: Reading/searching Jira tickets, issues, epics, sprints, backlogs (queries, lookups, listing)
+- jira_write: Creating, updating, or deleting Jira tickets, issues, projects
+- github_read: Reading GitHub data: commits, PRs, issues, checks, repo info (queries, lookups, listing)
+- github_write: Creating repos, issues, or any write operation on GitHub
 - figma: Anything about designs, mockups, UI/UX, wireframes, Figma files, design comments
 - system: Anything about opening apps, running commands, terminal, system status, launching programs, files
 - audio: Anything about transcription, text-to-speech, voice, audio files
@@ -295,38 +315,75 @@ RULES:
 2. If unsure, output "general"
 3. Do NOT explain, do NOT add any other text
 4. Be fast and decisive
+5. For queries that both read and write, include both (e.g., jira_read,jira_write)
 
 EXAMPLES:
-User: "How many epics do I have?" -> jira
-User: "Check my open PRs on the EDITH repo" -> github
+User: "How many epics do I have?" -> jira_read
+User: "Check my open PRs on the EDITH repo" -> github_read
 User: "Open Chrome and go to Figma" -> system,figma
 User: "Hello, how are you?" -> general
-User: "Create a ticket for the login bug" -> jira
+User: "Create a ticket for the login bug" -> jira_write
+User: "Update ticket FDIT-123 to done" -> jira_write
+User: "List all my Jira tickets and mark the first one done" -> jira_read,jira_write
 User: "Read the comments on the dashboard design" -> figma
 User: "What's my CPU usage?" -> system
+User: "Create a new repo called test-app" -> github_write
 
 User message: `;
 
-// - Replace the existing classifyIntent function (approx lines 304-321)
-
 // Define keywords for the "Fast Pass"
 const KEYWORD_MAP = {
-    jira: ['jira', 'ticket', 'sprint', 'epic', 'kanban', 'project'],
-    figma: ['figma', 'design', 'mockup', 'wireframe', 'ux', 'ui', 'color', 'frame'],
-    github: ['github', 'repo', 'pr', 'pull request', 'commit', 'branch', 'push'],
-    audio: ['transcribe', 'speak', 'voice', 'listen', 'say'],
-    system: ['open', 'launch', 'terminal', 'command', 'cpu', 'battery', 'status']
+    jira_read: [
+        'list tickets', 'show tickets', 'get tickets', 'search jira', 'find ticket',
+        'how many epics', 'what tickets', 'show epics', 'backlog', 'sprint status'
+    ],
+    jira_write: [
+        'create ticket', 'make ticket', 'new ticket', 'update ticket', 'delete ticket',
+        'mark as done', 'change status', 'assign to', 'set priority', 'create issue',
+        'create epic', 'create project'
+    ],
+    github_read: [
+        'list commits', 'show commits', 'check pr', 'list pr', 'show pull requests',
+        'get checks', 'repo status', 'list issues'
+    ],
+    github_write: [
+        'create repo', 'new repository', 'create issue', 'make issue'
+    ],
+    figma: [
+        'figma', 'design', 'mockup', 'wireframe', 'ux', 'ui', 'color', 'frame', 
+        'layer', 'canvas', 'prototype', 'comment' 
+    ],
+    system: [
+        'open', 'launch', 'run command', 'terminal', 'cpu', 'memory', 'status'
+    ],
+    audio: [
+        'transcribe', 'speech', 'voice', 'audio', 'speak'
+    ]
+};
+
+// Fallback keywords that map to both read and write
+const FALLBACK_KEYWORD_MAP = {
+    jira: ['jira', 'ticket', 'sprint', 'epic', 'kanban', 'issue', 'bug', 'board'],
+    github: ['github', 'repo', 'pr', 'pull request', 'commit', 'branch', 'push', 'merge', 'clone', 'check', 'code'],
 };
 
 async function classifyIntent(userMessage) {
     const lowerMsg = userMessage.toLowerCase();
     const detectedCategories = new Set();
 
-    // 1. FAST PASS: Check keywords (< 1ms)
-    // If we find a specific keyword, we skip the slow LLM call entirely.
+    // 1. FAST PASS: Check specific keywords first (< 1ms)
     for (const [category, keywords] of Object.entries(KEYWORD_MAP)) {
         if (keywords.some(k => lowerMsg.includes(k))) {
             detectedCategories.add(category);
+        }
+    }
+
+    // 2. Check fallback keywords - if found, add BOTH read and write for that service
+    for (const [service, keywords] of Object.entries(FALLBACK_KEYWORD_MAP)) {
+        if (keywords.some(k => lowerMsg.includes(k)) && detectedCategories.size === 0) {
+            // Add both read and write tools for ambiguous queries
+            detectedCategories.add(`${service}_read`);
+            detectedCategories.add(`${service}_write`);
         }
     }
 
@@ -335,7 +392,13 @@ async function classifyIntent(userMessage) {
         return Array.from(detectedCategories);
     }
 
-    // 2. SLOW PASS: Fallback to LLM for ambiguous queries
+    const wordCount = userMessage.split(' ').length;
+    if (wordCount < 5) {
+        console.log("[Traffic Cop] Short query detected. Defaulting to General.");
+        return ['general']; 
+    }
+
+    // 3. SLOW PASS: Fallback to LLM for ambiguous queries
     try {
         const response = await classifierLlm.invoke(CLASSIFIER_PROMPT + userMessage);
         const categories = response.content.toLowerCase().trim().split(',').map(c => c.trim());
@@ -498,6 +561,22 @@ export async function* streamWithSemanticRouting(userQuery, sessionId) {
     
     // Step 1: Classify intent using the Traffic Cop
     const categories = await classifyIntent(userQuery);
+
+    const lowerQuery = userQuery.toLowerCase();
+
+    if (lowerQuery.includes('system status') || lowerQuery.includes('battery') || lowerQuery.includes('uptime')) {
+        console.log("⚡️ Reflex triggered: System Status");
+        
+        // Run the tool directly (ensure getSystemStatus is imported from ./systemTool.js)
+        const status = await getSystemStatus(); 
+        
+        // Fake the streaming event so the frontend handles it normally
+        yield { 
+            event: "on_chat_model_stream", 
+            data: { chunk: { content: `**Reflex Response:**\n${status}` } } 
+        };
+        return;
+    }
     
     // Step 2: Get the appropriate tools for the classified categories
     const selectedTools = getToolsForCategories(categories);
