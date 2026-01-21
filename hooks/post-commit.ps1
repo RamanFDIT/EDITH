@@ -16,21 +16,14 @@ $COMMIT_ID = git rev-parse HEAD
 
 Write-Host "🤖 [E.D.I.T.H.] Analyzing commit $($COMMIT_ID.Substring(0,8))..." -ForegroundColor Cyan
 
-# Fire and forget - async call to EDITH
+# Call EDITH synchronously (fast enough for post-commit)
 try {
     $body = @{ commitId = $COMMIT_ID } | ConvertTo-Json
+    $response = Invoke-RestMethod -Uri $EDITH_URL -Method Post -Body $body -ContentType "application/json" -TimeoutSec 5
     
-    # Start as background job so it doesn't block
-    Start-Job -ScriptBlock {
-        param($url, $body)
-        try {
-            Invoke-RestMethod -Uri $url -Method Post -Body $body -ContentType "application/json" -TimeoutSec 10 | Out-Null
-        } catch {
-            # Silently fail - don't interrupt git workflow
-        }
-    } -ArgumentList $EDITH_URL, $body | Out-Null
-    
-    Write-Host "🤖 [E.D.I.T.H.] Analysis queued. Check the dashboard for insights." -ForegroundColor Green
+    if ($response.success) {
+        Write-Host "🤖 [E.D.I.T.H.] Analyzed: $($response.commit.message)" -ForegroundColor Green
+    }
 } catch {
     Write-Host "🤖 [E.D.I.T.H.] Server offline. Commit saved locally." -ForegroundColor Yellow
 }
