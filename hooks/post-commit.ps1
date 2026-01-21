@@ -1,0 +1,38 @@
+# E.D.I.T.H. Post-Commit Hook (Windows PowerShell Version)
+# =========================================================
+# This hook notifies EDITH after every commit.
+#
+# INSTALLATION:
+# 1. Create a file called "post-commit" (no extension) in .git/hooks/
+# 2. Add this single line to it:
+#    powershell.exe -ExecutionPolicy Bypass -File "../../hooks/post-commit.ps1"
+#
+# Or copy this script directly and save as .git/hooks/post-commit (making it executable)
+
+$EDITH_URL = "http://localhost:3000/api/hooks/commit-event"
+
+# Get commit ID
+$COMMIT_ID = git rev-parse HEAD
+
+Write-Host "🤖 [E.D.I.T.H.] Analyzing commit $($COMMIT_ID.Substring(0,8))..." -ForegroundColor Cyan
+
+# Fire and forget - async call to EDITH
+try {
+    $body = @{ commitId = $COMMIT_ID } | ConvertTo-Json
+    
+    # Start as background job so it doesn't block
+    Start-Job -ScriptBlock {
+        param($url, $body)
+        try {
+            Invoke-RestMethod -Uri $url -Method Post -Body $body -ContentType "application/json" -TimeoutSec 10 | Out-Null
+        } catch {
+            # Silently fail - don't interrupt git workflow
+        }
+    } -ArgumentList $EDITH_URL, $body | Out-Null
+    
+    Write-Host "🤖 [E.D.I.T.H.] Analysis queued. Check the dashboard for insights." -ForegroundColor Green
+} catch {
+    Write-Host "🤖 [E.D.I.T.H.] Server offline. Commit saved locally." -ForegroundColor Yellow
+}
+
+exit 0

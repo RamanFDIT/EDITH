@@ -4,10 +4,17 @@ import cors from 'cors';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { transcribeAudio, generateSpeech } from './audioTool.js';
+
+const execAsync = promisify(exec);
 
 const app = express();
 const port = 3000;
+
+// --- SSE Clients for Push Notifications ---
+const sseClients = new Set();
 
 // --- CONFIG: Multer (File Uploads) ---
 const uploadDir = 'temp';
@@ -190,6 +197,132 @@ app.post('/api/voice', upload.single('audio'), async (req, res) => {
     console.error("[Voice] Error:", error);
     res.status(500).json({ error: error.message });
   }
+});
+
+// =============================================================================
+// GIT HOOK INTEGRATION - Post-Commit Analysis
+// =============================================================================
+
+// SSE endpoint for push notifications (EDITH can talk to you unprompted)
+app.get('/api/notifications', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    
+    // Send initial connection message
+    res.write(`data: ${JSON.stringify({ type: "connected", message: "EDITH notification channel open." })}\n\n`);
+    
+    // Add this client to our set
+    sseClients.add(res);
+    console.log(`[Notifications] Client connected. Total: ${sseClients.size}`);
+    
+    // Remove client when they disconnect
+    req.on('close', () => {
+        sseClients.delete(res);
+        console.log(`[Notifications] Client disconnected. Total: ${sseClients.size}`);
+    });
+});
+
+// Helper to broadcast to all connected clients
+function broadcastNotification(notification) {
+    const message = `data: ${JSON.stringify(notification)}\n\n`;
+    for (const client of sseClients) {
+        client.write(message);
+    }
+}
+
+// Git Hook Endpoint - Called by post-commit hook
+app.post('/api/hooks/commit-event', async (req, res) => {
+    console.log("[Git Hook] 🔔 Commit event received!");
+    
+    try {
+        // Get commit info
+        const { stdout: commitId } = await execAsync('git rev-parse HEAD');
+        const { stdout: commitMessage } = await execAsync('git log -1 --pretty=%B');
+        const { stdout: commitAuthor } = await execAsync('git log -1 --pretty=%an');
+        const { stdout: diffStat } = await execAsync('git diff --stat HEAD~1 HEAD');
+        const { stdout: diffContent } = await execAsync('git diff HEAD~1 HEAD --no-color');
+        
+        const commitInfo = {
+            id: commitId.trim().substring(0, 8),
+            fullId: commitId.trim(),
+            message: commitMessage.trim(),
+            author: commitAuthor.trim(),
+            filesChanged: diffStat.trim(),
+        };
+        
+        console.log(`[Git Hook] Commit: ${commitInfo.id} - "${commitInfo.message}"`);
+        
+        // Limit diff size to avoid token explosion
+        const maxDiffLength = 4000;
+        const truncatedDiff = diffContent.length > maxDiffLength 
+            ? diffContent.substring(0, maxDiffLength) + "\n... [DIFF TRUNCATED FOR BREVITY]"
+            : diffContent;
+        
+        // Analyze with EDITH
+        const analysisPrompt = `
+[SYSTEM: Git Commit Analysis Mode]
+A new commit was just made. Analyze it and provide brief, actionable feedback.
+
+COMMIT INFO:
+- ID: ${commitInfo.id}
+- Message: "${commitInfo.message}"
+- Author: ${commitInfo.author}
+- Files Changed:
+${commitInfo.filesChanged}
+
+CODE DIFF:
+\`\`\`diff
+${truncatedDiff}
+\`\`\`
+
+ANALYSIS TASKS:
+1. Summarize what changed in 1-2 sentences.
+2. Did any function signatures or API endpoints change? If yes, suggest documentation updates.
+3. Are there any potential issues (missing error handling, hardcoded values, etc.)?
+4. Should the README or any docs be updated?
+
+Keep response concise (under 100 words). End with a clear question if action is needed.
+`;
+
+        // Use the agent to analyze
+        const result = await agentExecutor.invoke(
+            { input: analysisPrompt },
+            { configurable: { sessionId: "git-hook-session" } }
+        );
+        
+        const analysis = result.output;
+        console.log(`[Git Hook] EDITH Analysis: ${analysis.substring(0, 100)}...`);
+        
+        // Broadcast to any connected frontend clients
+        broadcastNotification({
+            type: "commit_analysis",
+            commit: commitInfo,
+            analysis: analysis,
+            timestamp: new Date().toISOString()
+        });
+        
+        res.json({ 
+            success: true, 
+            commit: commitInfo,
+            analysis: analysis 
+        });
+        
+    } catch (error) {
+        console.error("[Git Hook] Error:", error.message);
+        
+        // Handle case where there's no previous commit (first commit)
+        if (error.message.includes("ambiguous argument 'HEAD~1'")) {
+            res.json({ 
+                success: true, 
+                message: "First commit detected. No diff to analyze.",
+                commit: { message: "Initial commit" }
+            });
+            return;
+        }
+        
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // --- Start Server ---
