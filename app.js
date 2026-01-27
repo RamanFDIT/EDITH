@@ -8,25 +8,6 @@ document.addEventListener("DOMContentLoaded", () => {
   let audioChunks = [];
   let isRecording = false;
 
-  // --- SSE NOTIFICATIONS (Git Hook Events) ---
-  const notificationSource = new EventSource("http://localhost:3000/api/notifications");
-  
-  notificationSource.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      if (data.type === "commit_analysis") {
-        addMessage(`📡 [Git Hook] New commit detected!\n\n${data.message}`, "assistant");
-        chatBox.scrollTop = chatBox.scrollHeight;
-      }
-    } catch (e) {
-      console.error("SSE parse error:", e);
-    }
-  };
-  
-  notificationSource.onerror = (e) => {
-    console.log("[SSE] Connection error, will auto-reconnect...");
-  };
-
   // --- VOICE LOGIC ---
   micBtn.addEventListener("click", async () => {
     if (!isRecording) {

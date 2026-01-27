@@ -24,6 +24,7 @@ import { getFigmaFileStructure, getFigmaComments, postFigmaComment } from "./fig
 import { transcribeAudio, generateSpeech } from "./audioTool.js";
 import { getCalendarEvents, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent, findFreeTime } from "./calendarTool.js";
 import { readFile, readTextFile, readWordDocument, readPdfDocument, listDirectory, getLatestFile } from "./fileTool.js";
+import { sendSlackMessage, sendSlackAnnouncement, sendSlackLink } from "./slackTool.js";
 
 
 const googleApiKey = process.env.GOOGLE_API_KEY;
@@ -387,6 +388,41 @@ const fileTools = [
   }),
 ];
 
+// --- SLACK TOOLS (Write-Only Announcements) ---
+const slackTools = [
+  new DynamicStructuredTool({
+    name: "send_slack_message",
+    description: "Send a simple message to a Slack channel. Use this to notify the team about updates, fixes, or announcements.",
+    schema: z.object({
+      channel: z.string().optional().describe("Channel name (e.g., 'dev-team' or '#dev-team'). Uses default channel if not specified."),
+      message: z.string().describe("The message to send to the channel."),
+    }),
+    func: sendSlackMessage,
+  }),
+  new DynamicStructuredTool({
+    name: "send_slack_announcement",
+    description: "Send a formatted announcement to Slack with title, body, and optional footer. Use for structured updates like deployments or releases.",
+    schema: z.object({
+      channel: z.string().optional().describe("Channel name. Uses default channel if not specified."),
+      title: z.string().describe("Headline of the announcement."),
+      body: z.string().describe("Main content of the announcement. Supports Slack markdown."),
+      footer: z.string().optional().describe("Optional footer text."),
+      type: z.enum(['info', 'success', 'warning', 'error']).optional().describe("Type of announcement for visual styling."),
+    }),
+    func: sendSlackAnnouncement,
+  }),
+  new DynamicStructuredTool({
+    name: "send_slack_link",
+    description: "Share a link in Slack with optional context. Perfect for sharing Jira tickets, GitHub PRs, or documentation.",
+    schema: z.object({
+      channel: z.string().optional().describe("Channel name. Uses default channel if not specified."),
+      url: z.string().describe("The URL to share."),
+      context: z.string().optional().describe("Optional message to accompany the link."),
+    }),
+    func: sendSlackLink,
+  }),
+];
+
 // Map categories to their tool arrays
 const toolsByCategory = {
   jira_read: jiraReadTools,
@@ -398,11 +434,12 @@ const toolsByCategory = {
   audio: audioTools,
   calendar: calendarTools,
   files: fileTools,
+  slack: slackTools,
   general: [], // No tools needed for general conversation
 };
 
 // All tools combined (for fallback or multi-category queries)
-const allTools = [...jiraTools, ...githubTools, ...systemTools, ...figmaTools, ...audioTools, ...calendarTools, ...fileTools];
+const allTools = [...jiraTools, ...githubTools, ...systemTools, ...figmaTools, ...audioTools, ...calendarTools, ...fileTools, ...slackTools];
 
 // =============================================================================
 // SEMANTIC CLASSIFIER (The Traffic Cop)
@@ -421,6 +458,7 @@ CATEGORIES:
 - audio: Anything about transcription, text-to-speech, voice, audio files, speaking
 - calendar: Anything about scheduling, meetings, appointments, events, calendar, free time, availability, reminders
 - files: Reading documents, files, PDFs, Word docs, downloads, listing files, latest download, file contents, summarizing documents
+- slack: Sending messages to Slack, posting announcements, notifying team, messaging channels, team notifications
 - general: Casual conversation, greetings, questions that don't need tools, chitchat
 
 RULES:
@@ -449,6 +487,9 @@ User: "What's my latest download?" -> files
 User: "Read that document for me" -> files
 User: "Summarize the PDF I just downloaded" -> files
 User: "List my recent downloads" -> files
+User: "Tell the dev-team I fixed the bug" -> slack
+User: "Post to #general that deployment is complete" -> slack
+User: "Notify the team about the new release" -> slack
 
 User message: `;
 
@@ -488,6 +529,10 @@ const KEYWORD_MAP = {
         'download', 'downloaded', 'document', 'pdf', 'docx', 'word doc', 'file',
         'read file', 'read that', 'summarize file', 'latest file', 'recent file',
         'my files', 'list files', 'what file', 'that document', 'the file'
+    ],
+    slack: [
+        'slack', 'tell the team', 'notify team', 'post to', 'announce', 'message channel',
+        'send message', 'tell dev', 'tell #', 'post announcement', 'team notification'
     ]
 };
 
