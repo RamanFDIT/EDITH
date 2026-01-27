@@ -21,10 +21,14 @@
     "dotenv": "^17.2.3",
     "elevenlabs": "^1.59.0",
     "express": "^5.1.0",
+    "googleapis": "^170.1.0",
     "langchain": "^1.2.7",
+    "mammoth": "^1.11.0",
     "multer": "^2.0.2",
     "node-fetch": "^3.3.2",
+    "open": "^11.0.0",
     "openai": "^6.16.0",
+    "pdf-parse": "^2.4.5",
     "zod": "^4.1.12"
   },
   "devDependencies": {

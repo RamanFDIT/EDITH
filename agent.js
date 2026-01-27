@@ -18,10 +18,12 @@ import {
   getRepoChecks
 } from "./githubTool.js";
 import { getJiraIssues, createJiraIssue, updateJiraIssue, deleteJiraIssue, createJiraProject } from "./jiraTool.js";
-import { EDITH_SYSTEM_PROMPT } from "./systemPrompt.js";
+import { EDITH_SYSTEM_PROMPT, getSystemPrompt } from "./systemPrompt.js";
 import { getSystemStatus, executeSystemCommand, openApplication } from "./systemTool.js";
 import { getFigmaFileStructure, getFigmaComments, postFigmaComment } from "./figmaTool.js";
 import { transcribeAudio, generateSpeech } from "./audioTool.js";
+import { getCalendarEvents, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent, findFreeTime } from "./calendarTool.js";
+import { readFile, readTextFile, readWordDocument, readPdfDocument, listDirectory, getLatestFile } from "./fileTool.js";
 
 
 const googleApiKey = process.env.GOOGLE_API_KEY;
@@ -278,6 +280,113 @@ const audioTools = [
   }),
 ];
 
+// --- CALENDAR TOOLS ---
+const calendarTools = [
+  new DynamicStructuredTool({
+    name: "get_calendar_events",
+    description: "Get upcoming events from Google Calendar. Use this to check what meetings or events are scheduled.",
+    schema: z.object({
+      maxResults: z.number().optional().describe("Maximum number of events to return. Default is 10."),
+      timeMin: z.string().optional().describe("Start time for events query in ISO format (e.g., 2026-01-15T09:00:00). Defaults to now."),
+      timeMax: z.string().optional().describe("End time for events query in ISO format. Optional."),
+      calendarId: z.string().optional().describe("Calendar ID to query. Defaults to 'primary'."),
+    }),
+    func: getCalendarEvents,
+  }),
+  new DynamicStructuredTool({
+    name: "create_calendar_event",
+    description: "Create a new event on Google Calendar. Use this to schedule meetings, appointments, or reminders. YOU must calculate ISO timestamps from natural language dates.",
+    schema: z.object({
+      summary: z.string().describe("Title of the event"),
+      description: z.string().optional().describe("Description or notes for the event"),
+      startDateTime: z.string().describe("Start date and time in ISO format (e.g., 2026-01-15T14:00:00). Calculate this from user's natural language like 'next Tuesday at 2pm'."),
+      endDateTime: z.string().describe("End date and time in ISO format (e.g., 2026-01-15T15:00:00). Default to 1 hour after start if not specified."),
+      location: z.string().optional().describe("Location of the event"),
+      attendees: z.array(z.string()).optional().describe("Array of email addresses to invite"),
+      timeZone: z.string().optional().describe("Timezone for the event. Defaults to system timezone."),
+    }),
+    func: createCalendarEvent,
+  }),
+  new DynamicStructuredTool({
+    name: "update_calendar_event",
+    description: "Update an existing event on Google Calendar. Use this to change meeting details.",
+    schema: z.object({
+      eventId: z.string().describe("The ID of the event to update"),
+      summary: z.string().optional().describe("New title for the event"),
+      description: z.string().optional().describe("New description for the event"),
+      startDateTime: z.string().optional().describe("New start date and time in ISO format"),
+      endDateTime: z.string().optional().describe("New end date and time in ISO format"),
+      location: z.string().optional().describe("New location for the event"),
+    }),
+    func: updateCalendarEvent,
+  }),
+  new DynamicStructuredTool({
+    name: "delete_calendar_event",
+    description: "Delete an event from Google Calendar.",
+    schema: z.object({
+      eventId: z.string().describe("The ID of the event to delete"),
+    }),
+    func: deleteCalendarEvent,
+  }),
+  new DynamicStructuredTool({
+    name: "find_free_time",
+    description: "Check for free/busy time in a given time range. Use this to find available slots for scheduling.",
+    schema: z.object({
+      timeMin: z.string().describe("Start of time range to check in ISO format"),
+      timeMax: z.string().describe("End of time range to check in ISO format"),
+    }),
+    func: findFreeTime,
+  }),
+];
+
+// --- FILE TOOLS ---
+const fileTools = [
+  new DynamicStructuredTool({
+    name: "read_file",
+    description: "Read any file (auto-detects type). Supports .txt, .docx, .pdf, .json, .md, .csv, and more. Use this to read documents the user mentions.",
+    schema: z.object({
+      filePath: z.string().describe("Path to the file. Can be absolute or relative to Downloads folder (e.g., 'Downloads/report.docx' or full path)."),
+    }),
+    func: readFile,
+  }),
+  new DynamicStructuredTool({
+    name: "list_directory",
+    description: "List files in a directory. Defaults to Downloads folder. Use this to find files when user asks about their files.",
+    schema: z.object({
+      directoryPath: z.string().optional().describe("Path to directory. Defaults to Downloads folder."),
+      filter: z.string().optional().describe("Filter by name or extension (e.g., 'docx', 'report')."),
+      sortBy: z.enum(['modified', 'name', 'size']).optional().describe("Sort order. Defaults to 'modified' (newest first)."),
+      limit: z.number().optional().describe("Max files to return. Defaults to 20."),
+    }),
+    func: listDirectory,
+  }),
+  new DynamicStructuredTool({
+    name: "get_latest_file",
+    description: "Get the most recently modified file in a directory. Use this when user asks about their 'last download' or 'newest file'.",
+    schema: z.object({
+      directoryPath: z.string().optional().describe("Path to directory. Defaults to Downloads folder."),
+      extension: z.string().optional().describe("Filter by extension (e.g., 'pdf', 'docx')."),
+    }),
+    func: getLatestFile,
+  }),
+  new DynamicStructuredTool({
+    name: "read_word_document",
+    description: "Read a .docx Word document and extract its text content.",
+    schema: z.object({
+      filePath: z.string().describe("Path to the .docx file."),
+    }),
+    func: readWordDocument,
+  }),
+  new DynamicStructuredTool({
+    name: "read_pdf_document",
+    description: "Read a PDF file and extract its text content.",
+    schema: z.object({
+      filePath: z.string().describe("Path to the .pdf file."),
+    }),
+    func: readPdfDocument,
+  }),
+];
+
 // Map categories to their tool arrays
 const toolsByCategory = {
   jira_read: jiraReadTools,
@@ -287,11 +396,13 @@ const toolsByCategory = {
   system: systemTools,
   figma: figmaTools,
   audio: audioTools,
+  calendar: calendarTools,
+  files: fileTools,
   general: [], // No tools needed for general conversation
 };
 
 // All tools combined (for fallback or multi-category queries)
-const allTools = [...jiraTools, ...githubTools, ...systemTools, ...figmaTools, ...audioTools];
+const allTools = [...jiraTools, ...githubTools, ...systemTools, ...figmaTools, ...audioTools, ...calendarTools, ...fileTools];
 
 // =============================================================================
 // SEMANTIC CLASSIFIER (The Traffic Cop)
@@ -306,8 +417,10 @@ CATEGORIES:
 - github_read: Reading GitHub data: commits, PRs, issues, checks, repo info (queries, lookups, listing)
 - github_write: Creating repos, issues, or any write operation on GitHub
 - figma: Anything about designs, mockups, UI/UX, wireframes, Figma files, design comments
-- system: Anything about opening apps, running commands, terminal, system status, launching programs, files
-- audio: Anything about transcription, text-to-speech, voice, audio files
+- system: Anything about opening apps, running commands, terminal, system status, launching programs
+- audio: Anything about transcription, text-to-speech, voice, audio files, speaking
+- calendar: Anything about scheduling, meetings, appointments, events, calendar, free time, availability, reminders
+- files: Reading documents, files, PDFs, Word docs, downloads, listing files, latest download, file contents, summarizing documents
 - general: Casual conversation, greetings, questions that don't need tools, chitchat
 
 RULES:
@@ -328,6 +441,14 @@ User: "List all my Jira tickets and mark the first one done" -> jira_read,jira_w
 User: "Read the comments on the dashboard design" -> figma
 User: "What's my CPU usage?" -> system
 User: "Create a new repo called test-app" -> github_write
+User: "What meetings do I have today?" -> calendar
+User: "Schedule a call with John next Tuesday at 2pm" -> calendar
+User: "Am I free tomorrow afternoon?" -> calendar
+User: "Cancel my 3pm meeting" -> calendar
+User: "What's my latest download?" -> files
+User: "Read that document for me" -> files
+User: "Summarize the PDF I just downloaded" -> files
+User: "List my recent downloads" -> files
 
 User message: `;
 
@@ -358,6 +479,15 @@ const KEYWORD_MAP = {
     ],
     audio: [
         'transcribe', 'speech', 'voice', 'audio', 'speak'
+    ],
+    calendar: [
+        'schedule', 'meeting', 'appointment', 'calendar', 'event', 'free time',
+        'availability', 'busy', 'remind', 'reminder', 'book', 'block time'
+    ],
+    files: [
+        'download', 'downloaded', 'document', 'pdf', 'docx', 'word doc', 'file',
+        'read file', 'read that', 'summarize file', 'latest file', 'recent file',
+        'my files', 'list files', 'what file', 'that document', 'the file'
     ]
 };
 
@@ -502,7 +632,8 @@ function getMessageHistory(sessionId) {
   return new JSONFileChatMessageHistory(sessionId);
 }
 
-const systemPrompt = EDITH_SYSTEM_PROMPT;
+// Use dynamic system prompt with current date
+const systemPrompt = getSystemPrompt();
 
 // =============================================================================
 // DYNAMIC AGENT CREATION (Traffic Cop Pattern)

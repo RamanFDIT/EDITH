@@ -26,7 +26,6 @@ export async function getJiraIssues(input) {
         throw new Error("Missing credentials or query.");
     }
     
-    // CRITICAL FIX: Using the /search/jql endpoint to prevent 410 Gone errors
     const url = `https://${JIRA_DOMAIN}/rest/api/3/search/jql`;
 
     try {
@@ -55,7 +54,7 @@ export async function getJiraIssues(input) {
     }
 };
 
-// --- TOOL 2: CREATE ISSUE (New Capability) ---
+// --- TOOL 2: CREATE ISSUE ---
 export async function createJiraIssue(input) {
     console.log("📝 Jira Create Invoked:", JSON.stringify(input));
 

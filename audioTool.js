@@ -65,16 +65,6 @@ export async function generateSpeech(args) {
             const errText = await response.text();
             throw new Error(`ElevenLabs API Error: ${errText}`);
         }
-
-        // Save the audio file
-        const buffer = await response.buffer();
-        const fileName = `speech_${Date.now()}.mp3`;
-        const outputPath = path.resolve(process.cwd(), fileName);
-        
-        fs.writeFileSync(outputPath, buffer);
-        console.log(`💾 Audio saved to: ${outputPath}`);
-        
-        return outputPath;
     } catch (error) {
         return `Error generating speech: ${error.message}`;
     }
