@@ -1,5 +1,5 @@
 import express from 'express';
-import { agentExecutor, streamWithSemanticRouting } from './agent.js'; 
+import { agentExecutor, streamWithSemanticRouting, mcpClient } from './agent.js'; 
 import cors from 'cors'; 
 import multer from 'multer';
 import path from 'path';
@@ -71,27 +71,6 @@ app.post('/api/ask', async (req, res) => {
     // Use the Traffic Cop streaming function
     const stream = streamWithSemanticRouting(question, "user-1");
     
-    let completeResponse = "";
-
-    for await (const event of stream) {
-        const eventType = event.event;
-        
-        if (eventType === "on_chat_model_stream") {
-            const content = event.data?.chunk?.content;
-            if (content) {
-                completeResponse += content;
-                res.write(`data: ${JSON.stringify({ type: "token", content })}\n\n`);
-            }
-        } else if (eventType === "on_tool_start") {
-             res.write(`data: ${JSON.stringify({ type: "tool_start", name: event.name, input: event.data?.input })}\n\n`);
-        } else if (eventType === "on_tool_end") {
-             res.write(`data: ${JSON.stringify({ type: "tool_end", name: event.name, output: event.data?.output })}\n\n`);
-        }
-    }
-
-    // --- TTS Generation ---
-    // - Replace lines ~88 to ~119 with this logic
-
     let sentenceBuffer = "";
 
     for await (const event of stream) {
@@ -213,6 +192,13 @@ process.on('uncaughtException', (err) => {
 
 process.on('exit', (code) => {
     console.log(`[Server] Process exited with code: ${code}`);
+});
+
+// Gracefully shut down MCP server child processes
+process.on('SIGINT', async () => {
+    console.log('[Server] Shutting down MCP servers...');
+    try { await mcpClient.close(); } catch (e) { /* ignore */ }
+    process.exit(0);
 });
 
 

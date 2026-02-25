@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import path from 'path';
 import os from 'os';
+import store from './store.js';
 
 // 1. Try loading from the local project folder (Development)
 // This looks for .env in the current working directory
@@ -13,4 +14,12 @@ dotenv.config();
 const homeConfigPath = path.join(os.homedir(), '.edith.env');
 dotenv.config({ path: homeConfigPath });
 
-console.log(`[Config] Loaded environment. Checked: .env and ${homeConfigPath}`);
+// 3. Load from electron-store (UI Settings)
+const storeConfig = store.store;
+for (const key in storeConfig) {
+  if (storeConfig[key]) {
+    process.env[key] = storeConfig[key];
+  }
+}
+
+console.log(`[Config] Loaded environment. Checked: .env, ${homeConfigPath}, and electron-store`);

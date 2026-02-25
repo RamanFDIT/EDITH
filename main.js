@@ -1,6 +1,7 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import store from './store.js';
 
 // 1. IMPORT YOUR SERVER (This starts E.D.I.T.H.'s brain)
 import './server.js';
@@ -9,6 +10,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 let mainWindow;
+let settingsWindow;
 
 function createWindow() {
   // 2. CREATE THE DESKTOP WINDOW
@@ -20,7 +22,8 @@ function createWindow() {
     icon: path.join(__dirname, 'icon.png'), // (Optional) Add an icon later
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
     }
   });
 
@@ -36,7 +39,60 @@ function createWindow() {
   });
 }
 
+function createSettingsWindow() {
+  if (settingsWindow) {
+    settingsWindow.focus();
+    return;
+  }
+
+  settingsWindow = new BrowserWindow({
+    width: 800,
+    height: 600,
+    title: "E.D.I.T.H. Settings",
+    backgroundColor: '#0a0a0a',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
+    }
+  });
+
+  // Load the React app (Vite dev server for now, or built files later)
+  // In production, you'd load the built index.html from the frontend/dist folder
+  const isDev = process.env.NODE_ENV !== 'production';
+  if (isDev) {
+    settingsWindow.loadURL('http://localhost:5173');
+  } else {
+    settingsWindow.loadFile(path.join(__dirname, 'frontend/dist/index.html'));
+  }
+
+  settingsWindow.setMenuBarVisibility(false);
+
+  settingsWindow.on('closed', function () {
+    settingsWindow = null;
+  });
+}
+
 app.whenReady().then(() => {
+  // Setup IPC handlers
+  ipcMain.handle('get-config', () => {
+    return store.store;
+  });
+
+  ipcMain.handle('save-config', (event, config) => {
+    store.set(config);
+    return true;
+  });
+
+  ipcMain.handle('open-settings', () => {
+    createSettingsWindow();
+  });
+
+  ipcMain.handle('trigger-google-auth', () => {
+    // TODO: Implement Google Auth flow
+    console.log("Google Auth triggered from UI");
+  });
+
   createWindow();
 
   app.on('activate', function () {

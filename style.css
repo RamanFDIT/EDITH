@@ -53,6 +53,26 @@ body {
     align-items: center;
 }
 
+.header-controls {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+#settings-btn {
+    background: none;
+    border: none;
+    color: var(--primary-color);
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: transform 0.2s, text-shadow 0.2s;
+}
+
+#settings-btn:hover {
+    transform: rotate(45deg);
+    text-shadow: 0 0 10px var(--primary-color);
+}
+
 h1 { margin: 0; font-size: 1.2rem; letter-spacing: 2px; }
 .status { font-size: 0.8rem; color: var(--primary-color); animation: blink 2s infinite; }
 @keyframes blink { 50% { opacity: 0.5; } }

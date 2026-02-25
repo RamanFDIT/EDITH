@@ -2,6 +2,17 @@ document.addEventListener("DOMContentLoaded", () => {
   const chatForm = document.getElementById("chat-form");
   const userInput = document.getElementById("user-input");
   const chatBox = document.getElementById("chat-box");
+  const settingsBtn = document.getElementById("settings-btn");
+
+  if (settingsBtn) {
+    settingsBtn.addEventListener("click", () => {
+      if (window.electronAPI && window.electronAPI.openSettings) {
+        window.electronAPI.openSettings();
+      } else {
+        console.warn("Electron API not available. Cannot open settings.");
+      }
+    });
+  }
 
   const micBtn = document.getElementById("mic-btn");
   let mediaRecorder;

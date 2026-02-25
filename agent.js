@@ -9,23 +9,18 @@ import { BaseListChatMessageHistory } from "@langchain/core/chat_history";
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import "./envConfig.js";
+import { MultiServerMCPClient } from "@langchain/mcp-adapters";
 
-// Import ALL GitHub functions
-import { 
-  getRepoIssues, createRepoIssue, 
-  listCommits, listPullRequests, 
-  getPullRequest, getCommit, createRepository,
-  getRepoChecks
-} from "./githubTool.js";
-import { getJiraIssues, createJiraIssue, updateJiraIssue, deleteJiraIssue, createJiraProject } from "./jiraTool.js";
+// --- MCP replaces: githubTool, figmaTool, fileTool, slackTool ---
+// Custom tools without MCP equivalents are imported directly:
 import { EDITH_SYSTEM_PROMPT, getSystemPrompt } from "./systemPrompt.js";
 import { getSystemStatus, executeSystemCommand, openApplication } from "./systemTool.js";
-import { getFigmaFileStructure, getFigmaComments, postFigmaComment } from "./figmaTool.js";
 import { transcribeAudio, generateSpeech } from "./audioTool.js";
-import { getCalendarEvents, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent, findFreeTime } from "./calendarTool.js";
-import { readFile, readTextFile, readWordDocument, readPdfDocument, listDirectory, getLatestFile } from "./fileTool.js";
-import { sendSlackMessage, sendSlackAnnouncement, sendSlackLink } from "./slackTool.js";
 import { generateImage } from "./imageTool.js";
+// No MCP server configured for Jira, Calendar & Slack — keep as custom tools:
+import { getJiraIssues, createJiraIssue, updateJiraIssue, deleteJiraIssue, createJiraProject } from "./jiraTool.js";
+import { getCalendarEvents, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent, findFreeTime } from "./calendarTool.js";
+import { sendSlackMessage, sendSlackAnnouncement, sendSlackLink } from "./slackTool.js";
 
 
 const googleApiKey = process.env.GOOGLE_API_KEY;
@@ -47,10 +42,133 @@ const classifierLlm = new ChatGoogleGenerativeAI({
 console.log(" E.D.I.T.H. Online (Gemini 3 Flash) - Semantic Classification Enabled.");
 
 // =============================================================================
-// TOOL DEFINITIONS BY CATEGORY
+// MCP CLIENT INITIALIZATION
 // =============================================================================
 
-// --- JIRA READ TOOLS ---
+// Load MCP server config (maps server names -> stdio commands)
+const mcpConfigPath = path.join(process.cwd(), 'mcp-config.json');
+const mcpConfig = JSON.parse(fs.readFileSync(mcpConfigPath, 'utf-8'));
+
+// Connect to each MCP server individually so one failure doesn't kill the app
+const mcpClients = {};   // name -> MultiServerMCPClient (one per server)
+let mcpTools = [];
+
+for (const [name, srv] of Object.entries(mcpConfig.servers)) {
+  // Merge process.env with any env vars defined in mcp-config.json
+  // This allows the UI settings (which populate process.env) to override hardcoded values
+  const mergedEnv = { ...(srv.env || {}), ...process.env };
+
+  // Specifically map UI config keys to MCP expected keys if they differ
+  if (name === 'github' && process.env.GITHUB_PAT) {
+    mergedEnv.GITHUB_PERSONAL_ACCESS_TOKEN = process.env.GITHUB_PAT;
+  }
+  if (name === 'slack' && process.env.SLACK_BOT_TOKEN) {
+    mergedEnv.SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
+    mergedEnv.SLACK_TEAM_ID = process.env.SLACK_TEAM_ID;
+  }
+  if (name === 'figma' && process.env.FIGMA_TOKEN) {
+    mergedEnv.FIGMA_API_KEY = process.env.FIGMA_TOKEN;
+  }
+
+  const singleConfig = {
+    [name]: {
+      transport: "stdio",
+      command: srv.command,
+      args: srv.args || [],
+      env: mergedEnv,
+    },
+  };
+
+  try {
+    const client = new MultiServerMCPClient(singleConfig);
+    const tools = await client.getTools();
+    // Tag each tool with the server it came from (for categorization)
+    for (const tool of tools) {
+      tool._mcpServerName = name;
+    }
+    mcpClients[name] = client;
+    mcpTools.push(...tools);
+    console.log(`[MCP] ✅ "${name}" connected — ${tools.length} tools: ${tools.map(t => t.name).join(', ')}`);
+  } catch (err) {
+    console.warn(`[MCP] ⚠️  "${name}" FAILED to connect: ${err.message}`);
+    console.warn(`[MCP]    Skipping "${name}" — its tools will not be available this session.`);
+  }
+}
+
+console.log(`[MCP] Loaded ${mcpTools.length} total tools from ${Object.keys(mcpClients).length}/${Object.keys(mcpConfig.servers).length} MCP servers.`);
+
+// Unified close helper (used by server.js shutdown)
+export const mcpClient = {
+  async close() {
+    await Promise.allSettled(
+      Object.values(mcpClients).map(c => c.close())
+    );
+  }
+};
+
+// =============================================================================
+// CUSTOM TOOL DEFINITIONS (no MCP equivalent)
+// =============================================================================
+
+const systemTools = [
+  new DynamicStructuredTool({
+    name: "system_status_report",
+    description: "Get current hardware and OS status.",
+    schema: z.object({}),
+    func: getSystemStatus,
+  }),
+  new DynamicStructuredTool({
+    name: "execute_terminal_command",
+    description: "EXECUTE SHELL COMMANDS. Use for file manipulation, running scripts, or system ops.",
+    schema: z.object({
+      command: z.string().describe("The shell command to run (e.g., 'ls -la', 'mkdir test')."),
+    }),
+    func: executeSystemCommand,
+  }),
+  new DynamicStructuredTool({
+    name: "launch_application",
+    description: "Launch any application on the user's computer. ARGUMENT is the app name.",
+    schema: z.object({
+      appName: z.string().describe("The name of the application (e.g., 'Google Chrome', 'Spotify')."),
+      target: z.string().optional().describe("Optional URL or file to open with the application (e.g., 'https://figma.com', 'mydoc.txt')."),
+    }),
+    func: openApplication,
+  }),
+];
+
+const audioTools = [
+  new DynamicStructuredTool({
+    name: "transcribe_audio_whisper",
+    description: "Transcribe an audio file to text using OpenAI Whisper. Requires a valid file path.",
+    schema: z.object({
+        filePath: z.string().describe("Absolute path to the audio file (mp3, wav, m4a)."),
+    }),
+    func: transcribeAudio,
+  }),
+  new DynamicStructuredTool({
+    name: "generate_speech_elevenlabs",
+    description: "Generate spoken audio from text using ElevenLabs. Returns the path to the saved mp3 file.",
+    schema: z.object({
+        text: z.string().describe("The text to speak."),
+        voiceId: z.string().optional().describe("Optional ElevenLabs Voice ID."),
+    }),
+    func: generateSpeech,
+  }),
+];
+
+const imageTools = [
+  new DynamicStructuredTool({
+    name: "generate_image_nano_banana",
+    description: "Generate an image from a text description using Google's Nano Banana (Gemini 2.5 Flash Image). Use this when the user asks to create, generate, draw, design, or visualise an image, picture, illustration, graphic, logo, or artwork. Returns the local URL path of the generated image.",
+    schema: z.object({
+      prompt: z.string().describe("REQUIRED: A detailed description of the image to generate. Be as descriptive as possible for best results."),
+      aspectRatio: z.enum(['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']).optional().describe("Aspect ratio. '1:1' (square), '9:16' (portrait/phone), '16:9' (landscape/widescreen), '3:2' (photo), etc. Default is '1:1'."),
+    }),
+    func: generateImage,
+  }),
+];
+
+// --- JIRA TOOLS (custom — no MCP server configured) ---
 const jiraReadTools = [
   new DynamicStructuredTool({
     name: "search_jira_issues",
@@ -62,7 +180,6 @@ const jiraReadTools = [
   }),
 ];
 
-// --- JIRA WRITE TOOLS ---
 const jiraWriteTools = [
   new DynamicStructuredTool({
     name: "create_jira_issue",
@@ -113,176 +230,42 @@ const jiraWriteTools = [
   }),
 ];
 
-// Combined jira tools for backwards compatibility
-const jiraTools = [...jiraReadTools, ...jiraWriteTools];
-
-// --- GITHUB READ TOOLS ---
-const githubReadTools = [
+// --- SLACK TOOLS (custom — fallback when MCP Slack server is unavailable) ---
+const slackCustomTools = [
   new DynamicStructuredTool({
-    name: "get_github_issues",
-    description: "List issues in a GitHub repo. REQUIRES both 'owner' (GitHub username/org) and 'repo' name. If user doesn't provide the owner, ASK them - do NOT guess or retry.",
+    name: "send_slack_message",
+    description: "Send a message to a Slack channel. Use for team notifications, updates, or announcements.",
     schema: z.object({
-      owner: z.string().describe("REQUIRED: GitHub username or organization (e.g., 'microsoft', 'facebook'). ASK the user if not provided."),
-      repo: z.string().describe("REQUIRED: Repository name (e.g., 'vscode', 'react')"),
+      channel: z.string().optional().describe("Channel name (with or without #) or channel ID. Defaults to SLACK_DEFAULT_CHANNEL."),
+      message: z.string().describe("The message text to send."),
     }),
-    func: getRepoIssues,
+    func: sendSlackMessage,
   }),
   new DynamicStructuredTool({
-    name: "list_github_commits",
-    description: "List recent commits in a repo. REQUIRES both 'owner' (GitHub username/org) and 'repo' name. If user doesn't provide the owner, ASK them - do NOT guess or retry.",
+    name: "send_slack_announcement",
+    description: "Post a formatted announcement with title, body, and optional footer using Slack Block Kit. Great for deployment notices or status reports.",
     schema: z.object({
-      owner: z.string().describe("REQUIRED: GitHub username or organization (e.g., 'microsoft', 'facebook'). ASK the user if not provided."),
-      repo: z.string().describe("REQUIRED: Repository name (e.g., 'vscode', 'react')"),
-      limit: z.number().optional().describe("Number of commits to return (default 5)"),
+      channel: z.string().optional().describe("Channel name or ID. Defaults to SLACK_DEFAULT_CHANNEL."),
+      title: z.string().describe("Announcement headline."),
+      body: z.string().describe("Main content of the announcement."),
+      footer: z.string().optional().describe("Optional footer text."),
+      type: z.enum(['info', 'success', 'warning', 'error']).optional().describe("Type of announcement for emoji styling."),
     }),
-    func: listCommits,
+    func: sendSlackAnnouncement,
   }),
   new DynamicStructuredTool({
-    name: "list_github_pull_requests",
-    description: "List pull requests in a repo. REQUIRES both 'owner' (GitHub username/org) and 'repo' name. If user doesn't provide the owner, ASK them - do NOT guess or retry.",
+    name: "send_slack_link",
+    description: "Share a URL with contextual message in a Slack channel. Perfect for sharing Jira tickets, GitHub PRs, or docs.",
     schema: z.object({
-      owner: z.string().describe("REQUIRED: GitHub username or organization (e.g., 'microsoft', 'facebook'). ASK the user if not provided."),
-      repo: z.string().describe("REQUIRED: Repository name (e.g., 'vscode', 'react')"),
-      state: z.enum(['open', 'closed', 'all']).optional().describe("Filter by state (default 'open')"),
+      channel: z.string().optional().describe("Channel name or ID. Defaults to SLACK_DEFAULT_CHANNEL."),
+      url: z.string().describe("The URL to share."),
+      context: z.string().optional().describe("Contextual message to accompany the link."),
     }),
-    func: listPullRequests,
-  }),
-  new DynamicStructuredTool({
-    name: "get_github_pull_request_details",
-    description: "Get full details of a specific Pull Request. REQUIRES 'owner', 'repo', and 'pullNumber'. If user doesn't provide the owner, ASK them - do NOT guess or retry.",
-    schema: z.object({
-      owner: z.string().describe("REQUIRED: GitHub username or organization. ASK the user if not provided."),
-      repo: z.string().describe("REQUIRED: Repository name"),
-      pullNumber: z.number().describe("REQUIRED: The PR number (e.g. 42)"),
-    }),
-    func: getPullRequest,
-  }),
-  new DynamicStructuredTool({
-    name: "get_github_commit_details",
-    description: "Get full details of a specific commit by SHA. REQUIRES 'owner', 'repo', and 'sha'. If user doesn't provide the owner, ASK them - do NOT guess or retry.",
-    schema: z.object({
-      owner: z.string().describe("REQUIRED: GitHub username or organization. ASK the user if not provided."),
-      repo: z.string().describe("REQUIRED: Repository name"),
-      sha: z.string().describe("REQUIRED: The full or partial commit hash"),
-    }),
-    func: getCommit,
-  }),
-  new DynamicStructuredTool({
-    name: "get_github_repo_checks",
-    description: "Get check runs for a specific commit reference. REQUIRES 'owner', 'repo', and 'ref'. If user doesn't provide the owner, ASK them - do NOT guess or retry.",
-    schema: z.object({
-      owner: z.string().describe("REQUIRED: GitHub username or organization. ASK the user if not provided."),
-      repo: z.string().describe("REQUIRED: Repository name"),
-      ref: z.string().describe("REQUIRED: The commit SHA, branch name, or tag name."),
-    }),
-    func: getRepoChecks,
+    func: sendSlackLink,
   }),
 ];
 
-// --- GITHUB WRITE TOOLS ---
-const githubWriteTools = [
-  new DynamicStructuredTool({
-    name: "create_github_repository",
-    description: "Create a new GitHub repository.",
-    schema: z.object({
-      name: z.string().describe("The name of the repository"),
-      description: z.string().optional().describe("Description of the repository"),
-      isPrivate: z.boolean().optional().describe("Whether the repo should be private (default false)"),
-    }),
-    func: createRepository,
-  }),
-  new DynamicStructuredTool({
-    name: "create_github_issue",
-    description: "Create a GitHub issue.",
-    schema: z.object({
-      owner: z.string(),
-      repo: z.string(),
-      title: z.string(),
-      body: z.string().optional(),
-    }),
-    func: createRepoIssue,
-  }),
-];
-
-// Combined github tools for backwards compatibility
-const githubTools = [...githubReadTools, ...githubWriteTools];
-
-const systemTools = [
-  new DynamicStructuredTool({
-    name: "system_status_report",
-    description: "Get current hardware and OS status.",
-    schema: z.object({}),
-    func: getSystemStatus,
-  }),
-  new DynamicStructuredTool({
-    name: "execute_terminal_command",
-    description: "EXECUTE SHELL COMMANDS. Use for file manipulation, running scripts, or system ops.",
-    schema: z.object({
-      command: z.string().describe("The shell command to run (e.g., 'ls -la', 'mkdir test')."),
-    }),
-    func: executeSystemCommand,
-  }),
-  new DynamicStructuredTool({
-    name: "launch_application",
-    description: "Launch any application on the user's computer. ARGUMENT is the app name.",
-    schema: z.object({
-      appName: z.string().describe("The name of the application (e.g., 'Google Chrome', 'Spotify')."),
-      target: z.string().optional().describe("Optional URL or file to open with the application (e.g., 'https://figma.com', 'mydoc.txt')."),
-    }),
-    func: openApplication,
-  }),
-];
-
-const figmaTools = [
-  new DynamicStructuredTool({
-    name: "scan_figma_file",
-    description: "Get the structure (pages & frames) of a Figma file. Needs the 'fileKey' from the URL.",
-    schema: z.object({
-        fileKey: z.string().describe("The unique key from the Figma URL (e.g. '8w9d8s...')."),
-    }),
-    func: getFigmaFileStructure,
-  }),
-  new DynamicStructuredTool({
-    name: "read_figma_comments",
-    description: "Read recent comments on a Figma file.",
-    schema: z.object({
-        fileKey: z.string().describe("The Figma file key."),
-    }),
-    func: getFigmaComments,
-  }),
-  new DynamicStructuredTool({
-    name: "post_figma_comment",
-    description: "Post a comment or feedback on a Figma file.",
-    schema: z.object({
-        fileKey: z.string().describe("The Figma file key."),
-        message: z.string().describe("The text content of the comment."),
-        node_id: z.string().optional().describe("Optional ID of the specific node/frame to attach the comment to."),
-    }),
-    func: postFigmaComment,
-  }),
-];
-
-const audioTools = [
-  new DynamicStructuredTool({
-    name: "transcribe_audio_whisper",
-    description: "Transcribe an audio file to text using OpenAI Whisper. Requires a valid file path.",
-    schema: z.object({
-        filePath: z.string().describe("Absolute path to the audio file (mp3, wav, m4a)."),
-    }),
-    func: transcribeAudio,
-  }),
-  new DynamicStructuredTool({
-    name: "generate_speech_elevenlabs",
-    description: "Generate spoken audio from text using ElevenLabs. Returns the path to the saved mp3 file.",
-    schema: z.object({
-        text: z.string().describe("The text to speak."),
-        voiceId: z.string().optional().describe("Optional ElevenLabs Voice ID."),
-    }),
-    func: generateSpeech,
-  }),
-];
-
-// --- CALENDAR TOOLS ---
+// --- CALENDAR TOOLS (custom — no MCP server configured) ---
 const calendarTools = [
   new DynamicStructuredTool({
     name: "get_calendar_events",
@@ -341,120 +324,61 @@ const calendarTools = [
   }),
 ];
 
-// --- FILE TOOLS ---
-const fileTools = [
-  new DynamicStructuredTool({
-    name: "read_file",
-    description: "Read any file (auto-detects type). Supports .txt, .docx, .pdf, .json, .md, .csv, and more. Use this to read documents the user mentions.",
-    schema: z.object({
-      filePath: z.string().describe("Path to the file. Can be absolute or relative to Downloads folder (e.g., 'Downloads/report.docx' or full path)."),
-    }),
-    func: readFile,
-  }),
-  new DynamicStructuredTool({
-    name: "list_directory",
-    description: "List files in a directory. Defaults to Downloads folder. Use this to find files when user asks about their files.",
-    schema: z.object({
-      directoryPath: z.string().optional().describe("Path to directory. Defaults to Downloads folder."),
-      filter: z.string().optional().describe("Filter by name or extension (e.g., 'docx', 'report')."),
-      sortBy: z.enum(['modified', 'name', 'size']).optional().describe("Sort order. Defaults to 'modified' (newest first)."),
-      limit: z.number().optional().describe("Max files to return. Defaults to 20."),
-    }),
-    func: listDirectory,
-  }),
-  new DynamicStructuredTool({
-    name: "get_latest_file",
-    description: "Get the most recently modified file in a directory. Use this when user asks about their 'last download' or 'newest file'.",
-    schema: z.object({
-      directoryPath: z.string().optional().describe("Path to directory. Defaults to Downloads folder."),
-      extension: z.string().optional().describe("Filter by extension (e.g., 'pdf', 'docx')."),
-    }),
-    func: getLatestFile,
-  }),
-  new DynamicStructuredTool({
-    name: "read_word_document",
-    description: "Read a .docx Word document and extract its text content.",
-    schema: z.object({
-      filePath: z.string().describe("Path to the .docx file."),
-    }),
-    func: readWordDocument,
-  }),
-  new DynamicStructuredTool({
-    name: "read_pdf_document",
-    description: "Read a PDF file and extract its text content.",
-    schema: z.object({
-      filePath: z.string().describe("Path to the .pdf file."),
-    }),
-    func: readPdfDocument,
-  }),
-];
+// =============================================================================
+// AUTO-CATEGORIZE MCP TOOLS BY SERVER NAME
+// =============================================================================
 
-// --- SLACK TOOLS (Write-Only Announcements) ---
-const slackTools = [
-  new DynamicStructuredTool({
-    name: "send_slack_message",
-    description: "Send a simple message to a Slack channel. Use this to notify the team about updates, fixes, or announcements.",
-    schema: z.object({
-      channel: z.string().optional().describe("Channel name (e.g., 'dev-team' or '#dev-team'). Uses default channel if not specified."),
-      message: z.string().describe("The message to send to the channel."),
-    }),
-    func: sendSlackMessage,
-  }),
-  new DynamicStructuredTool({
-    name: "send_slack_announcement",
-    description: "Send a formatted announcement to Slack with title, body, and optional footer. Use for structured updates like deployments or releases.",
-    schema: z.object({
-      channel: z.string().optional().describe("Channel name. Uses default channel if not specified."),
-      title: z.string().describe("Headline of the announcement."),
-      body: z.string().describe("Main content of the announcement. Supports Slack markdown."),
-      footer: z.string().optional().describe("Optional footer text."),
-      type: z.enum(['info', 'success', 'warning', 'error']).optional().describe("Type of announcement for visual styling."),
-    }),
-    func: sendSlackAnnouncement,
-  }),
-  new DynamicStructuredTool({
-    name: "send_slack_link",
-    description: "Share a link in Slack with optional context. Perfect for sharing Jira tickets, GitHub PRs, or documentation.",
-    schema: z.object({
-      channel: z.string().optional().describe("Channel name. Uses default channel if not specified."),
-      url: z.string().describe("The URL to share."),
-      context: z.string().optional().describe("Optional message to accompany the link."),
-    }),
-    func: sendSlackLink,
-  }),
-];
+// Each MCP tool has a .metadata.serverName that matches the key in mcp-config.json
+// We map server names to our Traffic Cop categories:
+const SERVER_TO_CATEGORIES = {
+  github:     ['github_read', 'github_write'],
+  slack:      ['slack'],
+  filesystem: ['files'],
+  figma:      ['figma'],
+  jira:       ['jira_read', 'jira_write'],
+  calendar:   ['calendar'],
+};
 
-// --- IMAGE TOOLS ---
-const imageTools = [
-  new DynamicStructuredTool({
-    name: "generate_image_nano_banana",
-    description: "Generate an image from a text description using Google's Nano Banana (Gemini 2.5 Flash Image). Use this when the user asks to create, generate, draw, design, or visualise an image, picture, illustration, graphic, logo, or artwork. Returns the local URL path of the generated image.",
-    schema: z.object({
-      prompt: z.string().describe("REQUIRED: A detailed description of the image to generate. Be as descriptive as possible for best results."),
-      aspectRatio: z.enum(['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']).optional().describe("Aspect ratio. '1:1' (square), '9:16' (portrait/phone), '16:9' (landscape/widescreen), '3:2' (photo), etc. Default is '1:1'."),
-    }),
-    func: generateImage,
-  }),
-];
+// Build category -> tool[] map from MCP tools
+const mcpToolsByCategory = {};
+for (const tool of mcpTools) {
+  // Use the tag we set during connection
+  const serverName = tool._mcpServerName || tool.metadata?.serverName || '';
+  const categories = SERVER_TO_CATEGORIES[serverName] || [];
+  
+  if (categories.length === 0) {
+    console.warn(`[MCP] Tool "${tool.name}" from server "${serverName}" has no category mapping — adding to all categories for that server.`);
+  }
+  
+  for (const cat of categories) {
+    if (!mcpToolsByCategory[cat]) mcpToolsByCategory[cat] = [];
+    mcpToolsByCategory[cat].push(tool);
+  }
+}
 
-// Map categories to their tool arrays
+// Log what we discovered
+for (const [cat, tools] of Object.entries(mcpToolsByCategory)) {
+  console.log(`[MCP] Category "${cat}": ${tools.map(t => t.name).join(', ')}`);
+}
+
+// Map categories to their tool arrays (MCP + custom)
 const toolsByCategory = {
-  jira_read: jiraReadTools,
-  jira_write: jiraWriteTools,
-  github_read: githubReadTools,
-  github_write: githubWriteTools,
-  system: systemTools,
-  figma: figmaTools,
-  audio: audioTools,
-  calendar: calendarTools,
-  files: fileTools,
-  slack: slackTools,
-  image: imageTools,
-  general: [], // No tools needed for general conversation
+  jira_read:    [...(mcpToolsByCategory.jira_read || []), ...jiraReadTools],
+  jira_write:   [...(mcpToolsByCategory.jira_write || []), ...jiraWriteTools],
+  github_read:  mcpToolsByCategory.github_read  || [],
+  github_write: mcpToolsByCategory.github_write || [],
+  system:       systemTools,
+  figma:        mcpToolsByCategory.figma        || [],
+  audio:        audioTools,
+  calendar:     [...(mcpToolsByCategory.calendar || []), ...calendarTools],
+  files:        mcpToolsByCategory.files        || [],
+  slack:        [...(mcpToolsByCategory.slack || []), ...slackCustomTools],
+  image:        imageTools,
+  general:      [], // No tools needed for general conversation
 };
 
 // All tools combined (for fallback or multi-category queries)
-const allTools = [...jiraTools, ...githubTools, ...systemTools, ...figmaTools, ...audioTools, ...calendarTools, ...fileTools, ...slackTools, ...imageTools];
+const allTools = [...mcpTools, ...systemTools, ...audioTools, ...imageTools, ...jiraReadTools, ...jiraWriteTools, ...calendarTools, ...slackCustomTools];
 
 // =============================================================================
 // SEMANTIC CLASSIFIER (The Traffic Cop)
@@ -535,14 +459,17 @@ const KEYWORD_MAP = {
         'layer', 'canvas', 'prototype', 'comment' 
     ],
     system: [
-        'open', 'launch', 'run command', 'terminal', 'cpu', 'memory', 'status'
+        'open app', 'open application', 'launch', 'run command', 'terminal', 'cpu usage',
+        'memory usage', 'system status', 'disk space', 'battery'
     ],
     audio: [
         'transcribe', 'speech', 'voice', 'audio', 'speak'
     ],
     calendar: [
         'schedule', 'meeting', 'appointment', 'calendar', 'event', 'free time',
-        'availability', 'busy', 'remind', 'reminder', 'book', 'block time'
+        'availability', 'busy', 'remind', 'reminder', 'book', 'block time',
+        'what time', 'current time', 'what day', 'today\'s date', 'what date',
+        'tomorrow', 'yesterday', 'next week', 'this week'
     ],
     files: [
         'download', 'downloaded', 'document', 'pdf', 'docx', 'word doc', 'file',
@@ -579,10 +506,10 @@ async function classifyIntent(userMessage, chatHistory = []) {
         }
     }
 
-    // 2. Check fallback keywords - if found, add BOTH read and write for that service
+    // 2. ALWAYS check fallback keywords (even if fast-pass found something)
+    // This ensures "open jira tickets" detects jira, not just system
     for (const [service, keywords] of Object.entries(FALLBACK_KEYWORD_MAP)) {
-        if (keywords.some(k => lowerMsg.includes(k)) && detectedCategories.size === 0) {
-            // Add both read and write tools for ambiguous queries
+        if (keywords.some(k => lowerMsg.includes(k))) {
             detectedCategories.add(`${service}_read`);
             detectedCategories.add(`${service}_write`);
         }
@@ -792,9 +719,10 @@ async function processWithSemanticRouting(input) {
     if (selectedTools.length === 0) {
         console.log("[Traffic Cop] General conversation - using direct LLM call");
         
+        // getSystemPrompt() already returns a SystemMessage — don't double-wrap
         const systemPrompt = getSystemPrompt();
         const messages = [
-            new SystemMessage(systemPrompt),
+            systemPrompt,
             ...history,
             new HumanMessage(userQuery)
         ];
@@ -852,9 +780,10 @@ export async function* streamWithSemanticRouting(userQuery, sessionId) {
     if (selectedTools.length === 0) {
         console.log("[Traffic Cop] General conversation - using direct LLM call");
         
+        // getSystemPrompt() already returns a SystemMessage — don't double-wrap
         const systemPrompt = getSystemPrompt();
         const messages = [
-            new SystemMessage(systemPrompt),
+            systemPrompt,
             ...history,
             new HumanMessage(userQuery)
         ];
