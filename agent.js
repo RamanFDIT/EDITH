@@ -1,5 +1,6 @@
 ﻿import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-// import { ChatOllama } from "@langchain/ollama";
+import { ChatVertexAI } from "@langchain/google-vertexai";
+import { ChatOllama } from "@langchain/ollama";
 import fs from 'fs';
 import path from 'path';
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
@@ -9,105 +10,107 @@ import { BaseListChatMessageHistory } from "@langchain/core/chat_history";
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import "./envConfig.js";
-import { MultiServerMCPClient } from "@langchain/mcp-adapters";
 
-// --- MCP replaces: githubTool, figmaTool, fileTool, slackTool ---
-// Custom tools without MCP equivalents are imported directly:
 import { EDITH_SYSTEM_PROMPT, getSystemPrompt } from "./systemPrompt.js";
 import { getSystemStatus, executeSystemCommand, openApplication } from "./systemTool.js";
-import { transcribeAudio, generateSpeech } from "./audioTool.js";
 import { generateImage } from "./imageTool.js";
-// No MCP server configured for Jira, Calendar & Slack — keep as custom tools:
 import { getJiraIssues, createJiraIssue, updateJiraIssue, deleteJiraIssue, createJiraProject } from "./jiraTool.js";
 import { getCalendarEvents, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent, findFreeTime } from "./calendarTool.js";
 import { sendSlackMessage, sendSlackAnnouncement, sendSlackLink } from "./slackTool.js";
-
-
-const googleApiKey = process.env.GOOGLE_API_KEY;
-if (!googleApiKey) throw new Error("GOOGLE_API_KEY not found.");
-
-// --- MAIN LLM (for agent execution) ---
-const llm = new ChatGoogleGenerativeAI({
-  apiKey: googleApiKey,
-  model: "gemini-3-flash-preview", 
-});
-
-// --- CLASSIFIER LLM (small, fast model for intent classification) ---
-const classifierLlm = new ChatGoogleGenerativeAI({
-  apiKey: googleApiKey,
-  model: "gemini-2.0-flash-lite",  // Fast, lightweight model for classification
-  temperature: 0, // Deterministic
-});
-
-console.log(" E.D.I.T.H. Online (Gemini 3 Flash) - Semantic Classification Enabled.");
+import { createRepository, getRepoIssues, createRepoIssue, listCommits, listPullRequests, getPullRequest, getCommit, getRepoChecks } from "./githubTool.js";
+import { getFigmaFileStructure, getFigmaComments, postFigmaComment } from "./figmaTool.js";
+import { readFile, listDirectory, getLatestFile } from "./fileTool.js";
 
 // =============================================================================
-// MCP CLIENT INITIALIZATION
+// LLM PROVIDER SELECTION: Gemini (cloud) or Ollama (local, zero API keys)
 // =============================================================================
 
-// Load MCP server config (maps server names -> stdio commands)
-const mcpConfigPath = path.join(process.cwd(), 'mcp-config.json');
-const mcpConfig = JSON.parse(fs.readFileSync(mcpConfigPath, 'utf-8'));
+const LLM_PROVIDER = (process.env.LLM_PROVIDER || 'gemini').toLowerCase();
 
-// Connect to each MCP server individually so one failure doesn't kill the app
-const mcpClients = {};   // name -> MultiServerMCPClient (one per server)
-let mcpTools = [];
+let llm;
+let classifierLlm;
 
-for (const [name, srv] of Object.entries(mcpConfig.servers)) {
-  // Merge process.env with any env vars defined in mcp-config.json
-  // This allows the UI settings (which populate process.env) to override hardcoded values
-  const mergedEnv = { ...(srv.env || {}), ...process.env };
+if (LLM_PROVIDER === 'ollama') {
+  // --- OLLAMA: Fully local, zero API keys required ---
+  const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+  const ollamaModel = process.env.OLLAMA_MODEL || 'llama3.2';
 
-  // Specifically map UI config keys to MCP expected keys if they differ
-  if (name === 'github' && process.env.GITHUB_PAT) {
-    mergedEnv.GITHUB_PERSONAL_ACCESS_TOKEN = process.env.GITHUB_PAT;
-  }
-  if (name === 'slack' && process.env.SLACK_BOT_TOKEN) {
-    mergedEnv.SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
-    mergedEnv.SLACK_TEAM_ID = process.env.SLACK_TEAM_ID;
-  }
-  if (name === 'figma' && process.env.FIGMA_TOKEN) {
-    mergedEnv.FIGMA_API_KEY = process.env.FIGMA_TOKEN;
-  }
+  llm = new ChatOllama({
+    baseUrl: ollamaBaseUrl,
+    model: ollamaModel,
+  });
 
-  const singleConfig = {
-    [name]: {
-      transport: "stdio",
-      command: srv.command,
-      args: srv.args || [],
-      env: mergedEnv,
-    },
-  };
+  // Use the same local model for classification (or a smaller one if available)
+  classifierLlm = new ChatOllama({
+    baseUrl: ollamaBaseUrl,
+    model: ollamaModel,
+    temperature: 0,
+  });
 
-  try {
-    const client = new MultiServerMCPClient(singleConfig);
-    const tools = await client.getTools();
-    // Tag each tool with the server it came from (for categorization)
-    for (const tool of tools) {
-      tool._mcpServerName = name;
-    }
-    mcpClients[name] = client;
-    mcpTools.push(...tools);
-    console.log(`[MCP] ✅ "${name}" connected — ${tools.length} tools: ${tools.map(t => t.name).join(', ')}`);
-  } catch (err) {
-    console.warn(`[MCP] ⚠️  "${name}" FAILED to connect: ${err.message}`);
-    console.warn(`[MCP]    Skipping "${name}" — its tools will not be available this session.`);
-  }
-}
+  console.log(` E.D.I.T.H. Online (Ollama: ${ollamaModel}) - LOCAL MODE, Zero API Keys.`);
+} else if (LLM_PROVIDER === 'gemini' && process.env.GOOGLE_VERTEX_AI_OAUTH === 'true' && process.env.GOOGLE_REFRESH_TOKEN) {
+  // --- VERTEX AI: OAuth 2.0 (User Consent Flow) ---
+  // Uses the Google OAuth refresh token instead of an API key.
+  // Requires: Vertex AI API enabled in GCP, GOOGLE_CLOUD_PROJECT set.
+  const gcpProject = process.env.GOOGLE_CLOUD_PROJECT;
+  const gcpLocation = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
 
-console.log(`[MCP] Loaded ${mcpTools.length} total tools from ${Object.keys(mcpClients).length}/${Object.keys(mcpConfig.servers).length} MCP servers.`);
-
-// Unified close helper (used by server.js shutdown)
-export const mcpClient = {
-  async close() {
-    await Promise.allSettled(
-      Object.values(mcpClients).map(c => c.close())
+  if (!gcpProject) {
+    throw new Error(
+      "GOOGLE_CLOUD_PROJECT not set. Required for Vertex AI OAuth mode. " +
+      "Set it in .env to your GCP project ID (e.g., 'my-edith-project-12345')."
     );
   }
-};
+
+  const vertexAuthOptions = {
+    credentials: {
+      type: 'authorized_user',
+      client_id: process.env.OAUTH_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.OAUTH_GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET,
+      refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
+    },
+    scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+  };
+
+  llm = new ChatVertexAI({
+    model: "gemini-2.5-flash-preview-05-20",
+    project: gcpProject,
+    location: gcpLocation,
+    authOptions: vertexAuthOptions,
+  });
+
+  classifierLlm = new ChatVertexAI({
+    model: "gemini-2.0-flash-lite",
+    project: gcpProject,
+    location: gcpLocation,
+    temperature: 0,
+    authOptions: vertexAuthOptions,
+  });
+
+  console.log(` E.D.I.T.H. Online (Vertex AI OAuth: gemini-2.5-flash) - Project: ${gcpProject}, Region: ${gcpLocation}`);
+} else {
+  // --- GEMINI: Cloud-based (requires GOOGLE_API_KEY) ---
+  const googleApiKey = process.env.GOOGLE_API_KEY;
+  if (!googleApiKey) throw new Error("GOOGLE_API_KEY not found. Set it in .env or switch to Ollama (LLM_PROVIDER=ollama) for zero-key mode.");
+
+  llm = new ChatGoogleGenerativeAI({
+    apiKey: googleApiKey,
+    model: "gemini-3-flash-preview",
+  });
+
+  classifierLlm = new ChatGoogleGenerativeAI({
+    apiKey: googleApiKey,
+    model: "gemini-2.0-flash-lite",
+    temperature: 0,
+  });
+
+  console.log(" E.D.I.T.H. Online (Gemini 3 Flash) - Semantic Classification Enabled.");
+}
+
+
 
 // =============================================================================
-// CUSTOM TOOL DEFINITIONS (no MCP equivalent)
+// CUSTOM TOOL DEFINITIONS
 // =============================================================================
 
 const systemTools = [
@@ -136,26 +139,6 @@ const systemTools = [
   }),
 ];
 
-const audioTools = [
-  new DynamicStructuredTool({
-    name: "transcribe_audio_whisper",
-    description: "Transcribe an audio file to text using OpenAI Whisper. Requires a valid file path.",
-    schema: z.object({
-        filePath: z.string().describe("Absolute path to the audio file (mp3, wav, m4a)."),
-    }),
-    func: transcribeAudio,
-  }),
-  new DynamicStructuredTool({
-    name: "generate_speech_elevenlabs",
-    description: "Generate spoken audio from text using ElevenLabs. Returns the path to the saved mp3 file.",
-    schema: z.object({
-        text: z.string().describe("The text to speak."),
-        voiceId: z.string().optional().describe("Optional ElevenLabs Voice ID."),
-    }),
-    func: generateSpeech,
-  }),
-];
-
 const imageTools = [
   new DynamicStructuredTool({
     name: "generate_image_nano_banana",
@@ -168,7 +151,7 @@ const imageTools = [
   }),
 ];
 
-// --- JIRA TOOLS (custom — no MCP server configured) ---
+// --- JIRA TOOLS ---
 const jiraReadTools = [
   new DynamicStructuredTool({
     name: "search_jira_issues",
@@ -230,7 +213,7 @@ const jiraWriteTools = [
   }),
 ];
 
-// --- SLACK TOOLS (custom — fallback when MCP Slack server is unavailable) ---
+// --- SLACK TOOLS ---
 const slackCustomTools = [
   new DynamicStructuredTool({
     name: "send_slack_message",
@@ -265,7 +248,7 @@ const slackCustomTools = [
   }),
 ];
 
-// --- CALENDAR TOOLS (custom — no MCP server configured) ---
+// --- CALENDAR TOOLS ---
 const calendarTools = [
   new DynamicStructuredTool({
     name: "get_calendar_events",
@@ -324,61 +307,175 @@ const calendarTools = [
   }),
 ];
 
+// --- GITHUB TOOLS (custom) ---
+const githubReadTools = [
+  new DynamicStructuredTool({
+    name: "get_repo_issues",
+    description: "List issues for a GitHub repository. Requires owner and repo name.",
+    schema: z.object({
+      owner: z.string().describe("Repository owner (e.g., 'octocat')."),
+      repo: z.string().describe("Repository name (e.g., 'Hello-World')."),
+    }),
+    func: getRepoIssues,
+  }),
+  new DynamicStructuredTool({
+    name: "list_commits",
+    description: "List recent commits for a GitHub repository.",
+    schema: z.object({
+      owner: z.string().describe("Repository owner."),
+      repo: z.string().describe("Repository name."),
+      limit: z.number().optional().describe("Number of commits to return. Default 5."),
+    }),
+    func: listCommits,
+  }),
+  new DynamicStructuredTool({
+    name: "list_pull_requests",
+    description: "List pull requests for a GitHub repository.",
+    schema: z.object({
+      owner: z.string().describe("Repository owner."),
+      repo: z.string().describe("Repository name."),
+      state: z.string().optional().describe("PR state: 'open', 'closed', or 'all'. Default 'open'."),
+    }),
+    func: listPullRequests,
+  }),
+  new DynamicStructuredTool({
+    name: "get_pull_request",
+    description: "Get details of a specific pull request.",
+    schema: z.object({
+      owner: z.string().describe("Repository owner."),
+      repo: z.string().describe("Repository name."),
+      pullNumber: z.number().describe("The pull request number."),
+    }),
+    func: getPullRequest,
+  }),
+  new DynamicStructuredTool({
+    name: "get_commit",
+    description: "Get details of a specific commit by SHA.",
+    schema: z.object({
+      owner: z.string().describe("Repository owner."),
+      repo: z.string().describe("Repository name."),
+      sha: z.string().describe("The commit SHA."),
+    }),
+    func: getCommit,
+  }),
+  new DynamicStructuredTool({
+    name: "get_repo_checks",
+    description: "Get check runs for a specific git ref (branch, tag, or SHA).",
+    schema: z.object({
+      owner: z.string().describe("Repository owner."),
+      repo: z.string().describe("Repository name."),
+      ref: z.string().describe("Git ref (branch name, tag, or commit SHA)."),
+    }),
+    func: getRepoChecks,
+  }),
+];
+
+const githubWriteTools = [
+  new DynamicStructuredTool({
+    name: "create_repository",
+    description: "Create a new GitHub repository for the authenticated user.",
+    schema: z.object({
+      name: z.string().describe("Repository name."),
+      description: z.string().optional().describe("Repository description."),
+      isPrivate: z.boolean().optional().describe("Whether the repo should be private. Default false."),
+    }),
+    func: createRepository,
+  }),
+  new DynamicStructuredTool({
+    name: "create_repo_issue",
+    description: "Create a new issue on a GitHub repository.",
+    schema: z.object({
+      owner: z.string().describe("Repository owner."),
+      repo: z.string().describe("Repository name."),
+      title: z.string().describe("Issue title."),
+      body: z.string().optional().describe("Issue body/description."),
+    }),
+    func: createRepoIssue,
+  }),
+];
+
+// --- FIGMA TOOLS (custom) ---
+const figmaTools = [
+  new DynamicStructuredTool({
+    name: "get_figma_file_structure",
+    description: "Get the structure (pages and frames) of a Figma design file. Requires the file key from the Figma URL.",
+    schema: z.object({
+      fileKey: z.string().describe("The Figma file key (from the URL: figma.com/file/KEY/Name)."),
+    }),
+    func: getFigmaFileStructure,
+  }),
+  new DynamicStructuredTool({
+    name: "get_figma_comments",
+    description: "Get comments on a Figma file.",
+    schema: z.object({
+      fileKey: z.string().describe("The Figma file key."),
+    }),
+    func: getFigmaComments,
+  }),
+  new DynamicStructuredTool({
+    name: "post_figma_comment",
+    description: "Post a comment on a Figma file.",
+    schema: z.object({
+      fileKey: z.string().describe("The Figma file key."),
+      message: z.string().describe("The comment message to post."),
+      node_id: z.string().optional().describe("Optional node ID to attach the comment to a specific element."),
+    }),
+    func: postFigmaComment,
+  }),
+];
+
+// --- FILE TOOLS (custom) ---
+const fileTools = [
+  new DynamicStructuredTool({
+    name: "read_file",
+    description: "Smart file reader — auto-detects type (.pdf, .docx, .txt, .md, .json, etc.) and reads content. Use for any file reading request.",
+    schema: z.object({
+      filePath: z.string().describe("Path to the file. Supports absolute paths, ~/shortcuts, or relative paths."),
+    }),
+    func: readFile,
+  }),
+  new DynamicStructuredTool({
+    name: "list_directory",
+    description: "List files in a directory. Defaults to Downloads folder. Supports filtering and sorting.",
+    schema: z.object({
+      directoryPath: z.string().optional().describe("Directory path. Defaults to user's Downloads folder."),
+      filter: z.string().optional().describe("Filter by filename or extension (e.g., 'pdf', 'report')."),
+      sortBy: z.enum(['modified', 'name', 'size']).optional().describe("Sort order. Default 'modified'."),
+      limit: z.number().optional().describe("Max files to return. Default 20."),
+    }),
+    func: listDirectory,
+  }),
+  new DynamicStructuredTool({
+    name: "get_latest_file",
+    description: "Get the most recently modified file in a directory. Defaults to Downloads. Optionally filter by extension.",
+    schema: z.object({
+      directoryPath: z.string().optional().describe("Directory path. Defaults to Downloads."),
+      extension: z.string().optional().describe("Filter by file extension (e.g., 'pdf', 'docx')."),
+    }),
+    func: getLatestFile,
+  }),
+];
+
 // =============================================================================
-// AUTO-CATEGORIZE MCP TOOLS BY SERVER NAME
+// TOOL CATEGORY MAP
 // =============================================================================
 
-// Each MCP tool has a .metadata.serverName that matches the key in mcp-config.json
-// We map server names to our Traffic Cop categories:
-const SERVER_TO_CATEGORIES = {
-  github:     ['github_read', 'github_write'],
-  slack:      ['slack'],
-  filesystem: ['files'],
-  figma:      ['figma'],
-  jira:       ['jira_read', 'jira_write'],
-  calendar:   ['calendar'],
-};
-
-// Build category -> tool[] map from MCP tools
-const mcpToolsByCategory = {};
-for (const tool of mcpTools) {
-  // Use the tag we set during connection
-  const serverName = tool._mcpServerName || tool.metadata?.serverName || '';
-  const categories = SERVER_TO_CATEGORIES[serverName] || [];
-  
-  if (categories.length === 0) {
-    console.warn(`[MCP] Tool "${tool.name}" from server "${serverName}" has no category mapping — adding to all categories for that server.`);
-  }
-  
-  for (const cat of categories) {
-    if (!mcpToolsByCategory[cat]) mcpToolsByCategory[cat] = [];
-    mcpToolsByCategory[cat].push(tool);
-  }
-}
-
-// Log what we discovered
-for (const [cat, tools] of Object.entries(mcpToolsByCategory)) {
-  console.log(`[MCP] Category "${cat}": ${tools.map(t => t.name).join(', ')}`);
-}
-
-// Map categories to their tool arrays (MCP + custom)
 const toolsByCategory = {
-  jira_read:    [...(mcpToolsByCategory.jira_read || []), ...jiraReadTools],
-  jira_write:   [...(mcpToolsByCategory.jira_write || []), ...jiraWriteTools],
-  github_read:  mcpToolsByCategory.github_read  || [],
-  github_write: mcpToolsByCategory.github_write || [],
+  jira_read:    jiraReadTools,
+  jira_write:   jiraWriteTools,
+  github_read:  githubReadTools,
+  github_write: githubWriteTools,
   system:       systemTools,
-  figma:        mcpToolsByCategory.figma        || [],
-  audio:        audioTools,
-  calendar:     [...(mcpToolsByCategory.calendar || []), ...calendarTools],
-  files:        mcpToolsByCategory.files        || [],
-  slack:        [...(mcpToolsByCategory.slack || []), ...slackCustomTools],
+  figma:        figmaTools,
+  calendar:     calendarTools,
+  files:        fileTools,
+  slack:        slackCustomTools,
   image:        imageTools,
-  general:      [], // No tools needed for general conversation
+  general:      [],
 };
 
 // All tools combined (for fallback or multi-category queries)
-const allTools = [...mcpTools, ...systemTools, ...audioTools, ...imageTools, ...jiraReadTools, ...jiraWriteTools, ...calendarTools, ...slackCustomTools];
+const allTools = [...systemTools, ...imageTools, ...jiraReadTools, ...jiraWriteTools, ...githubReadTools, ...githubWriteTools, ...figmaTools, ...fileTools, ...calendarTools, ...slackCustomTools];
 
 // =============================================================================
 // SEMANTIC CLASSIFIER (The Traffic Cop)
@@ -394,7 +491,6 @@ CATEGORIES:
 - github_write: Creating repos, issues, or any write operation on GitHub
 - figma: Anything about designs, mockups, UI/UX, wireframes, Figma files, design comments
 - system: Anything about opening apps, running commands, terminal, system status, launching programs
-- audio: Anything about transcription, text-to-speech, voice, audio files, speaking
 - calendar: Anything about scheduling, meetings, appointments, events, calendar, free time, availability, reminders
 - files: Reading documents, files, PDFs, Word docs, downloads, listing files, latest download, file contents, summarizing documents
 - slack: Sending messages to Slack, posting announcements, notifying team, messaging channels, team notifications
@@ -462,13 +558,9 @@ const KEYWORD_MAP = {
         'open app', 'open application', 'launch', 'run command', 'terminal', 'cpu usage',
         'memory usage', 'system status', 'disk space', 'battery'
     ],
-    audio: [
-        'transcribe', 'speech', 'voice', 'audio', 'speak'
-    ],
     calendar: [
         'schedule', 'meeting', 'appointment', 'calendar', 'event', 'free time',
         'availability', 'busy', 'remind', 'reminder', 'book', 'block time',
-        'what time', 'current time', 'what day', 'today\'s date', 'what date',
         'tomorrow', 'yesterday', 'next week', 'this week'
     ],
     files: [
@@ -485,7 +577,10 @@ const KEYWORD_MAP = {
         'generate image', 'create image', 'draw', 'make a picture', 'generate a picture',
         'create a logo', 'make an image', 'illustration', 'visualize', 'visualise',
         'generate art', 'create art', 'make art', 'dall-e', 'dalle', 'artwork',
-        'render an image', 'design a logo', 'generate a logo', 'picture of'
+        'render an image', 'design a logo', 'generate a logo', 'picture of',
+        'create photo', 'make picture', 'generate photo', 'make a photo',
+        'generate a photo', 'create a picture', 'create a drawing', 'sketch',
+        'render a', 'paint', 'create graphic', 'make graphic'
     ]
 };
 
@@ -590,6 +685,20 @@ function getToolsForCategories(categories) {
 // =============================================================================
 // CHAT HISTORY PERSISTENCE
 // =============================================================================
+
+// Maximum number of recent messages to pass to the LLM/agent.
+// Prevents the model from confusing old tool results with the current request.
+const MAX_HISTORY_MESSAGES = 30;
+
+/**
+ * Trim history to the last N messages to avoid context pollution.
+ * Old tool-call confirmations can cause the LLM to believe a new request
+ * has already been completed ("hallucination via history").
+ */
+function trimHistory(messages) {
+    if (messages.length <= MAX_HISTORY_MESSAGES) return messages;
+    return messages.slice(-MAX_HISTORY_MESSAGES);
+}
 
 const HISTORY_FILE_PATH = path.join(process.cwd(), "chat_history.json");
 
@@ -705,7 +814,7 @@ function getOrCreateAgent(tools) {
 // The main processing function that classifies intent and routes to appropriate agent
 async function processWithSemanticRouting(input) {
     const { input: userQuery, chat_history } = input;
-    const history = Array.isArray(chat_history) ? chat_history : [];
+    const history = trimHistory(Array.isArray(chat_history) ? chat_history : []);
     
     // Step 1: Classify intent using the Traffic Cop (now with context)
     const categories = await classifyIntent(userQuery, history);
@@ -745,7 +854,8 @@ async function processWithSemanticRouting(input) {
 // Streaming version for the server to use
 export async function* streamWithSemanticRouting(userQuery, sessionId) {
     const messageHistory = getMessageHistory(sessionId);
-    const history = await messageHistory.getMessages();
+    const fullHistory = await messageHistory.getMessages();
+    const history = trimHistory(fullHistory);
     
     // Step 1: Classify intent using the Traffic Cop (with conversation context)
     const categories = await classifyIntent(userQuery, history);

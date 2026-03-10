@@ -1,0 +1,14 @@
+@reference "../../index.css";
+
+.questionContainer {
+    @apply w-150 h-auto flex items-center justify-between cursor-pointer;
+}
+.label {
+    @apply text-textPrimary font-fontBody text-2xl;
+}
+.checkbox{
+    @apply w-7 h-7 accent-bgCTA cursor-pointer;
+}
+.checkboxDisabled{
+    @apply w-7 h-7 accent-bgHover text-bgHover;
+}

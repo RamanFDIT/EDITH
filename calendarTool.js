@@ -1,31 +1,43 @@
 import { google } from 'googleapis';
 import './envConfig.js';
 
-// Load credentials from environment
-const CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || '').trim();
-const CLIENT_SECRET = (process.env.GOOGLE_CLIENT_SECRET || '').trim();
-const REFRESH_TOKEN = (process.env.GOOGLE_REFRESH_TOKEN || '').trim();
+// ---------------------------------------------------------------------------
+// Lazy-initialized OAuth2 client.
+// Credentials are read from process.env at call-time so that tokens injected
+// by oauthService.js (after the user clicks "Connect → Google") are picked up
+// without restarting the app.
+// ---------------------------------------------------------------------------
+let _oauth2Client = null;
+let _calendar = null;
 
-// Initialize OAuth2 client
-const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET);
+function getCalendarClient() {
+    const clientId     = (process.env.GOOGLE_CLIENT_ID     || '').trim();
+    const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || '').trim();
+    const refreshToken = (process.env.GOOGLE_REFRESH_TOKEN || '').trim();
 
-// Set the refresh token - googleapis will auto-refresh access tokens
-oauth2Client.setCredentials({
-    refresh_token: REFRESH_TOKEN
-});
-
-// Create calendar instance
-const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-
-/**
- * Check if calendar is configured
- */
-function checkConfig() {
-    if (!CLIENT_ID || !CLIENT_SECRET || !REFRESH_TOKEN) {
+    if (!clientId || !clientSecret || !refreshToken) {
         throw new Error(
-            'Missing Google Calendar credentials. Please set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN in your .env file. Run "node getGoogleToken.js" to get the refresh token.'
+            'Google Calendar is not connected. Please click "Connect" next to Google in Settings, or set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN in your .env file.'
         );
     }
+
+    // Rebuild the client whenever the refresh token changes (e.g. after OAuth)
+    if (!_oauth2Client || _oauth2Client._refreshToken !== refreshToken) {
+        _oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+        _oauth2Client.setCredentials({ refresh_token: refreshToken });
+        _oauth2Client._refreshToken = refreshToken;          // stash for change-detection
+        _calendar = google.calendar({ version: 'v3', auth: _oauth2Client });
+    }
+
+    return _calendar;
+}
+
+/**
+ * Check if calendar is configured (kept for call-sites that reference it)
+ */
+function checkConfig() {
+    // getCalendarClient() throws if credentials are missing — call it to validate
+    getCalendarClient();
 }
 
 // --- TOOL 1: GET UPCOMING EVENTS ---
@@ -41,7 +53,8 @@ export async function getCalendarEvents(input) {
     } = input;
 
     try {
-        const response = await calendar.events.list({
+        const cal = getCalendarClient();
+        const response = await cal.events.list({
             calendarId: calendarId,
             timeMin: timeMin || new Date().toISOString(),
             timeMax: timeMax || undefined,
@@ -114,7 +127,8 @@ export async function createCalendarEvent(input) {
             event.attendees = attendees.map(email => ({ email }));
         }
 
-        const response = await calendar.events.insert({
+        const cal = getCalendarClient();
+        const response = await cal.events.insert({
             calendarId: calendarId,
             resource: event,
             sendUpdates: attendees ? 'all' : 'none',
@@ -158,7 +172,8 @@ export async function updateCalendarEvent(input) {
 
     try {
         // First get the existing event
-        const existingEvent = await calendar.events.get({
+        const cal = getCalendarClient();
+        const existingEvent = await cal.events.get({
             calendarId: calendarId,
             eventId: eventId,
         });
@@ -178,7 +193,7 @@ export async function updateCalendarEvent(input) {
             updatedEvent.end = { dateTime: endDateTime, timeZone };
         }
 
-        const response = await calendar.events.update({
+        const response = await cal.events.update({
             calendarId: calendarId,
             eventId: eventId,
             resource: updatedEvent,
@@ -210,7 +225,8 @@ export async function deleteCalendarEvent(input) {
     }
 
     try {
-        await calendar.events.delete({
+        const cal = getCalendarClient();
+        await cal.events.delete({
             calendarId: calendarId,
             eventId: eventId,
         });
@@ -241,7 +257,8 @@ export async function findFreeTime(input) {
     }
 
     try {
-        const response = await calendar.freebusy.query({
+        const cal = getCalendarClient();
+        const response = await cal.freebusy.query({
             resource: {
                 timeMin: timeMin,
                 timeMax: timeMax,

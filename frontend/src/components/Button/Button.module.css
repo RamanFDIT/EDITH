@@ -1,0 +1,14 @@
+@reference "../../index.css";
+
+.buttonPrimary {
+    @apply bg-bgCTA h-12 px-10 flex items-center justify-center text-2xl font-fontDisplay font-semibold text-textCTA hover:cursor-pointer hover:bg-bgHover hover:scale-105 hover:text-bgCTA transition-all ease-out active:scale-100;
+}
+.buttonDisabled {
+    @apply bg-bgHover h-12 px-10 flex items-center justify-center text-2xl font-fontDisplay font-semibold text-textPrimary;
+}
+.buttonConnected {
+    @apply bg-[#003D00] text-colorSuccess h-12 px-10 flex items-center justify-center text-2xl font-fontDisplay font-semibold;
+}
+.buttonConnected {
+    @apply bg-[#1D0000] text-colorFail h-12 px-10 flex items-center justify-center text-2xl font-fontDisplay font-semibold;
+}

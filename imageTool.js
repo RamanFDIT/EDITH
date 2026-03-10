@@ -27,6 +27,14 @@ export async function generateImage(args) {
             },
         });
 
+        // Validate response structure
+        const candidate = response.candidates?.[0];
+        if (!candidate || !candidate.content?.parts?.length) {
+            const reason = candidate?.finishReason || 'unknown';
+            console.error(`🎨 Image generation returned no content. Finish reason: ${reason}`);
+            return `Image generation failed — the model returned no content (reason: ${reason}). The prompt may have been blocked by safety filters. Try rephrasing.`;
+        }
+
         // Save to temp/
         const tempDir = path.join(process.cwd(), 'temp');
         if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
@@ -34,15 +42,24 @@ export async function generateImage(args) {
         const filename = `image-${Date.now()}.png`;
         const filePath = path.join(tempDir, filename);
         let captionText = "";
+        let imageSaved = false;
 
-        for (const part of response.candidates[0].content.parts) {
+        for (const part of candidate.content.parts) {
             if (part.text) {
                 captionText += part.text;
             } else if (part.inlineData) {
                 const buffer = Buffer.from(part.inlineData.data, "base64");
                 fs.writeFileSync(filePath, buffer);
+                imageSaved = true;
                 console.log(`🎨 Image saved: ${filePath}`);
             }
+        }
+
+        if (!imageSaved) {
+            console.error("🎨 Model responded but did not produce an image.");
+            return captionText
+                ? `The model did not generate an image, but responded with: ${captionText}`
+                : `Image generation failed — the model did not return any image data. Try a more descriptive prompt.`;
         }
 
         return JSON.stringify({

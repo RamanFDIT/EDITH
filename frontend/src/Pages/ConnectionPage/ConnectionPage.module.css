@@ -1,0 +1,14 @@
+@reference "../../index.css";
+
+.logo {
+    @apply text-bgCTA w-43 h-auto;
+}
+.container {
+    @apply w-full max-w-200 h-screen flex items-center justify-center flex-col gap-10;
+}
+.mainSection{
+    @apply w-screen h-screen bg-bgPrimary flex items-center justify-center;
+}
+.container{
+    @apply w-full h-full flex flex-col items-start;
+}

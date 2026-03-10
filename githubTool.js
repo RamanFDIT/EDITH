@@ -1,18 +1,22 @@
 import fetch from 'node-fetch';
 import './envConfig.js';
 
-// Check both variable names to ensure connection
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GITHUB_PAT;
+// Lazy credential helper — read from process.env at call-time so tokens
+// injected by oauthService.js or electron-store work without restarting.
+function getGitHubToken() {
+    return (process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || process.env.GITHUB_PERSONAL_ACCESS_TOKEN || '').trim();
+}
 
 // --- HELPER: Generic Fetcher ---
 async function githubFetch(url) {
-    if (!GITHUB_TOKEN) throw new Error('GitHub Token not found in .env');
+    const token = getGitHubToken();
+    if (!token) throw new Error('GitHub Token not found in .env');
     
     console.log(`🔍 Accessing GitHub: ${url}`);
     const response = await fetch(url, {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${GITHUB_TOKEN}`,
+        'Authorization': `Bearer ${token}`,
         'Accept': 'application/vnd.github.v3+json',
         'X-GitHub-Api-Version': '2022-11-28'
       }
@@ -29,14 +33,15 @@ export async function createRepository(args) {
     console.log("📝 GitHub Create Repo Invoked:", JSON.stringify(args));
     const { name, description, isPrivate } = args;
 
-    if (!GITHUB_TOKEN) throw new Error('GitHub Token not found.');
+    const token = getGitHubToken();
+    if (!token) throw new Error('GitHub Token not found.');
     if (!name) throw new Error('Repository name is required.');
 
     try {
         const response = await fetch('https://api.github.com/user/repos', {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                'Authorization': `Bearer ${token}`,
                 'Accept': 'application/vnd.github.v3+json',
                 'X-GitHub-Api-Version': '2022-11-28',
                 'Content-Type': 'application/json'
@@ -81,14 +86,15 @@ export async function createRepoIssue(args) {
     console.log("📝 GitHub Create Issue Invoked:", JSON.stringify(args));
     const { owner, repo, title, body } = args;
 
-    if (!GITHUB_TOKEN) throw new Error('GitHub Token not found.');
+    const token = getGitHubToken();
+    if (!token) throw new Error('GitHub Token not found.');
     if (!owner || !repo || !title) throw new Error('Owner, Repo, and Title are required.');
 
     try {
         const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                'Authorization': `Bearer ${token}`,
                 'Accept': 'application/vnd.github.v3+json',
                 'X-GitHub-Api-Version': '2022-11-28',
                 'Content-Type': 'application/json'

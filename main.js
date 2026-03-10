@@ -2,6 +2,11 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import store from './store.js';
+import './envConfig.js'; // Load .env BEFORE oauthService reads process.env
+import { startOAuthFlow, clearTokens, getConnectionStatus, populateAllEnvFromOAuth } from './oauthService.js';
+
+// Populate process.env from stored OAuth tokens BEFORE server starts
+populateAllEnvFromOAuth();
 
 // 1. IMPORT YOUR SERVER (This starts E.D.I.T.H.'s brain)
 import './server.js';
@@ -88,9 +93,34 @@ app.whenReady().then(() => {
     createSettingsWindow();
   });
 
-  ipcMain.handle('trigger-google-auth', () => {
-    // TODO: Implement Google Auth flow
-    console.log("Google Auth triggered from UI");
+  // --- OAuth2.0 Handlers ---
+  ipcMain.handle('oauth-connect', async (event, provider) => {
+    try {
+      const result = await startOAuthFlow(provider);
+      return { success: true, provider };
+    } catch (err) {
+      console.error(`[OAuth] Flow failed for ${provider}:`, err.message);
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('oauth-disconnect', (event, provider) => {
+    clearTokens(provider);
+    return { success: true, provider };
+  });
+
+  ipcMain.handle('oauth-status', () => {
+    return getConnectionStatus();
+  });
+
+  // Legacy handler — now routes through oauth-connect
+  ipcMain.handle('trigger-google-auth', async () => {
+    try {
+      await startOAuthFlow('google');
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
   });
 
   createWindow();

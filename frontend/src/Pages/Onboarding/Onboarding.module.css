@@ -1,0 +1,20 @@
+@reference "../../index.css";
+
+.logo {
+    @apply text-bgCTA w-43 h-auto;
+}
+.container {
+    @apply w-full max-w-200 h-screen flex items-center justify-center flex-col gap-10;
+}
+.mainSection{
+    @apply w-screen h-screen bg-bgPrimary flex items-center justify-center;
+}
+.questionContainer {
+    @apply w-full flex flex-col justify-center items-center gap-20;
+}
+.question {
+    @apply text-2xl font-fontBody w-full text-textPrimary font-semibold text-center;
+}
+.optionContainer {
+    @apply flex flex-col gap-5;
+}

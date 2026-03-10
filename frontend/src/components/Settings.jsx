@@ -1,29 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Key, Calendar, MessageSquare, Github, Figma, HardDrive, CheckCircle2, XCircle } from 'lucide-react';
+import { Save, Key, Calendar, MessageSquare, Github, Figma, HardDrive, CheckCircle2, XCircle, Plug, Unplug, Cpu, Wifi, WifiOff } from 'lucide-react';
 
 const Settings = () => {
   const [config, setConfig] = useState({
-    OPENAI_API_KEY: '',
+    LLM_PROVIDER: 'gemini',
+    OLLAMA_MODEL: 'llama3.2',
+    OLLAMA_BASE_URL: 'http://localhost:11434',
     GEMINI_API_KEY: '',
-    ELEVENLABS_API_KEY: '',
-    JIRA_API_TOKEN: '',
-    JIRA_EMAIL: '',
-    JIRA_DOMAIN: '',
-    SLACK_BOT_TOKEN: '',
-    SLACK_APP_TOKEN: '',
-    GITHUB_PERSONAL_ACCESS_TOKEN: '',
-    FIGMA_ACCESS_TOKEN: '',
-    GOOGLE_CLIENT_ID: '',
-    GOOGLE_CLIENT_SECRET: '',
-    GOOGLE_REFRESH_TOKEN: '',
+    GOOGLE_CLOUD_PROJECT: '',
+    GOOGLE_CLOUD_LOCATION: 'us-central1',
+  });
+
+  const [oauthStatus, setOauthStatus] = useState({
+    google: { connected: false },
+    github: { connected: false },
+    slack: { connected: false },
+    figma: { connected: false },
+    jira: { connected: false },
   });
 
   const [status, setStatus] = useState({ type: '', message: '' });
+  const [connecting, setConnecting] = useState('');
 
-  // In a real Electron app, we would load these from the backend
+  // Load config and OAuth status on mount
   useEffect(() => {
     if (window.electronAPI) {
-      window.electronAPI.getConfig().then(setConfig);
+      window.electronAPI.getConfig().then((cfg) => {
+        setConfig(prev => ({ ...prev, ...cfg }));
+      });
+      window.electronAPI.oauthStatus().then(setOauthStatus);
     }
   }, []);
 
@@ -36,25 +41,56 @@ const Settings = () => {
     try {
       setStatus({ type: 'info', message: 'Saving configuration...' });
       if (window.electronAPI) {
-        await window.electronAPI.saveConfig(config);
-      } else {
-        // Simulate network delay for dev
-        await new Promise(resolve => setTimeout(resolve, 800));
+        await window.electronAPI.saveConfig({
+          LLM_PROVIDER: config.LLM_PROVIDER,
+          OLLAMA_MODEL: config.OLLAMA_MODEL,
+          OLLAMA_BASE_URL: config.OLLAMA_BASE_URL,
+          GEMINI_API_KEY: config.GEMINI_API_KEY,
+          GOOGLE_CLOUD_PROJECT: config.GOOGLE_CLOUD_PROJECT,
+          GOOGLE_CLOUD_LOCATION: config.GOOGLE_CLOUD_LOCATION,
+        });
       }
-      
-      setStatus({ type: 'success', message: 'Configuration saved successfully! Restart E.D.I.T.H. to apply changes.' });
+      setStatus({ type: 'success', message: 'Configuration saved! Restart E.D.I.T.H. to apply LLM changes.' });
       setTimeout(() => setStatus({ type: '', message: '' }), 5000);
-    } catch (error) {
+    } catch {
       setStatus({ type: 'error', message: 'Failed to save configuration.' });
     }
   };
 
-  const handleGoogleAuth = async () => {
-    if (window.electronAPI) {
-      await window.electronAPI.triggerGoogleAuth();
-    } else {
-      alert("This would trigger the Google OAuth flow in the Electron backend.");
+  const handleOAuthConnect = async (provider) => {
+    if (!window.electronAPI) {
+      alert(`This would trigger the ${provider} OAuth flow in the Electron app.`);
+      return;
     }
+    setConnecting(provider);
+    try {
+      const result = await window.electronAPI.oauthConnect(provider);
+      if (result.success) {
+        setOauthStatus(prev => ({
+          ...prev,
+          [provider]: { connected: true, expired: false, hasRefreshToken: true },
+        }));
+        setStatus({ type: 'success', message: `Connected to ${provider}!` });
+      } else {
+        setStatus({ type: 'error', message: `Failed to connect ${provider}: ${result.error}` });
+      }
+    } catch (err) {
+      setStatus({ type: 'error', message: `OAuth error: ${err.message}` });
+    } finally {
+      setConnecting('');
+      setTimeout(() => setStatus({ type: '', message: '' }), 5000);
+    }
+  };
+
+  const handleOAuthDisconnect = async (provider) => {
+    if (!window.electronAPI) return;
+    await window.electronAPI.oauthDisconnect(provider);
+    setOauthStatus(prev => ({
+      ...prev,
+      [provider]: { connected: false, expired: true, hasRefreshToken: false },
+    }));
+    setStatus({ type: 'info', message: `Disconnected from ${provider}.` });
+    setTimeout(() => setStatus({ type: '', message: '' }), 3000);
   };
 
   const InputField = ({ label, name, type = "password", placeholder = "" }) => (
@@ -81,12 +117,62 @@ const Settings = () => {
     </div>
   );
 
+  const OAuthCard = ({ provider, label, icon: Icon, description, color = "blue" }) => {
+    const isConnected = oauthStatus[provider]?.connected;
+    const isConnecting = connecting === provider;
+    const colorMap = {
+      blue: 'bg-blue-600 hover:bg-blue-700',
+      purple: 'bg-purple-600 hover:bg-purple-700',
+      green: 'bg-green-600 hover:bg-green-700',
+      orange: 'bg-orange-600 hover:bg-orange-700',
+      red: 'bg-red-600 hover:bg-red-700',
+    };
+
+    return (
+      <div className={`flex items-center justify-between p-4 rounded-lg border ${
+        isConnected ? 'border-green-800 bg-green-950/30' : 'border-gray-700 bg-gray-800/50'
+      }`}>
+        <div className="flex items-center">
+          <Icon className={`w-5 h-5 mr-3 ${isConnected ? 'text-green-400' : 'text-gray-400'}`} />
+          <div>
+            <p className="text-white font-medium">{label}</p>
+            <p className="text-xs text-gray-400">{description}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {isConnected && (
+            <span className="flex items-center text-xs text-green-400 mr-2">
+              <Wifi className="w-3 h-3 mr-1" /> Connected
+            </span>
+          )}
+          {isConnected ? (
+            <button
+              onClick={() => handleOAuthDisconnect(provider)}
+              className="flex items-center bg-gray-700 hover:bg-red-800 text-gray-300 hover:text-white px-3 py-1.5 rounded-md text-sm transition-colors"
+            >
+              <Unplug className="w-3 h-3 mr-1" /> Disconnect
+            </button>
+          ) : (
+            <button
+              onClick={() => handleOAuthConnect(provider)}
+              disabled={isConnecting}
+              className={`flex items-center ${colorMap[color]} text-white px-3 py-1.5 rounded-md text-sm transition-colors disabled:opacity-50`}
+            >
+              <Plug className="w-3 h-3 mr-1" />
+              {isConnecting ? 'Connecting...' : 'Connect'}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="max-w-4xl mx-auto p-6">
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-3xl font-bold text-white">E.D.I.T.H. Settings</h1>
-          <p className="text-gray-400 mt-1">Manage your API keys and integrations</p>
+          <p className="text-gray-400 mt-1">Connect services with one click — no API keys required</p>
         </div>
         <button
           onClick={handleSave}
@@ -110,65 +196,124 @@ const Settings = () => {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* LEFT COLUMN */}
         <div>
-          <Section title="AI Models" icon={Key}>
-            <InputField label="OpenAI API Key" name="OPENAI_API_KEY" />
-            <InputField label="Gemini API Key" name="GEMINI_API_KEY" />
-            <InputField label="ElevenLabs API Key (Optional)" name="ELEVENLABS_API_KEY" />
-          </Section>
-
-          <Section title="Jira Integration" icon={CheckCircle2}>
-            <InputField label="Jira Domain (e.g., your-domain.atlassian.net)" name="JIRA_DOMAIN" type="text" />
-            <InputField label="Jira Email" name="JIRA_EMAIL" type="email" />
-            <InputField label="Jira API Token" name="JIRA_API_TOKEN" />
-          </Section>
-          
-          <Section title="Google Calendar" icon={Calendar}>
+          {/* LLM PROVIDER */}
+          <Section title="AI Engine" icon={Cpu}>
             <p className="text-sm text-gray-400 mb-4">
-              Connect your Google account to allow E.D.I.T.H. to manage your calendar events.
+              Choose between cloud AI (Gemini, requires API key) or local AI (Ollama, <strong className="text-green-400">zero keys needed</strong>).
             </p>
             <div className="mb-4">
-              <button 
-                onClick={handleGoogleAuth}
-                className="bg-white text-gray-900 hover:bg-gray-100 font-medium px-4 py-2 rounded-md transition-colors flex items-center"
-              >
-                <svg className="w-4 h-4 mr-2" viewBox="0 0 24 24">
-                  <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-                </svg>
-                Sign in with Google
-              </button>
+              <label className="block text-sm font-medium text-gray-300 mb-2">LLM Provider</label>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfig(prev => ({ ...prev, LLM_PROVIDER: 'gemini' }))}
+                  className={`flex-1 p-3 rounded-lg border text-center transition-colors ${
+                    config.LLM_PROVIDER === 'gemini'
+                      ? 'border-blue-500 bg-blue-950/50 text-blue-400'
+                      : 'border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600'
+                  }`}
+                >
+                  <Wifi className="w-5 h-5 mx-auto mb-1" />
+                  <p className="font-medium text-sm">Gemini</p>
+                  <p className="text-xs opacity-60">Cloud · Key or OAuth</p>
+                </button>
+                <button
+                  onClick={() => setConfig(prev => ({ ...prev, LLM_PROVIDER: 'ollama' }))}
+                  className={`flex-1 p-3 rounded-lg border text-center transition-colors ${
+                    config.LLM_PROVIDER === 'ollama'
+                      ? 'border-green-500 bg-green-950/50 text-green-400'
+                      : 'border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600'
+                  }`}
+                >
+                  <WifiOff className="w-5 h-5 mx-auto mb-1" />
+                  <p className="font-medium text-sm">Ollama</p>
+                  <p className="text-xs opacity-60">Local · Zero Keys</p>
+                </button>
+              </div>
             </div>
-            <div className="mt-4 pt-4 border-t border-gray-800">
-              <p className="text-xs text-gray-500 mb-2">Or enter credentials manually:</p>
-              <InputField label="Google Client ID" name="GOOGLE_CLIENT_ID" type="text" />
-              <InputField label="Google Client Secret" name="GOOGLE_CLIENT_SECRET" />
-              <InputField label="Google Refresh Token" name="GOOGLE_REFRESH_TOKEN" />
-            </div>
+
+            {config.LLM_PROVIDER === 'gemini' && (
+              <>
+                <p className="text-xs text-gray-400 mb-3">
+                  <strong className="text-blue-400">Option A:</strong> Paste an API key below. <br/>
+                  <strong className="text-green-400">Option B:</strong> Connect Google (right panel) + set a GCP Project below for <strong>OAuth-based Vertex AI</strong> (no API key needed).
+                </p>
+                <InputField label="Google API Key (fallback)" name="GEMINI_API_KEY" placeholder="AIza..." />
+                <div className="border-t border-gray-800 pt-3 mt-2">
+                  <p className="text-xs text-green-400 font-medium mb-2">Vertex AI OAuth Config</p>
+                  <InputField label="GCP Project ID" name="GOOGLE_CLOUD_PROJECT" type="text" placeholder="my-project-12345" />
+                  <InputField label="GCP Region" name="GOOGLE_CLOUD_LOCATION" type="text" placeholder="us-central1" />
+                </div>
+              </>
+            )}
+
+            {config.LLM_PROVIDER === 'ollama' && (
+              <>
+                <InputField label="Ollama Model" name="OLLAMA_MODEL" type="text" placeholder="llama3.2" />
+                <InputField label="Ollama URL" name="OLLAMA_BASE_URL" type="text" placeholder="http://localhost:11434" />
+                <p className="text-xs text-green-400 mt-2">
+                  Install Ollama from ollama.com, then run: <code className="bg-gray-800 px-1 rounded">ollama pull llama3.2</code>
+                </p>
+              </>
+            )}
+          </Section>
+
+          {/* FILESYSTEM */}
+          <Section title="Filesystem MCP" icon={HardDrive}>
+            <p className="text-sm text-gray-400">
+              The filesystem MCP is pre-configured for your local directories.
+              No authentication needed.
+            </p>
+            <span className="inline-flex items-center text-xs text-green-400 mt-2">
+              <CheckCircle2 className="w-3 h-3 mr-1" /> Always available
+            </span>
           </Section>
         </div>
 
+        {/* RIGHT COLUMN — OAuth Integrations */}
         <div>
-          <Section title="Slack MCP" icon={MessageSquare}>
-            <InputField label="Slack Bot Token (xoxb-...)" name="SLACK_BOT_TOKEN" />
-            <InputField label="Slack App Token (xapp-...)" name="SLACK_APP_TOKEN" />
-          </Section>
-
-          <Section title="GitHub MCP" icon={Github}>
-            <InputField label="Personal Access Token" name="GITHUB_PERSONAL_ACCESS_TOKEN" />
-          </Section>
-
-          <Section title="Figma MCP" icon={Figma}>
-            <InputField label="Personal Access Token" name="FIGMA_ACCESS_TOKEN" />
-          </Section>
-          
-          <Section title="Filesystem MCP" icon={HardDrive}>
-            <p className="text-sm text-gray-400 mb-2">
-              The filesystem MCP is configured to access your local directories.
-              You can modify the allowed paths in the configuration file.
+          <Section title="Integrations (OAuth2.0)" icon={Plug}>
+            <p className="text-sm text-gray-400 mb-4">
+              Click <strong>Connect</strong> to sign in with each service. No API keys or tokens to copy.
             </p>
+            <div className="space-y-3">
+              <OAuthCard
+                provider="google"
+                label="Google (Calendar + Gemini)"
+                icon={Calendar}
+                description="Calendar access + Vertex AI (OAuth Gemini)"
+                color="blue"
+              />
+              <OAuthCard
+                provider="github"
+                label="GitHub"
+                icon={Github}
+                description="Repos, PRs, commits, issues"
+                color="purple"
+              />
+              <OAuthCard
+                provider="slack"
+                label="Slack"
+                icon={MessageSquare}
+                description="Send messages, post announcements"
+                color="green"
+              />
+              <OAuthCard
+                provider="figma"
+                label="Figma"
+                icon={Figma}
+                description="Read designs, post comments"
+                color="orange"
+              />
+              <OAuthCard
+                provider="jira"
+                label="Jira"
+                icon={CheckCircle2}
+                description="Tickets, epics, sprints, projects"
+                color="blue"
+              />
+            </div>
           </Section>
         </div>
       </div>

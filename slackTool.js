@@ -8,15 +8,28 @@ import './envConfig.js';
 // It does not listen; it only speaks.
 // =============================================================================
 
-const SLACK_BOT_TOKEN = (process.env.SLACK_BOT_TOKEN || '').trim();
-const SLACK_DEFAULT_CHANNEL = (process.env.SLACK_DEFAULT_CHANNEL || '').trim();
+// ---------------------------------------------------------------------------
+// Lazy credential helpers — read from process.env at call-time so tokens
+// injected by oauthService.js (after user clicks "Connect → Slack") work
+// without restarting the app.
+// ---------------------------------------------------------------------------
+
+function getSlackToken() {
+    return (process.env.SLACK_BOT_TOKEN || '').trim();
+}
+
+function getDefaultChannel() {
+    return (process.env.SLACK_DEFAULT_CHANNEL || '').trim();
+}
 
 /**
  * Validates that Slack credentials are configured
  */
 function validateCredentials() {
-    if (!SLACK_BOT_TOKEN) {
-        throw new Error("SLACK_BOT_TOKEN not configured. Add it to your .env file.");
+    if (!getSlackToken()) {
+        throw new Error(
+            'Slack is not connected. Please click "Connect" next to Slack in Settings, or add SLACK_BOT_TOKEN to your .env file.'
+        );
     }
 }
 
@@ -24,7 +37,7 @@ function validateCredentials() {
  * Get authorization headers for Slack API
  */
 const getAuthHeader = () => ({
-    'Authorization': `Bearer ${SLACK_BOT_TOKEN}`,
+    'Authorization': `Bearer ${getSlackToken()}`,
     'Content-Type': 'application/json; charset=utf-8'
 });
 
@@ -51,10 +64,11 @@ export async function sendSlackMessage(input) {
     
     // Use default channel if none specified
     if (!channel) {
-        if (!SLACK_DEFAULT_CHANNEL) {
+        const defaultCh = getDefaultChannel();
+        if (!defaultCh) {
             throw new Error("No channel specified and SLACK_DEFAULT_CHANNEL not configured.");
         }
-        channel = SLACK_DEFAULT_CHANNEL;
+        channel = defaultCh;
     }
     
     // Normalize channel name (remove # if present, Slack API expects just the name or ID)
@@ -122,10 +136,11 @@ export async function sendSlackAnnouncement(input) {
     
     // Use default channel if none specified
     if (!channel) {
-        if (!SLACK_DEFAULT_CHANNEL) {
+        const defaultCh = getDefaultChannel();
+        if (!defaultCh) {
             throw new Error("No channel specified and SLACK_DEFAULT_CHANNEL not configured.");
         }
-        channel = SLACK_DEFAULT_CHANNEL;
+        channel = defaultCh;
     }
     
     channel = channel.replace(/^#/, '');
@@ -232,10 +247,11 @@ export async function sendSlackLink(input) {
     
     // Use default channel if none specified
     if (!channel) {
-        if (!SLACK_DEFAULT_CHANNEL) {
+        const defaultCh = getDefaultChannel();
+        if (!defaultCh) {
             throw new Error("No channel specified and SLACK_DEFAULT_CHANNEL not configured.");
         }
-        channel = SLACK_DEFAULT_CHANNEL;
+        channel = defaultCh;
     }
     
     channel = channel.replace(/^#/, '');

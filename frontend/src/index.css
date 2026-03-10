@@ -1,3 +1,17 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --color-bgPrimary: #050505;
+  --color-bgComponents: #1A1a1a;
+  --color-bgHover: #333333;
+  --color-textPrimary: #D9D9D9;
+  --color-textCTA: #050505;
+  --color-bgCTA: #FFFFFF;
+  --color-colorSuccess: #4DFF4D;
+  --color-colorFail: #DF0000;
+
+  --font-fontDisplay : 'Space Grotesk', sans-serif;
+  --font-fontBody: 'Inter', sans-serif;
+  --font-fontMono: 'Fira Code', monospace;
+
+}

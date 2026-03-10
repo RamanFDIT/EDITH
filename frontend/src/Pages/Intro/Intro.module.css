@@ -1,0 +1,14 @@
+@reference "../../index.css";
+
+.container {
+    @apply w-full max-w-200 h-screen flex items-center justify-center flex-col gap-10;
+}
+.mainSection{
+    @apply w-screen h-screen bg-bgPrimary flex items-center justify-center;
+}
+.description {
+    @apply w-full font-fontBody text-textPrimary text-xl text-center;
+}
+.header {
+    @apply text-bgCTA font-fontDisplay text-7xl text-center font-semibold;
+}

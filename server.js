@@ -1,5 +1,5 @@
 import express from 'express';
-import { agentExecutor, streamWithSemanticRouting, mcpClient } from './agent.js'; 
+import { agentExecutor, streamWithSemanticRouting } from './agent.js'; 
 import cors from 'cors'; 
 import multer from 'multer';
 import path from 'path';
@@ -104,12 +104,23 @@ app.post('/api/ask', async (req, res) => {
     // Helper function for Fire-and-Forget Audio
     async function generateAudioChunk(text) {
         try {
-             // console.log("Generating audio chunk:", text);
-             const audioPath = await generateSpeech({ text });
-             if (audioPath && !audioPath.startsWith("Error")) {
-                  const audioUrl = '/temp/' + path.basename(audioPath);
-                  // Send a new type 'audio' or 'audio_chunk'
-                  res.write(`data: ${JSON.stringify({ type: "audio", url: audioUrl })}\n\n`);
+             const audioResult = await generateSpeech({ text });
+             // Check if it's a file path or a Web Speech API fallback
+             if (typeof audioResult === 'string') {
+                  try {
+                    const parsed = JSON.parse(audioResult);
+                    if (parsed.fallback === 'web-speech-api') {
+                      // Tell frontend to use browser TTS
+                      res.write(`data: ${JSON.stringify({ type: "tts_fallback", text: parsed.text })}\n\n`);
+                      return;
+                    }
+                  } catch (e) {
+                    // Not JSON — treat as file path
+                  }
+                  if (audioResult && !audioResult.startsWith("Error")) {
+                      const audioUrl = '/temp/' + path.basename(audioResult);
+                      res.write(`data: ${JSON.stringify({ type: "audio", url: audioUrl })}\n\n`);
+                  }
              }
         } catch (e) { console.error("TTS Chunk Error:", e); }
     }
@@ -156,17 +167,30 @@ app.post('/api/voice', upload.single('audio'), async (req, res) => {
     const assistantText = result.output; 
 
     // 3. Generate Speech
-    const outputAudioPath = await generateSpeech({ text: assistantText });
+    const outputAudioResult = await generateSpeech({ text: assistantText });
     
     let audioUrl = null;
-    if (outputAudioPath && !outputAudioPath.startsWith("Error")) {
-        audioUrl = '/temp/' + path.basename(outputAudioPath);
+    let ttsFallback = false;
+
+    if (typeof outputAudioResult === 'string') {
+        try {
+            const parsed = JSON.parse(outputAudioResult);
+            if (parsed.fallback === 'web-speech-api') {
+                ttsFallback = true;
+            }
+        } catch (e) {
+            // Not JSON — treat as file path
+            if (outputAudioResult && !outputAudioResult.startsWith("Error")) {
+                audioUrl = '/temp/' + path.basename(outputAudioResult);
+            }
+        }
     }
 
     res.json({
         userText,
         answer: assistantText, 
-        audioUrl
+        audioUrl,
+        ttsFallback,
     });
 
   } catch (error) {
@@ -194,10 +218,8 @@ process.on('exit', (code) => {
     console.log(`[Server] Process exited with code: ${code}`);
 });
 
-// Gracefully shut down MCP server child processes
 process.on('SIGINT', async () => {
-    console.log('[Server] Shutting down MCP servers...');
-    try { await mcpClient.close(); } catch (e) { /* ignore */ }
+    console.log('[Server] Shutting down...');
     process.exit(0);
 });
 

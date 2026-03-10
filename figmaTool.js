@@ -1,12 +1,29 @@
 import fetch from 'node-fetch';
 import './envConfig.js';
 
-const FIGMA_TOKEN = process.env.FIGMA_TOKEN;
 const BASE_URL = 'https://api.figma.com/v1';
+
+// ---------------------------------------------------------------------------
+// Lazy credential helper — read from process.env at call-time so tokens
+// injected by oauthService.js (after user clicks "Connect → Figma") work
+// without restarting the app.
+// ---------------------------------------------------------------------------
+
+function getFigmaToken() {
+    return (process.env.FIGMA_TOKEN || '').trim();
+}
+
+function validateToken() {
+    if (!getFigmaToken()) {
+        throw new Error(
+            'Figma is not connected. Please click "Connect" next to Figma in Settings, or add FIGMA_TOKEN to your .env file.'
+        );
+    }
+}
 
 const getHeaders = () => {
     return {
-        'X-Figma-Token': FIGMA_TOKEN,
+        'X-Figma-Token': getFigmaToken(),
         'Content-Type': 'application/json'
     };
 };
@@ -17,7 +34,8 @@ export async function getFigmaFileStructure(input) {
     console.log("🎨 Figma File Scan:", JSON.stringify(input));
     const { fileKey } = input; // The ID in the URL: figma.com/file/KEY/Name
 
-    if (!FIGMA_TOKEN) throw new Error("Missing FIGMA_TOKEN");
+    if (!fileKey) throw new Error("fileKey is required.");
+    validateToken();
 
     try {
         // depth=1 keeps it light (just pages and top-level frames)
