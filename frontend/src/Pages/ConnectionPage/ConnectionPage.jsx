@@ -61,7 +61,7 @@ const ConnectionPage = () => {
                 {toolsToShow.map((info) => (
                     <ConnectionCard onConnect={() => handleConnection(info.oauth)} cardHead = {info.cardHead} key = {info.id} />
                 ))}
-                <Button onClick={() => navigate('/home')} label = "Next"/>
+                <Button disabled = {!allConnected} onClick={() => navigate('/home')} label = "Next"/>
             </div>
         </section>
     );

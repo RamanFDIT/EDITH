@@ -33,8 +33,12 @@ function createWindow() {
   });
 
   // 3. LOAD THE APP
-  // Since server.js starts on port 3000, we load that URL
-  mainWindow.loadURL('http://localhost:3000');
+  const isDev = process.env.NODE_ENV !== 'production';
+  if (isDev) {
+    mainWindow.loadURL('http://localhost:5173');
+  } else {
+    mainWindow.loadFile(path.join(__dirname, 'frontend/dist/index.html'));
+  }
 
   // Hide the default menu bar for a cleaner "Jarvis" look
   mainWindow.setMenuBarVisibility(false);

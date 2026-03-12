@@ -1,0 +1,41 @@
+@reference '../../index.css';
+
+.navBar {
+    @apply bg-bgComponents transition-all duration-300 ease-in-out w-65 h-screen fixed left-0 flex flex-col items-center px-5 rounded-r-sm;
+}
+.logo{
+    @apply text-white w-20 transition-all ease-in;
+}
+.logoContainer {
+    @apply w-full h-1/7 flex justify-between items-center;
+}
+.activeToolContainer {
+    @apply h-6/7 bg-bgComponents w-full rounded-sm py-2 flex flex-col justify-between;
+}
+.hamburger {
+    @apply w-10 text-white cursor-pointer ;
+}
+.settingContainer{
+    @apply w-full text-textPrimary text-lg font-fontBody flex flex-col gap-5;
+}
+.settings {
+    @apply w-8 transition-all ease-in-out;
+}
+.profile:hover .settings {
+    @apply rotate-45;
+}
+.navBarCompact {
+    @apply w-15 flex flex-col transition-all duration-300 ease-in-out items-center h-screen bg-bgComponents;
+}
+.displayNone {
+    @apply hidden;
+}
+.logoContainerCompact {
+    @apply h-1/7 w-full flex justify-center items-center;
+}
+.profile {
+    @apply flex items-center gap-3 w-full cursor-pointer;
+}
+.profileCompact {
+    @apply flex w-full justify-center cursor-pointer;
+}

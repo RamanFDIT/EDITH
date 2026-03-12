@@ -1,10 +1,11 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import NavBar from './components/NavBar';
+import NavBar from './components/NavBar/NavBar.jsx';
 import Settings from './components/Settings';
 import Intro from './Pages/Intro/Intro.jsx';
 import Onboarding from './Pages/Onboarding/Onboarding.jsx';
 import ConnectionPage from './Pages/ConnectionPage/ConnectionPage.jsx';
+import Home from './Pages/Home/Home.jsx'
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
           <Route path="/" element={<Intro />} />
           <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/connectionPage" element={<ConnectionPage />} />
+          <Route path="/home" element={<Home />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </div>
