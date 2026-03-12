@@ -28,10 +28,6 @@ app.use(express.json());
 app.use(cors()); // <-- 2. Use cors (This tells your server to accept requests)
 app.use(express.static('.')); // Serve static files from current directory
 
-// --- STATE: Simple Access Control ---
-let isUnlocked = false; 
-const PASSWORD = "Protocol Zero"; 
-
 // --- API Endpoint ---
 app.post('/api/ask', async (req, res) => {
   try {
@@ -39,26 +35,6 @@ app.post('/api/ask', async (req, res) => {
 
     if (!question) {
       return res.status(400).json({ error: 'Question is required' });
-    }
-
-    // 🔒 THE INITIAL LOCK
-    if (!isUnlocked) {
-         if (question.toLowerCase() === PASSWORD.toLowerCase()) {
-             isUnlocked = true;
-             // Send as SSE 
-             res.setHeader('Content-Type', 'text/event-stream');
-             res.write(`data: ${JSON.stringify({ type: "token", content: "✅ AUTHENTICATION VERIFIED. E.D.I.T.H. Online. Awaiting orders." })}\n\n`);
-             res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
-             res.end();
-             return;
-         } else {
-             // Send as SSE
-             res.setHeader('Content-Type', 'text/event-stream');
-             res.write(`data: ${JSON.stringify({ type: "token", content: "🔒 ACCESS DENIED. Authorization Code Required." })}\n\n`);
-             res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
-             res.end();
-             return;
-         }
     }
 
     console.log(`[Server] Received question: ${question}`);

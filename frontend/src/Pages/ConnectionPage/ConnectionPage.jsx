@@ -30,6 +30,16 @@ const ConnectionPage = () => {
             cardHead : "Slack",
             oauth : "slack"
         },
+        {
+            id : 5,
+            cardHead : "Gmail",
+            oauth : "google"
+        },
+        {
+            id : 6,
+            cardHead : "Google Calendar",
+            oauth : "google"
+        },
     ];
     const toolsToShow = cardInfo.filter(card => 
         card.cardHead === "Google" || selectedTools.includes(card.cardHead)

@@ -1,0 +1,68 @@
+@reference '../../index.css';
+
+.messageContainer {
+    @apply flex items-start gap-3 w-full;
+}
+.avatar {
+    @apply w-8 h-8 rounded-full bg-bgComponents flex items-center justify-center shrink-0;
+}
+.avatarIcon {
+    @apply text-textPrimary;
+}
+.bubble {
+    @apply bg-bgComponents rounded-sm px-5 py-4 max-w-3/4 text-textPrimary font-fontBody text-base leading-relaxed;
+}
+.bubble h1 {
+    @apply text-2xl font-fontDisplay font-semibold text-bgCTA mt-4 mb-2;
+}
+.bubble h2 {
+    @apply text-xl font-fontDisplay font-semibold text-bgCTA mt-3 mb-2;
+}
+.bubble h3 {
+    @apply text-lg font-fontDisplay font-semibold text-bgCTA mt-2 mb-1;
+}
+.bubble p {
+    @apply mb-2 last:mb-0;
+}
+.bubble strong {
+    @apply font-semibold text-bgCTA;
+}
+.bubble em {
+    @apply italic;
+}
+.bubble ul {
+    @apply list-disc pl-5 mb-2 flex flex-col gap-1;
+}
+.bubble ol {
+    @apply list-decimal pl-5 mb-2 flex flex-col gap-1;
+}
+.bubble li {
+    @apply text-textPrimary;
+}
+.bubble code {
+    @apply bg-bgPrimary text-textPrimary font-fontMono text-sm px-1.5 py-0.5 rounded-sm;
+}
+.bubble pre {
+    @apply bg-bgPrimary rounded-sm p-4 mb-2 overflow-x-auto;
+}
+.bubble pre code {
+    @apply bg-transparent p-0;
+}
+.bubble a {
+    @apply text-bgCTA underline;
+}
+.bubble blockquote {
+    @apply border-l-2 border-bgHover pl-4 italic text-textPrimary/70 mb-2;
+}
+.bubble table {
+    @apply w-full mb-2 border-collapse;
+}
+.bubble th {
+    @apply border border-bgHover px-3 py-2 text-left font-semibold text-bgCTA bg-bgPrimary;
+}
+.bubble td {
+    @apply border border-bgHover px-3 py-2;
+}
+.bubble hr {
+    @apply border-bgHover my-3;
+}

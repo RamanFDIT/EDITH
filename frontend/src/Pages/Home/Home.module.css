@@ -1,2 +1,27 @@
-@reference '../../index.css'
+@reference '../../index.css';
+
+.mainSection {
+    @apply w-screen h-screen bg-bgPrimary flex;
+}
+.container {
+    @apply ml-65 w-full h-screen flex flex-col transition-all duration-300 ease-in-out;
+}
+.containerCompact {
+    @apply ml-15 w-full h-screen flex flex-col transition-all duration-300 ease-in-out;
+}
+.messageArea {
+    @apply flex-1 overflow-y-auto px-12 py-8 flex flex-col gap-6;
+}
+.inputArea {
+    @apply px-12 py-6 border-t border-bgComponents;
+}
+.emptyState {
+    @apply flex-1 flex flex-col items-center justify-center gap-4;
+}
+.emptyTitle {
+    @apply text-textPrimary/40 font-fontDisplay text-2xl font-semibold;
+}
+.emptySubtitle {
+    @apply text-textPrimary/25 font-fontBody text-base;
+}
 

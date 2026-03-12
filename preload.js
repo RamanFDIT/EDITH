@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   oauthDisconnect: (provider) => ipcRenderer.invoke('oauth-disconnect', provider),
   oauthStatus: () => ipcRenderer.invoke('oauth-status'),
 
+  // Logout
+  logout: () => ipcRenderer.invoke('oauth-logout-all'),
+
   // Legacy alias
   triggerGoogleAuth: () => ipcRenderer.invoke('trigger-google-auth'),
 });

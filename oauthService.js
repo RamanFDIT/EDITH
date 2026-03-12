@@ -37,6 +37,9 @@ function getOAuthProviders() {
         'https://www.googleapis.com/auth/calendar.events',
         'https://www.googleapis.com/auth/cloud-platform',           // Vertex AI (Gemini)
         'https://www.googleapis.com/auth/generative-language.retriever',
+        'https://www.googleapis.com/auth/gmail.send',               // Gmail: send emails
+        'https://www.googleapis.com/auth/gmail.readonly',           // Gmail: read inbox
+        'https://www.googleapis.com/auth/gmail.compose',            // Gmail: compose/draft
       ],
       redirectUri: 'http://localhost:18923/oauth/callback',
       extraParams: { access_type: 'offline', prompt: 'consent' },
@@ -361,85 +364,48 @@ export function startOAuthFlow(provider) {
     const { url: authUrl, state: expectedState } = buildAuthUrl(provider);
     let callbackServer;
     let authWindow;
+    let resolved = false;
 
-    // Create temporary local server to catch the redirect
-    callbackServer = http.createServer(async (req, res) => {
+    // --- Shared handler for the OAuth callback URL ---
+    async function handleCallback(callbackUrl) {
+      if (resolved) return;
+      resolved = true;
       try {
-        const reqUrl = new URL(req.url, 'http://localhost:18923');
+        const reqUrl = new URL(callbackUrl);
+        const code = reqUrl.searchParams.get('code');
+        const state = reqUrl.searchParams.get('state');
+        const error = reqUrl.searchParams.get('error');
 
-        if (reqUrl.pathname === '/oauth/callback') {
-          const code = reqUrl.searchParams.get('code');
-          const state = reqUrl.searchParams.get('state');
-          const error = reqUrl.searchParams.get('error');
-
-          if (error) {
-            res.writeHead(200, { 'Content-Type': 'text/html' });
-            res.end('<html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#0a0a0a;color:#ff4444"><h2>Authorization Denied</h2><p>You can close this window.</p></body></html>');
-            cleanup();
-            reject(new Error(`OAuth denied: ${error}`));
-            return;
-          }
-
-          if (state !== expectedState) {
-            res.writeHead(400, { 'Content-Type': 'text/html' });
-            res.end('<html><body>State mismatch — potential CSRF. Close this window and try again.</body></html>');
-            cleanup();
-            reject(new Error('OAuth state mismatch'));
-            return;
-          }
-
-          // Exchange code for tokens
-          const tokenData = await exchangeCodeForTokens(provider, code);
-
-          // Jira: discover cloud ID
-          if (provider === 'jira') {
-            const jiraInfo = await discoverJiraCloudId(tokenData.access_token);
-            tokenData.cloud_id = jiraInfo.cloud_id;
-            tokenData.cloud_url = jiraInfo.cloud_url;
-          }
-
-          const stored = storeTokens(provider, tokenData);
-
-          // Also populate process.env so tools work immediately without restart
-          populateEnvFromOAuth(provider, stored);
-
-          res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end(`<html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#0a0a0a;color:#00ff88"><h2>Connected to ${provider.charAt(0).toUpperCase() + provider.slice(1)}!</h2><p>You can close this window.</p></body></html>`);
-
+        if (error) {
           cleanup();
-          resolve(stored);
+          reject(new Error(`OAuth denied: ${error}`));
+          return;
         }
+
+        if (state !== expectedState) {
+          cleanup();
+          reject(new Error('OAuth state mismatch'));
+          return;
+        }
+
+        const tokenData = await exchangeCodeForTokens(provider, code);
+
+        if (provider === 'jira') {
+          const jiraInfo = await discoverJiraCloudId(tokenData.access_token);
+          tokenData.cloud_id = jiraInfo.cloud_id;
+          tokenData.cloud_url = jiraInfo.cloud_url;
+        }
+
+        const stored = storeTokens(provider, tokenData);
+        populateEnvFromOAuth(provider, stored);
+
+        cleanup();
+        resolve(stored);
       } catch (err) {
-        res.writeHead(500, { 'Content-Type': 'text/html' });
-        res.end(`<html><body>Error: ${err.message}</body></html>`);
         cleanup();
         reject(err);
       }
-    });
-
-    callbackServer.listen(18923, () => {
-      console.log(`[OAuth] Callback server listening for "${provider}" on port 18923`);
-
-      // Open auth URL in an Electron BrowserWindow
-      authWindow = new BrowserWindow({
-        width: 600,
-        height: 800,
-        title: `Connect ${provider.charAt(0).toUpperCase() + provider.slice(1)}`,
-        webPreferences: { nodeIntegration: false, contextIsolation: true },
-      });
-
-      authWindow.loadURL(authUrl);
-      authWindow.setMenuBarVisibility(false);
-
-      authWindow.on('closed', () => {
-        authWindow = null;
-        // If the window is closed before completing, reject
-        setTimeout(() => {
-          cleanup();
-          // Only reject if not already resolved
-        }, 1000);
-      });
-    });
+    }
 
     function cleanup() {
       if (callbackServer) {
@@ -450,6 +416,114 @@ export function startOAuthFlow(provider) {
         authWindow.close();
         authWindow = null;
       }
+    }
+
+    // --- For HTTPS redirect URIs (e.g. Slack): intercept in BrowserWindow ---
+    if (config.redirectUri.startsWith('https://localhost')) {
+      console.log(`[OAuth] Using BrowserWindow redirect interception for "${provider}"`);
+
+      authWindow = new BrowserWindow({
+        width: 600,
+        height: 800,
+        title: `Connect ${provider.charAt(0).toUpperCase() + provider.slice(1)}`,
+        webPreferences: { nodeIntegration: false, contextIsolation: true },
+      });
+
+      // Intercept navigation to the redirect URI before the browser tries to connect
+      authWindow.webContents.on('will-redirect', (event, url) => {
+        if (url.startsWith(config.redirectUri)) {
+          event.preventDefault();
+          handleCallback(url);
+        }
+      });
+
+      authWindow.webContents.on('will-navigate', (event, url) => {
+        if (url.startsWith(config.redirectUri)) {
+          event.preventDefault();
+          handleCallback(url);
+        }
+      });
+
+      authWindow.loadURL(authUrl);
+      authWindow.setMenuBarVisibility(false);
+
+      authWindow.on('closed', () => {
+        authWindow = null;
+        setTimeout(() => {
+          if (!resolved) cleanup();
+        }, 1000);
+      });
+
+    } else {
+      // --- For HTTP redirect URIs: use local callback server ---
+      callbackServer = http.createServer(async (req, res) => {
+        try {
+          const reqUrl = new URL(req.url, 'http://localhost:18923');
+
+          if (reqUrl.pathname === '/oauth/callback') {
+            const code = reqUrl.searchParams.get('code');
+            const state = reqUrl.searchParams.get('state');
+            const error = reqUrl.searchParams.get('error');
+
+            if (error) {
+              res.writeHead(200, { 'Content-Type': 'text/html' });
+              res.end('<html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#0a0a0a;color:#ff4444"><h2>Authorization Denied</h2><p>You can close this window.</p></body></html>');
+              cleanup();
+              reject(new Error(`OAuth denied: ${error}`));
+              return;
+            }
+
+            if (state !== expectedState) {
+              res.writeHead(400, { 'Content-Type': 'text/html' });
+              res.end('<html><body>State mismatch — potential CSRF. Close this window and try again.</body></html>');
+              cleanup();
+              reject(new Error('OAuth state mismatch'));
+              return;
+            }
+
+            const tokenData = await exchangeCodeForTokens(provider, code);
+
+            if (provider === 'jira') {
+              const jiraInfo = await discoverJiraCloudId(tokenData.access_token);
+              tokenData.cloud_id = jiraInfo.cloud_id;
+              tokenData.cloud_url = jiraInfo.cloud_url;
+            }
+
+            const stored = storeTokens(provider, tokenData);
+            populateEnvFromOAuth(provider, stored);
+
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end(`<html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#0a0a0a;color:#00ff88"><h2>Connected to ${provider.charAt(0).toUpperCase() + provider.slice(1)}!</h2><p>You can close this window.</p></body></html>`);
+
+            cleanup();
+            resolve(stored);
+          }
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'text/html' });
+          res.end(`<html><body>Error: ${err.message}</body></html>`);
+          cleanup();
+          reject(err);
+        }
+      });
+
+      callbackServer.listen(18923, () => {
+        console.log(`[OAuth] Callback server listening for "${provider}" on port 18923`);
+
+        authWindow = new BrowserWindow({
+          width: 600,
+          height: 800,
+          title: `Connect ${provider.charAt(0).toUpperCase() + provider.slice(1)}`,
+          webPreferences: { nodeIntegration: false, contextIsolation: true },
+        });
+
+        authWindow.loadURL(authUrl);
+        authWindow.setMenuBarVisibility(false);
+
+        authWindow.on('closed', () => {
+          authWindow = null;
+          setTimeout(() => cleanup(), 1000);
+        });
+      });
     }
   });
 }

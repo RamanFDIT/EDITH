@@ -1,0 +1,18 @@
+@reference '../../index.css';
+
+.inputContainer {
+    @apply w-full flex items-end gap-3;
+}
+.input {
+    @apply flex-1 bg-bgComponents text-textPrimary font-fontBody text-base
+           px-5 py-3 rounded-sm outline-none resize-none overflow-y-auto max-h-[150px]
+           placeholder:text-textPrimary/40
+           focus:ring-1 focus:ring-bgHover;
+}
+.sendButton {
+    @apply bg-bgCTA text-textCTA font-fontDisplay font-semibold text-sm
+           px-5 py-3 rounded-sm
+           hover:bg-bgHover hover:text-bgCTA hover:cursor-pointer
+           transition-all ease-out active:scale-95
+           disabled:opacity-30 disabled:cursor-default disabled:hover:bg-bgCTA disabled:hover:text-textCTA disabled:active:scale-100;
+}

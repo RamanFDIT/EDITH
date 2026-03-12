@@ -1,16 +1,48 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import styles from "./NavBar.module.css";
 import Logo from '../../assets/EDITH.svg?react';
 import settings from '../../assets/settings.svg';
 import hamburger from '../../assets/hamburger.svg';
 import profile from '../../assets/profile.svg';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { Github, Figma, Calendar, MessageSquare, Plus, LogOut } from 'lucide-react';
+import { useNavBar } from './NavBarContext.jsx';
+
+const toolDisplayNames = {
+  google: 'Google',
+  github: 'GitHub',
+  slack: 'Slack',
+  figma: 'Figma',
+  jira: 'Jira',
+};
+
+const toolIcons = {
+  google: Calendar,
+  github: Github,
+  slack: MessageSquare,
+  figma: Figma,
+  jira: Plus,
+};
 
 const NavBar = () => {
-  const[toggle, setToggle] = useState(true);
+  const { expanded: toggle, setExpanded } = useNavBar();
+  const [connectedTools, setConnectedTools] = useState([]);
+  const navigate = useNavigate();
+
   const handleClick = () => {
-    setToggle(!toggle);
+    setExpanded(!toggle);
   };
+
+  useEffect(() => {
+    if (window.electronAPI) {
+      window.electronAPI.oauthStatus().then((status) => {
+        const active = Object.entries(status)
+          .filter(([, info]) => info.connected)
+          .map(([provider]) => provider);
+        setConnectedTools(active);
+      });
+    }
+  }, []);
 
   return (
     <nav className={toggle ? styles.navBar : styles.navBarCompact}>
@@ -20,7 +52,20 @@ const NavBar = () => {
         <img onClick = {handleClick} src = {hamburger} className = {styles.hamburger} alt = "arrow"></img>
       </div>
       <div className = {styles.activeToolContainer}>
-        <div></div>
+        <div className= {toggle ? styles.toolsContainer : styles.toolsContainerCompact}>
+          {connectedTools.map((provider) => {
+            const Icon = toolIcons[provider];
+            return (
+              <div key={provider} className={styles.tools}>
+                <div className={styles.activeTools}></div>
+                {Icon && <Icon size={18} className={styles.toolIcon} />}
+                <p className={toggle ? styles.toolName : styles.displayNone}>
+                  {toolDisplayNames[provider]}
+                </p>
+              </div>
+            );
+          })}
+        </div>
         <div className = {styles.settingContainer}>
           <NavLink
           className = {toggle ? styles.profile : styles.profileCompact}
@@ -34,6 +79,18 @@ const NavBar = () => {
             <img src = {profile} className = {styles.settings} alt = "Profile"></img>
             <p className = {!toggle && styles.displayNone }>Profile</p>
           </NavLink>
+          <button
+            className={toggle ? styles.logoutButton : styles.logoutButtonCompact}
+            onClick={async () => {
+              if (window.electronAPI) {
+                await window.electronAPI.logout();
+              }
+              navigate('/');
+            }}
+          >
+            <LogOut size={20} className={styles.logoutIcon} />
+            <p className={!toggle ? styles.displayNone : undefined}>Log Out</p>
+          </button>
        </div>
       </div>
     </nav>

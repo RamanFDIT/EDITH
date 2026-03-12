@@ -1,0 +1,75 @@
+@reference '../../index.css';
+
+.mainSection {
+    @apply w-screen h-screen bg-bgPrimary flex;
+}
+.container {
+    @apply ml-65 w-full h-full flex flex-col py-12 px-16 overflow-y-auto transition-all duration-300 ease-in-out;
+}
+.containerCompact {
+    @apply ml-15 w-full h-full flex flex-col py-12 px-16 overflow-y-auto transition-all duration-300 ease-in-out;
+}
+.header {
+    @apply text-bgCTA font-fontDisplay text-4xl font-semibold mb-2;
+}
+.subheading {
+    @apply text-textPrimary font-fontBody text-lg mb-10;
+}
+.statusBar {
+    @apply p-4 mb-6 rounded-sm flex items-center gap-2 font-fontBody text-sm;
+}
+.statusSuccess {
+    @apply bg-[#0a1f0a] text-colorSuccess border border-colorSuccess/20;
+}
+.statusError {
+    @apply bg-[#1f0a0a] text-colorFail border border-colorFail/20;
+}
+.statusInfo {
+    @apply bg-bgComponents text-textPrimary border border-bgHover;
+}
+.sectionTitle {
+    @apply text-textPrimary font-fontDisplay text-xl font-semibold mb-4 flex items-center gap-2;
+}
+.sectionIcon {
+    @apply text-textPrimary;
+}
+.cardGrid {
+    @apply flex flex-col gap-4;
+}
+.oauthCard {
+    @apply bg-bgComponents rounded-sm px-6 py-5 flex items-center justify-between;
+}
+.oauthCardConnected {
+    @apply bg-bgComponents rounded-sm px-6 py-5 flex items-center justify-between border border-colorSuccess/20;
+}
+.cardInfo {
+    @apply flex items-center gap-4;
+}
+.cardIcon {
+    @apply text-textPrimary;
+}
+.cardIconConnected {
+    @apply text-colorSuccess;
+}
+.cardLabel {
+    @apply text-textPrimary font-fontDisplay text-lg font-semibold;
+}
+.cardDescription {
+    @apply text-textPrimary/60 font-fontBody text-sm;
+}
+.cardActions {
+    @apply flex items-center gap-3;
+}
+.connectedBadge {
+    @apply flex items-center gap-1 text-colorSuccess font-fontBody text-xs;
+}
+.connectButton {
+    @apply bg-bgCTA text-textCTA font-fontDisplay font-semibold text-sm px-5 py-2 rounded-sm
+           hover:bg-bgHover hover:text-bgCTA hover:cursor-pointer
+           transition-all ease-out active:scale-95 disabled:opacity-50;
+}
+.disconnectButton {
+    @apply bg-bgHover text-textPrimary font-fontDisplay font-semibold text-sm px-5 py-2 rounded-sm
+           hover:bg-colorFail/20 hover:text-colorFail hover:cursor-pointer
+           transition-all ease-out active:scale-95;
+}

@@ -20,6 +20,7 @@ import { sendSlackMessage, sendSlackAnnouncement, sendSlackLink } from "./slackT
 import { createRepository, getRepoIssues, createRepoIssue, listCommits, listPullRequests, getPullRequest, getCommit, getRepoChecks } from "./githubTool.js";
 import { getFigmaFileStructure, getFigmaComments, postFigmaComment } from "./figmaTool.js";
 import { readFile, listDirectory, getLatestFile } from "./fileTool.js";
+import { sendGmail, searchGmailContacts, getRecentEmails } from "./gmailTool.js";
 
 // =============================================================================
 // LLM PROVIDER SELECTION: Gemini (cloud) or Ollama (local, zero API keys)
@@ -424,6 +425,39 @@ const figmaTools = [
   }),
 ];
 
+// --- GMAIL TOOLS ---
+const gmailTools = [
+  new DynamicStructuredTool({
+    name: "send_gmail",
+    description: "Send an email via Gmail. Use this when the user wants to email someone. ALWAYS confirm the recipient email, subject, and body with the user before sending. If the user refers to a person by name, use search_gmail_contacts FIRST to resolve their email address.",
+    schema: z.object({
+      to: z.string().describe("REQUIRED: Recipient email address."),
+      subject: z.string().describe("REQUIRED: Email subject line."),
+      body: z.string().describe("REQUIRED: Email body text."),
+      cc: z.string().optional().describe("CC email address (comma-separated for multiple)."),
+      bcc: z.string().optional().describe("BCC email address (comma-separated for multiple)."),
+    }),
+    func: sendGmail,
+  }),
+  new DynamicStructuredTool({
+    name: "search_gmail_contacts",
+    description: "Search the user's email history to find someone's email address by name. Use this when the user says 'email John' or 'send it to Sarah' — resolve the name to an email address before sending. Returns matching contacts from sent/received emails.",
+    schema: z.object({
+      query: z.string().describe("REQUIRED: Person's name or partial email address to search for."),
+    }),
+    func: searchGmailContacts,
+  }),
+  new DynamicStructuredTool({
+    name: "get_recent_emails",
+    description: "Get recent emails from the user's Gmail inbox. Use to check inbox, find specific emails, or summarize recent mail.",
+    schema: z.object({
+      maxResults: z.number().optional().describe("Maximum number of emails to return. Default 10, max 50."),
+      query: z.string().optional().describe("Optional Gmail search query to filter emails (e.g., 'from:john', 'subject:meeting', 'is:unread')."),
+    }),
+    func: getRecentEmails,
+  }),
+];
+
 // --- FILE TOOLS (custom) ---
 const fileTools = [
   new DynamicStructuredTool({
@@ -470,12 +504,13 @@ const toolsByCategory = {
   calendar:     calendarTools,
   files:        fileTools,
   slack:        slackCustomTools,
+  gmail:        gmailTools,
   image:        imageTools,
   general:      [],
 };
 
 // All tools combined (for fallback or multi-category queries)
-const allTools = [...systemTools, ...imageTools, ...jiraReadTools, ...jiraWriteTools, ...githubReadTools, ...githubWriteTools, ...figmaTools, ...fileTools, ...calendarTools, ...slackCustomTools];
+const allTools = [...systemTools, ...imageTools, ...jiraReadTools, ...jiraWriteTools, ...githubReadTools, ...githubWriteTools, ...figmaTools, ...fileTools, ...calendarTools, ...slackCustomTools, ...gmailTools];
 
 // =============================================================================
 // SEMANTIC CLASSIFIER (The Traffic Cop)
@@ -494,6 +529,7 @@ CATEGORIES:
 - calendar: Anything about scheduling, meetings, appointments, events, calendar, free time, availability, reminders
 - files: Reading documents, files, PDFs, Word docs, downloads, listing files, latest download, file contents, summarizing documents
 - slack: Sending messages to Slack, posting announcements, notifying team, messaging channels, team notifications
+- gmail: Sending emails, reading inbox, checking mail, finding someone's email address, emailing a person
 - image: Generating images, pictures, illustrations, graphics, logos, artwork, drawings, visualisations
 - general: Casual conversation, greetings, questions that don't need tools, chitchat
 
@@ -526,6 +562,10 @@ User: "List my recent downloads" -> files
 User: "Tell the dev-team I fixed the bug" -> slack
 User: "Post to #general that deployment is complete" -> slack
 User: "Notify the team about the new release" -> slack
+User: "Send an email to John about the meeting" -> gmail
+User: "What emails did I get today?" -> gmail
+User: "Email Sarah the project update" -> gmail
+User: "Check my inbox" -> gmail
 User: "Generate an image of a sunset over mountains" -> image
 User: "Draw me a logo for my app" -> image
 User: "Create a picture of a robot" -> image
@@ -572,6 +612,15 @@ const KEYWORD_MAP = {
     slack: [
         'slack', 'tell the team', 'notify team', 'post to', 'announce', 'message channel',
         'send message', 'tell dev', 'tell #', 'post announcement', 'team notification'
+    ],
+    gmail: [
+        'email', 'gmail', 'send email', 'send mail', 'mail to', 'email to',
+        'inbox', 'check mail', 'check email', 'recent emails', 'unread emails',
+        'send it to', 'email them', 'email him', 'email her', 'email that',
+        'mail it', 'compose email', 'write email', 'draft email',
+        'send an email', 'email address', 'mail him', 'mail her', 'mail them',
+        'send that email', 'forward email', 'reply email', 'my emails',
+        'send it via email', 'shoot an email', 'drop an email', 'fire off an email'
     ],
     image: [
         'generate image', 'create image', 'draw', 'make a picture', 'generate a picture',
@@ -830,8 +879,18 @@ async function processWithSemanticRouting(input) {
         
         // getSystemPrompt() already returns a SystemMessage — don't double-wrap
         const systemPrompt = getSystemPrompt();
+        const noToolsGuard = new SystemMessage(
+            "IMPORTANT: You have NO tools available in this response. " +
+            "You CANNOT perform any actions such as sending emails, creating tickets, " +
+            "posting messages, reading files, scheduling events, or querying APIs. " +
+            "Do NOT pretend to execute actions or fabricate results. " +
+            "If the user asks you to perform an action, tell them clearly and honestly " +
+            "that you were unable to route their request to the appropriate tool, " +
+            "and ask them to rephrase or be more specific."
+        );
         const messages = [
             systemPrompt,
+            noToolsGuard,
             ...history,
             new HumanMessage(userQuery)
         ];
@@ -892,8 +951,18 @@ export async function* streamWithSemanticRouting(userQuery, sessionId) {
         
         // getSystemPrompt() already returns a SystemMessage — don't double-wrap
         const systemPrompt = getSystemPrompt();
+        const noToolsGuard = new SystemMessage(
+            "IMPORTANT: You have NO tools available in this response. " +
+            "You CANNOT perform any actions such as sending emails, creating tickets, " +
+            "posting messages, reading files, scheduling events, or querying APIs. " +
+            "Do NOT pretend to execute actions or fabricate results. " +
+            "If the user asks you to perform an action, tell them clearly and honestly " +
+            "that you were unable to route their request to the appropriate tool, " +
+            "and ask them to rephrase or be more specific."
+        );
         const messages = [
             systemPrompt,
+            noToolsGuard,
             ...history,
             new HumanMessage(userQuery)
         ];

@@ -117,6 +117,16 @@ app.whenReady().then(() => {
     return getConnectionStatus();
   });
 
+  ipcMain.handle('oauth-logout-all', () => {
+    const status = getConnectionStatus();
+    for (const provider of Object.keys(status)) {
+      if (status[provider].connected) {
+        clearTokens(provider);
+      }
+    }
+    return { success: true };
+  });
+
   // Legacy handler — now routes through oauth-connect
   ipcMain.handle('trigger-google-auth', async () => {
     try {

@@ -4,7 +4,7 @@
  * SETUP INSTRUCTIONS:
  * 1. Go to https://console.cloud.google.com/
  * 2. Create a new project (or select existing)
- * 3. Enable the Google Calendar API
+ * 3. Enable the Google Calendar API and Gmail API
  * 4. Go to "Credentials" -> "Create Credentials" -> "OAuth client ID"
  * 5. Choose "Desktop app" as application type
  * 6. Download the JSON and copy CLIENT_ID and CLIENT_SECRET
@@ -33,17 +33,20 @@ const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const REDIRECT_PORT = 3000;
 const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/oauth2callback`;
 
-// Scopes for Google Calendar
+// Scopes for Google Calendar + Gmail
 const SCOPES = [
     'https://www.googleapis.com/auth/calendar.readonly',
-    'https://www.googleapis.com/auth/calendar.events'
+    'https://www.googleapis.com/auth/calendar.events',
+    'https://www.googleapis.com/auth/gmail.send',
+    'https://www.googleapis.com/auth/gmail.readonly',
+    'https://www.googleapis.com/auth/gmail.compose',
 ];
 
 if (!CLIENT_ID || !CLIENT_SECRET) {
     console.error('❌ ERROR: Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET in .env file');
     console.log('\n📋 Setup Instructions:');
     console.log('1. Go to https://console.cloud.google.com/');
-    console.log('2. Create a project and enable Google Calendar API');
+    console.log('2. Create a project and enable Google Calendar API and Gmail API');
     console.log('3. Create OAuth2 credentials (Desktop app)');
     console.log('4. Add to .env:');
     console.log('   GOOGLE_CLIENT_ID=your_client_id');
