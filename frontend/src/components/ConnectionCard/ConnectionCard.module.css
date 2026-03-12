@@ -1,8 +1,0 @@
-@reference "../../index.css";
-
-.connectionContainer{
-    @apply bg-bgComponents w-75 h-55 px-8 py-8 rounded-sm flex flex-col justify-between items-start;
-}
-.cardHead{
-    @apply text-2xl text-textPrimary font-fontDisplay font-semibold
-}

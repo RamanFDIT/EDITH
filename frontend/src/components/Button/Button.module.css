@@ -9,6 +9,6 @@
 .buttonConnected {
     @apply bg-[#003D00] text-colorSuccess h-12 px-10 flex items-center justify-center text-2xl font-fontDisplay font-semibold;
 }
-.buttonConnected {
+.buttonFailed {
     @apply bg-[#1D0000] text-colorFail h-12 px-10 flex items-center justify-center text-2xl font-fontDisplay font-semibold;
 }

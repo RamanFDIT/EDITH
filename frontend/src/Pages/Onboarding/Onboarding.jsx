@@ -8,7 +8,11 @@ import { useState } from 'react';
 const Onboarding = () => {
     const navigate = useNavigate();
     const handleNext = () => {
-        navigate("/connectionPage", {state: {selectedTools: selected}})
+        const googleServices = ["Gmail", "Google Calendar"];
+        const tools = selected
+            .map(s => googleServices.includes(s) ? "Google" : s)
+            .filter((s, i, arr) => arr.indexOf(s) === i);
+        navigate("/connectionPage", {state: {selectedTools: tools}})
     }
     const labels = [
         {
