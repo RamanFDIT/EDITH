@@ -10,27 +10,49 @@ const Home = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [files, setFiles] = useState([]);
   const messageEndRef = useRef(null);
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const uploadFiles = async (fileList) => {
+    const formData = new FormData();
+    fileList.forEach(f => formData.append('files', f));
+    const res = await fetch('http://localhost:3000/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    const data = await res.json();
+    return data.files; // [{ originalName, path, size }]
+  };
+
   const handleSubmit = async () => {
     const question = input.trim();
     if (!question || isStreaming) return;
 
-    setMessages(prev => [...prev, { role: 'user', content: question }]);
+    const attachedFiles = [...files];
+    const fileNames = attachedFiles.map(f => f.name);
+
+    setMessages(prev => [...prev, { role: 'user', content: question, files: fileNames }]);
     setInput('');
+    setFiles([]);
     setIsStreaming(true);
 
     setMessages(prev => [...prev, { role: 'ai', content: '' }]);
 
     try {
+      // Upload files first if any
+      let uploadedFiles = null;
+      if (attachedFiles.length > 0) {
+        uploadedFiles = await uploadFiles(attachedFiles);
+      }
+
       const res = await fetch('http://localhost:3000/api/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question, files: uploadedFiles }),
       });
 
       const reader = res.body.getReader();
@@ -55,6 +77,16 @@ const Home = () => {
               const last = updated[updated.length - 1];
               if (last.role === 'ai') {
                 updated[updated.length - 1] = { ...last, content: last.content + data.content };
+              }
+              return updated;
+            });
+          } else if (data.type === 'image') {
+            setMessages(prev => {
+              const updated = [...prev];
+              const last = updated[updated.length - 1];
+              if (last.role === 'ai') {
+                const images = [...(last.images || []), { url: data.url, caption: data.caption }];
+                updated[updated.length - 1] = { ...last, images };
               }
               return updated;
             });
@@ -89,8 +121,8 @@ const Home = () => {
           <div className={styles.messageArea}>
             {messages.map((msg, i) =>
               msg.role === 'user'
-                ? <ChatHuman key={i} message={msg.content} />
-                : <ChatAI key={i} message={msg.content} />
+                ? <ChatHuman key={i} message={msg.content} files={msg.files} />
+                : <ChatAI key={i} message={msg.content} images={msg.images} />
             )}
             <div ref={messageEndRef} />
           </div>
@@ -101,6 +133,8 @@ const Home = () => {
             onChange={setInput}
             onSubmit={handleSubmit}
             disabled={isStreaming}
+            files={files}
+            onFilesChange={setFiles}
           />
         </div>
       </div>

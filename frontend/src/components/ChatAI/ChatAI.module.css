@@ -66,3 +66,15 @@
 .bubble hr {
     @apply border-bgHover my-3;
 }
+.imageGrid {
+    @apply flex flex-col gap-3 mt-3;
+}
+.imageWrapper {
+    @apply rounded-sm overflow-hidden;
+}
+.generatedImage {
+    @apply max-w-full rounded-sm;
+}
+.imageCaption {
+    @apply text-sm text-textPrimary/70 mt-1;
+}

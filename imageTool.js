@@ -3,14 +3,32 @@ import path from 'path';
 import { GoogleGenAI } from '@google/genai';
 import './envConfig.js';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
+// Lazy-init: only create the client when actually needed, and support both API key and Vertex AI OAuth
+let _ai = null;
+function getGenAI() {
+  if (_ai) return _ai;
+
+  if (process.env.GOOGLE_API_KEY) {
+    _ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
+  } else if (process.env.GOOGLE_REFRESH_TOKEN && process.env.GOOGLE_CLOUD_PROJECT) {
+    // Vertex AI OAuth — use the access token obtained via the OAuth flow
+    // The @google/genai SDK supports vertexai mode with access tokens
+    _ai = new GoogleGenAI({
+      vertexai: true,
+      project: process.env.GOOGLE_CLOUD_PROJECT,
+      location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
+    });
+  }
+  return _ai;
+}
 
 // --- NANO BANANA (Gemini 2.5 Flash Image Generation) ---
 export async function generateImage(args) {
     const { prompt, aspectRatio } = args;
     console.log(`🎨 Generating image (Nano Banana): "${prompt.substring(0, 50)}..."`);
 
-    if (!process.env.GOOGLE_API_KEY) throw new Error("GOOGLE_API_KEY not found.");
+    const ai = getGenAI();
+    if (!ai) throw new Error("No Google AI credentials available. Connect your Google account or set GOOGLE_API_KEY.");
 
     try {
         const config = {};

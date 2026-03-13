@@ -2,6 +2,16 @@ import dotenv from 'dotenv';
 import path from 'path';
 import os from 'os';
 import store from './store.js';
+import bundledConfig from './bundledConfig.js';
+
+// 0. Load bundled OAuth client credentials as baseline defaults.
+//    These ship with the app so users never need a .env file.
+//    Later sources (.env, home config, electron-store) can still override.
+for (const [key, value] of Object.entries(bundledConfig)) {
+  if (value && !process.env[key]) {
+    process.env[key] = value;
+  }
+}
 
 // 1. Try loading from the local project folder (Development)
 // This looks for .env in the current working directory
@@ -71,4 +81,4 @@ if (oauthJira?.access_token) {
   }
 }
 
-console.log(`[Config] Loaded environment. Checked: .env, ${homeConfigPath}, and electron-store`);
+console.log(`[Config] Loaded environment. Checked: bundledConfig, .env, ${homeConfigPath}, and electron-store`);

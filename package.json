@@ -8,7 +8,9 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "electron .",
     "server": "node server.js",
+    "prebuild": "cd frontend && npm run build",
     "pack": "electron-builder --dir",
+    "predist": "cd frontend && npm run build",
     "dist": "electron-builder"
   },
   "keywords": [],
@@ -42,8 +44,31 @@
   },
   "build": {
     "appId": "com.raman.edith",
+    "productName": "E.D.I.T.H.",
+    "files": [
+      "main.js",
+      "preload.js",
+      "server.js",
+      "agent.js",
+      "store.js",
+      "envConfig.js",
+      "bundledConfig.js",
+      "oauthService.js",
+      "systemPrompt.js",
+      "*Tool.js",
+      "*tool.js",
+      "frontend/dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "icon.png.bak", "to": "icon.png" }
+    ],
     "win": {
       "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
     }
   }
 }

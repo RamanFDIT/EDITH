@@ -4,14 +4,13 @@ const store = new Store({
   name: 'edith-config',
   projectName: 'EDITH',
   defaults: {
-    // LLM Provider: 'gemini' (cloud, needs GOOGLE_API_KEY) or 'ollama' (local, zero keys)
+    // LLM Provider: 'gemini' (cloud, OAuth or API key) or 'ollama' (local, zero keys)
     LLM_PROVIDER: 'gemini',
     OLLAMA_MODEL: 'llama3.2',
     OLLAMA_BASE_URL: 'http://localhost:11434',
 
-    // Legacy API key fields (still supported as fallback)
+    // Legacy API key fields (optional fallback — OAuth is the primary auth method)
     OPENAI_API_KEY: '',
-    GEMINI_API_KEY: '',
     ELEVENLABS_API_KEY: '',
     JIRA_API_TOKEN: '',
     JIRA_EMAIL: '',

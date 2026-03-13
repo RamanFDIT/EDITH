@@ -5,7 +5,7 @@ import './envConfig.js';
 // =============================================================================
 // AUDIO TOOL — Supports multiple backends:
 //   1. OpenAI Whisper + ElevenLabs (if API keys are set)
-//   2. Gemini audio (if GOOGLE_API_KEY is set, no extra keys needed)
+//   2. Gemini audio (via Google OAuth or GOOGLE_API_KEY)
 //   3. Graceful fallback with clear error messages
 // =============================================================================
 
@@ -43,11 +43,21 @@ export async function transcribeAudio(args) {
         }
     }
 
-    // Strategy 2: Gemini audio transcription (uses GOOGLE_API_KEY — no extra key)
-    if (process.env.GOOGLE_API_KEY) {
+    // Strategy 2: Gemini audio transcription (uses GOOGLE_API_KEY or Vertex AI OAuth — no extra key)
+    const hasGeminiAccess = process.env.GOOGLE_API_KEY || (process.env.GOOGLE_REFRESH_TOKEN && process.env.GOOGLE_CLOUD_PROJECT);
+    if (hasGeminiAccess) {
         try {
             const { GoogleGenAI } = await import('@google/genai');
-            const genai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
+            let genai;
+            if (process.env.GOOGLE_API_KEY) {
+              genai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
+            } else {
+              genai = new GoogleGenAI({
+                vertexai: true,
+                project: process.env.GOOGLE_CLOUD_PROJECT,
+                location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
+              });
+            }
             const audioBuffer = fs.readFileSync(filePath);
             const base64Audio = audioBuffer.toString('base64');
 
@@ -75,7 +85,7 @@ export async function transcribeAudio(args) {
         }
     }
 
-    return "Error: No transcription backend available. Set OPENAI_API_KEY or GOOGLE_API_KEY.";
+    return "Error: No transcription backend available. Connect your Google account or set OPENAI_API_KEY / GOOGLE_API_KEY.";
 }
 
 // --- TEXT TO SPEECH ---

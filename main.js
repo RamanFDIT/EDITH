@@ -33,9 +33,23 @@ function createWindow() {
   });
 
   // 3. LOAD THE APP
-  const isDev = process.env.NODE_ENV !== 'production';
+  const isDev = !app.isPackaged;
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
+    const loadDevServer = async () => {
+      const url = 'http://localhost:5173';
+      for (let i = 0; i < 30; i++) {
+        try {
+          await fetch(url);
+          mainWindow.loadURL(url);
+          return;
+        } catch {
+          await new Promise(r => setTimeout(r, 500));
+        }
+      }
+      console.error('[Electron] Vite dev server not reachable after 15s. Is it running?');
+      mainWindow.loadURL(url); // try anyway
+    };
+    loadDevServer();
   } else {
     mainWindow.loadFile(path.join(__dirname, 'frontend/dist/index.html'));
   }
@@ -68,9 +82,22 @@ function createSettingsWindow() {
 
   // Load the React app (Vite dev server for now, or built files later)
   // In production, you'd load the built index.html from the frontend/dist folder
-  const isDev = process.env.NODE_ENV !== 'production';
+  const isDev = !app.isPackaged;
   if (isDev) {
-    settingsWindow.loadURL('http://localhost:5173');
+    const loadDevServer = async () => {
+      const url = 'http://localhost:5173';
+      for (let i = 0; i < 30; i++) {
+        try {
+          await fetch(url);
+          settingsWindow.loadURL(url);
+          return;
+        } catch {
+          await new Promise(r => setTimeout(r, 500));
+        }
+      }
+      settingsWindow.loadURL(url);
+    };
+    loadDevServer();
   } else {
     settingsWindow.loadFile(path.join(__dirname, 'frontend/dist/index.html'));
   }

@@ -1,7 +1,30 @@
 @reference '../../index.css';
 
+.inputWrapper {
+    @apply w-full flex flex-col gap-2;
+}
+.fileChips {
+    @apply flex flex-wrap gap-2 px-1;
+}
+.fileChip {
+    @apply flex items-center gap-1.5 bg-bgComponents text-textPrimary text-xs font-fontBody
+           px-3 py-1.5 rounded-sm;
+}
+.fileChipRemove {
+    @apply text-textPrimary/50 hover:text-textPrimary cursor-pointer;
+}
 .inputContainer {
     @apply w-full flex items-end gap-3;
+}
+.attachButton {
+    @apply bg-bgComponents text-textPrimary/60 font-fontDisplay
+           px-3 py-3 rounded-sm
+           hover:text-textPrimary hover:cursor-pointer
+           transition-all ease-out
+           disabled:opacity-30 disabled:cursor-default;
+}
+.hiddenFileInput {
+    @apply hidden;
 }
 .input {
     @apply flex-1 bg-bgComponents text-textPrimary font-fontBody text-base

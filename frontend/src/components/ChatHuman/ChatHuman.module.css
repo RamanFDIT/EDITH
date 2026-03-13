@@ -6,3 +6,9 @@
 .bubble {
     @apply bg-bgHover rounded-sm px-5 py-4 max-w-3/4 text-textPrimary font-fontBody text-base leading-relaxed;
 }
+.fileList {
+    @apply flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-textPrimary/10;
+}
+.fileTag {
+    @apply flex items-center gap-1 text-xs text-textPrimary/60;
+}

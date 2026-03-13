@@ -31,6 +31,10 @@ const LLM_PROVIDER = (process.env.LLM_PROVIDER || 'gemini').toLowerCase();
 let llm;
 let classifierLlm;
 
+// Detect whether Google OAuth is available (refresh token + cloud project from bundled config or .env)
+const hasGoogleOAuth = !!(process.env.GOOGLE_REFRESH_TOKEN && process.env.GOOGLE_CLOUD_PROJECT &&
+  (process.env.OAUTH_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID));
+
 if (LLM_PROVIDER === 'ollama') {
   // --- OLLAMA: Fully local, zero API keys required ---
   const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
@@ -49,19 +53,11 @@ if (LLM_PROVIDER === 'ollama') {
   });
 
   console.log(` E.D.I.T.H. Online (Ollama: ${ollamaModel}) - LOCAL MODE, Zero API Keys.`);
-} else if (LLM_PROVIDER === 'gemini' && process.env.GOOGLE_VERTEX_AI_OAUTH === 'true' && process.env.GOOGLE_REFRESH_TOKEN) {
-  // --- VERTEX AI: OAuth 2.0 (User Consent Flow) ---
-  // Uses the Google OAuth refresh token instead of an API key.
-  // Requires: Vertex AI API enabled in GCP, GOOGLE_CLOUD_PROJECT set.
+} else if (LLM_PROVIDER === 'gemini' && hasGoogleOAuth) {
+  // --- VERTEX AI: OAuth 2.0 (auto-detected from Google OAuth connection) ---
+  // No API key needed — uses the Google OAuth refresh token from the "Connect" flow.
   const gcpProject = process.env.GOOGLE_CLOUD_PROJECT;
   const gcpLocation = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
-
-  if (!gcpProject) {
-    throw new Error(
-      "GOOGLE_CLOUD_PROJECT not set. Required for Vertex AI OAuth mode. " +
-      "Set it in .env to your GCP project ID (e.g., 'my-edith-project-12345')."
-    );
-  }
 
   const vertexAuthOptions = {
     credentials: {
@@ -89,10 +85,9 @@ if (LLM_PROVIDER === 'ollama') {
   });
 
   console.log(` E.D.I.T.H. Online (Vertex AI OAuth: gemini-2.5-flash) - Project: ${gcpProject}, Region: ${gcpLocation}`);
-} else {
-  // --- GEMINI: Cloud-based (requires GOOGLE_API_KEY) ---
+} else if (LLM_PROVIDER === 'gemini' && process.env.GOOGLE_API_KEY) {
+  // --- GEMINI: Cloud-based (legacy fallback using GOOGLE_API_KEY) ---
   const googleApiKey = process.env.GOOGLE_API_KEY;
-  if (!googleApiKey) throw new Error("GOOGLE_API_KEY not found. Set it in .env or switch to Ollama (LLM_PROVIDER=ollama) for zero-key mode.");
 
   llm = new ChatGoogleGenerativeAI({
     apiKey: googleApiKey,
@@ -106,6 +101,11 @@ if (LLM_PROVIDER === 'ollama') {
   });
 
   console.log(" E.D.I.T.H. Online (Gemini 3 Flash) - Semantic Classification Enabled.");
+} else {
+  throw new Error(
+    "No LLM configured. Connect your Google account in the app (recommended), " +
+    "or set GOOGLE_API_KEY in .env, or switch to Ollama (LLM_PROVIDER=ollama) for local mode."
+  );
 }
 
 
@@ -595,7 +595,7 @@ const KEYWORD_MAP = {
         'layer', 'canvas', 'prototype', 'comment' 
     ],
     system: [
-        'open app', 'open application', 'launch', 'run command', 'terminal', 'cpu usage',
+        'open app', 'open application', 'launch', 'open ', 'start ', 'run command', 'terminal', 'cpu usage',
         'memory usage', 'system status', 'disk space', 'battery'
     ],
     calendar: [

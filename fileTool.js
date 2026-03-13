@@ -1,13 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { createRequire } from 'module';
+import { PDFParse } from 'pdf-parse';
 import mammoth from 'mammoth';
 import './envConfig.js';
-
-// pdf-parse is CommonJS, need to use createRequire
-const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
 
 // Common user directories
 const USER_DIRS = {
@@ -140,18 +136,21 @@ export async function readPdfDocument(input) {
         }
         
         const buffer = await fs.promises.readFile(resolvedPath);
-        const data = await pdfParse(buffer);
+        const parser = new PDFParse({ data: new Uint8Array(buffer) });
+        const textResult = await parser.getText();
+        const infoResult = await parser.getInfo();
         const stats = fs.statSync(resolvedPath);
-        
+        await parser.destroy();
+
         return JSON.stringify({
             filePath: resolvedPath,
             fileName: path.basename(resolvedPath),
             size: stats.size,
             lastModified: stats.mtime.toISOString(),
-            pageCount: data.numpages,
-            content: data.text,
-            charCount: data.text.length,
-            info: data.info
+            pageCount: textResult.total,
+            content: textResult.text,
+            charCount: textResult.text.length,
+            info: infoResult.info
         });
     } catch (error) {
         console.error("PDF Read Error:", error);

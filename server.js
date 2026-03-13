@@ -28,13 +28,43 @@ app.use(express.json());
 app.use(cors()); // <-- 2. Use cors (This tells your server to accept requests)
 app.use(express.static('.')); // Serve static files from current directory
 
+// --- API: File Upload ---
+const fileUpload = multer({
+    storage: multer.diskStorage({
+        destination: (req, file, cb) => cb(null, uploadDir),
+        filename: (req, file, cb) => cb(null, `upload-${Date.now()}-${file.originalname}`)
+    }),
+    limits: { fileSize: 20 * 1024 * 1024 } // 20MB
+});
+
+app.post('/api/upload', fileUpload.array('files', 10), (req, res) => {
+    if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ error: 'No files uploaded.' });
+    }
+    const uploaded = req.files.map(f => ({
+        originalName: f.originalname,
+        path: path.resolve(f.path),
+        size: f.size,
+    }));
+    console.log(`[Server] Uploaded ${uploaded.length} file(s):`, uploaded.map(f => f.originalName));
+    res.json({ files: uploaded });
+});
+
 // --- API Endpoint ---
 app.post('/api/ask', async (req, res) => {
   try {
-    const { question } = req.body;
+    const { question, files } = req.body;
 
     if (!question) {
       return res.status(400).json({ error: 'Question is required' });
+    }
+
+    // If files were uploaded, prepend instructions to read them
+    let fullQuestion = question;
+    if (files && files.length > 0) {
+        const fileList = files.map(f => `- "${f.path}" (${f.originalName})`).join('\n');
+        fullQuestion = `The user has attached the following file(s) for you to use. Read them using your file tools before answering:\n${fileList}\n\nUser's message: ${question}`;
+        console.log(`[Server] ${files.length} file(s) attached to question`);
     }
 
     console.log(`[Server] Received question: ${question}`);
@@ -45,7 +75,7 @@ app.post('/api/ask', async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
 
     // Use the Traffic Cop streaming function
-    const stream = streamWithSemanticRouting(question, "user-1");
+    const stream = streamWithSemanticRouting(fullQuestion, "user-1");
     
     let sentenceBuffer = "";
 
@@ -68,7 +98,18 @@ app.post('/api/ask', async (req, res) => {
         } else if (eventType === "on_tool_start") {
              res.write(`data: ${JSON.stringify({ type: "tool_start", name: event.name, input: event.data?.input })}\n\n`);
         } else if (eventType === "on_tool_end") {
-             res.write(`data: ${JSON.stringify({ type: "tool_end", name: event.name, output: event.data?.output })}\n\n`);
+             const toolOutput = event.data?.output;
+             res.write(`data: ${JSON.stringify({ type: "tool_end", name: event.name, output: toolOutput })}\n\n`);
+
+             // Detect generated images in tool output and send as dedicated event
+             if (typeof toolOutput === 'string') {
+                 try {
+                     const parsed = JSON.parse(toolOutput);
+                     if (parsed.success && parsed.localUrl && parsed.localUrl.startsWith('/temp/')) {
+                         res.write(`data: ${JSON.stringify({ type: "image", url: `http://localhost:3000${parsed.localUrl}`, caption: parsed.caption || null })}\n\n`);
+                     }
+                 } catch (e) { /* not JSON, ignore */ }
+             }
         }
     }
 

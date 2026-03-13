@@ -547,8 +547,6 @@ export function populateEnvFromOAuth(provider, tokens) {
       const googleCfg = getOAuthProviders().google;
       if (googleCfg.clientId) process.env.GOOGLE_CLIENT_ID = googleCfg.clientId;
       if (googleCfg.clientSecret) process.env.GOOGLE_CLIENT_SECRET = googleCfg.clientSecret;
-      // Vertex AI needs these for OAuth-based Gemini access
-      process.env.GOOGLE_VERTEX_AI_OAUTH = 'true';
       break;
     }
 
