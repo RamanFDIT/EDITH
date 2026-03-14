@@ -4,8 +4,9 @@ const store = new Store({
   name: 'edith-config',
   projectName: 'EDITH',
   defaults: {
-    // LLM Provider: 'gemini' (cloud, OAuth or API key) or 'ollama' (local, zero keys)
-    LLM_PROVIDER: 'gemini',
+    // LLM Provider: 'auto' (detect), 'github', 'gemini', or 'ollama'
+    LLM_PROVIDER: 'auto',
+    GITHUB_MODEL: 'gpt-4o',
     OLLAMA_MODEL: 'llama3.2',
     OLLAMA_BASE_URL: 'http://localhost:11434',
 

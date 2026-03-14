@@ -90,6 +90,15 @@ const Home = () => {
               }
               return updated;
             });
+          } else if (data.type === 'error') {
+            setMessages(prev => {
+              const updated = [...prev];
+              const last = updated[updated.length - 1];
+              if (last.role === 'ai') {
+                updated[updated.length - 1] = { ...last, content: last.content + `\n\n**Error:** ${data.content}` };
+              }
+              return updated;
+            });
           } else if (data.type === 'done') {
             break;
           }

@@ -1,9 +1,9 @@
 /**
  * oauthService.js — Centralized OAuth2.0 Service for E.D.I.T.H.
- * 
+ *
  * Replaces all manual API key entry with "Sign in with X" OAuth flows.
  * Tokens are stored securely in electron-store and auto-refreshed.
- * 
+ *
  * Supported providers:
  *   - Google (Calendar + Gemini API via Google Cloud OAuth)
  *   - GitHub
@@ -12,7 +12,6 @@
  *   - Atlassian/Jira (OAuth 2.0 3LO)
  */
 
-import { BrowserWindow } from 'electron';
 import crypto from 'crypto';
 import http from 'http';
 import { URL } from 'url';
@@ -35,11 +34,9 @@ function getOAuthProviders() {
       scopes: [
         'https://www.googleapis.com/auth/calendar',
         'https://www.googleapis.com/auth/calendar.events',
-        'https://www.googleapis.com/auth/cloud-platform',           // Vertex AI (Gemini)
-        'https://www.googleapis.com/auth/generative-language.retriever',
-        'https://www.googleapis.com/auth/gmail.send',               // Gmail: send emails
-        'https://www.googleapis.com/auth/gmail.readonly',           // Gmail: read inbox
-        'https://www.googleapis.com/auth/gmail.compose',            // Gmail: compose/draft
+        'https://www.googleapis.com/auth/gmail.send',           // Gmail: send emails
+        'https://www.googleapis.com/auth/gmail.readonly',       // Gmail: read inbox
+        'https://www.googleapis.com/auth/gmail.compose',        // Gmail: compose/draft
       ],
       redirectUri: 'http://localhost:18923/oauth/callback',
       extraParams: { access_type: 'offline', prompt: 'consent' },
@@ -345,11 +342,13 @@ async function exchangeCodeForTokens(provider, code) {
 /**
  * Launch OAuth flow for a provider.
  * Opens an Electron BrowserWindow, starts a temporary local server for the callback.
- * 
+ *
  * @param {string} provider - One of: google, github, slack, figma, jira
  * @returns {Promise<object>} - The stored token data
  */
-export function startOAuthFlow(provider) {
+export async function startOAuthFlow(provider) {
+  const { BrowserWindow } = global.__electron;
+
   return new Promise((resolve, reject) => {
     const config = getOAuthProviders()[provider];
 

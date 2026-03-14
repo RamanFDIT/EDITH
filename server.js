@@ -6,6 +6,7 @@ import path from 'path';
 import fs from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import os from 'os';
 import { transcribeAudio, generateSpeech } from './audioTool.js';
 
 const execAsync = promisify(exec);
@@ -14,8 +15,8 @@ const app = express();
 const port = 3000;
 
 // --- CONFIG: Multer (File Uploads) ---
-const uploadDir = 'temp';
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
+const uploadDir = path.join(os.tmpdir(), 'edith-uploads');
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, uploadDir),
@@ -98,13 +99,19 @@ app.post('/api/ask', async (req, res) => {
         } else if (eventType === "on_tool_start") {
              res.write(`data: ${JSON.stringify({ type: "tool_start", name: event.name, input: event.data?.input })}\n\n`);
         } else if (eventType === "on_tool_end") {
-             const toolOutput = event.data?.output;
+             // LangGraph streamEvents v2: output may be a ToolMessage object or a plain string
+             const rawOutput = event.data?.output;
+             console.log(`[DEBUG on_tool_end] name=${event.name}, rawOutput type=${typeof rawOutput}, keys=${rawOutput && typeof rawOutput === 'object' ? Object.keys(rawOutput).join(',') : 'N/A'}, preview=${JSON.stringify(rawOutput).substring(0, 200)}`);
+             const toolOutput = typeof rawOutput === 'object' && rawOutput !== null
+                 ? (rawOutput.content || rawOutput.text || JSON.stringify(rawOutput))
+                 : rawOutput;
              res.write(`data: ${JSON.stringify({ type: "tool_end", name: event.name, output: toolOutput })}\n\n`);
 
              // Detect generated images in tool output and send as dedicated event
-             if (typeof toolOutput === 'string') {
+             const outputStr = typeof toolOutput === 'string' ? toolOutput : JSON.stringify(toolOutput);
+             if (outputStr) {
                  try {
-                     const parsed = JSON.parse(toolOutput);
+                     const parsed = JSON.parse(outputStr);
                      if (parsed.success && parsed.localUrl && parsed.localUrl.startsWith('/temp/')) {
                          res.write(`data: ${JSON.stringify({ type: "image", url: `http://localhost:3000${parsed.localUrl}`, caption: parsed.caption || null })}\n\n`);
                      }

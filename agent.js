@@ -1,5 +1,5 @@
 ﻿import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { ChatVertexAI } from "@langchain/google-vertexai";
+import { ChatOpenAI } from "@langchain/openai";
 import { ChatOllama } from "@langchain/ollama";
 import fs from 'fs';
 import path from 'path';
@@ -10,6 +10,7 @@ import { BaseListChatMessageHistory } from "@langchain/core/chat_history";
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import "./envConfig.js";
+import { getValidToken } from "./oauthService.js";
 
 import { EDITH_SYSTEM_PROMPT, getSystemPrompt } from "./systemPrompt.js";
 import { getSystemStatus, executeSystemCommand, openApplication } from "./systemTool.js";
@@ -23,89 +24,107 @@ import { readFile, listDirectory, getLatestFile } from "./fileTool.js";
 import { sendGmail, searchGmailContacts, getRecentEmails } from "./gmailTool.js";
 
 // =============================================================================
-// LLM PROVIDER SELECTION: Gemini (cloud) or Ollama (local, zero API keys)
+// LLM PROVIDER SELECTION
+// Priority: GitHub Models (free cloud) → Gemini API key → Ollama (local)
+// Lazy-initialized — the app can start and show the Connection page before
+// the user has connected any accounts. The LLM is created on first use.
 // =============================================================================
-
-const LLM_PROVIDER = (process.env.LLM_PROVIDER || 'gemini').toLowerCase();
 
 let llm;
 let classifierLlm;
+let llmInitialized = false;
+let llmProvider = null; // Track which provider is active ('github', 'apikey', 'ollama')
 
-// Detect whether Google OAuth is available (refresh token + cloud project from bundled config or .env)
-const hasGoogleOAuth = !!(process.env.GOOGLE_REFRESH_TOKEN && process.env.GOOGLE_CLOUD_PROJECT &&
-  (process.env.OAUTH_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID));
+/**
+ * Refresh LLM credentials if the provider uses OAuth tokens.
+ * Called before each request to ensure the token is valid.
+ */
+async function ensureFreshLLM() {
+  if (llmProvider === 'github') {
+    const freshToken = await getValidToken('github');
+    if (freshToken && freshToken !== process.env.GITHUB_TOKEN) {
+      process.env.GITHUB_TOKEN = freshToken;
+      const githubModel = process.env.GITHUB_MODEL || 'gpt-4o';
+      llm = new ChatOpenAI({
+        modelName: githubModel,
+        openAIApiKey: freshToken,
+        configuration: { baseURL: 'https://models.inference.ai.azure.com' },
+      });
+      classifierLlm = new ChatOpenAI({
+        modelName: 'gpt-4o-mini',
+        openAIApiKey: freshToken,
+        temperature: 0,
+        configuration: { baseURL: 'https://models.inference.ai.azure.com' },
+      });
+    }
+  }
+  // For 'apikey' and 'ollama' providers, the LLM instances are stable — nothing to refresh.
+}
 
-if (LLM_PROVIDER === 'ollama') {
-  // --- OLLAMA: Fully local, zero API keys required ---
-  const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-  const ollamaModel = process.env.OLLAMA_MODEL || 'llama3.2';
+function initLLM() {
+  if (llmInitialized) return;
 
-  llm = new ChatOllama({
-    baseUrl: ollamaBaseUrl,
-    model: ollamaModel,
-  });
+  const provider = (process.env.LLM_PROVIDER || 'auto').toLowerCase();
 
-  // Use the same local model for classification (or a smaller one if available)
-  classifierLlm = new ChatOllama({
-    baseUrl: ollamaBaseUrl,
-    model: ollamaModel,
-    temperature: 0,
-  });
+  const hasGithubToken = !!process.env.GITHUB_TOKEN;
+  const hasGoogleApiKey = !!process.env.GOOGLE_API_KEY;
 
-  console.log(` E.D.I.T.H. Online (Ollama: ${ollamaModel}) - LOCAL MODE, Zero API Keys.`);
-} else if (LLM_PROVIDER === 'gemini' && hasGoogleOAuth) {
-  // --- VERTEX AI: OAuth 2.0 (auto-detected from Google OAuth connection) ---
-  // No API key needed — uses the Google OAuth refresh token from the "Connect" flow.
-  const gcpProject = process.env.GOOGLE_CLOUD_PROJECT;
-  const gcpLocation = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
+  if (provider === 'ollama') {
+    const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    const ollamaModel = process.env.OLLAMA_MODEL || 'llama3.2';
 
-  const vertexAuthOptions = {
-    credentials: {
-      type: 'authorized_user',
-      client_id: process.env.OAUTH_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
-      client_secret: process.env.OAUTH_GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET,
-      refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
-    },
-    scopes: ['https://www.googleapis.com/auth/cloud-platform'],
-  };
+    llm = new ChatOllama({ baseUrl: ollamaBaseUrl, model: ollamaModel });
+    classifierLlm = new ChatOllama({ baseUrl: ollamaBaseUrl, model: ollamaModel, temperature: 0 });
+    llmProvider = 'ollama';
 
-  llm = new ChatVertexAI({
-    model: "gemini-2.5-flash-preview-05-20",
-    project: gcpProject,
-    location: gcpLocation,
-    authOptions: vertexAuthOptions,
-  });
+    console.log(` E.D.I.T.H. Online (Ollama: ${ollamaModel}) - LOCAL MODE, Zero API Keys.`);
 
-  classifierLlm = new ChatVertexAI({
-    model: "gemini-2.0-flash-lite",
-    project: gcpProject,
-    location: gcpLocation,
-    temperature: 0,
-    authOptions: vertexAuthOptions,
-  });
+  } else if (provider === 'github' || (provider === 'auto' && hasGithubToken)) {
+    // GitHub Models — free cloud LLM via existing GitHub OAuth
+    const githubToken = process.env.GITHUB_TOKEN;
+    const githubModel = process.env.GITHUB_MODEL || 'gpt-4o';
 
-  console.log(` E.D.I.T.H. Online (Vertex AI OAuth: gemini-2.5-flash) - Project: ${gcpProject}, Region: ${gcpLocation}`);
-} else if (LLM_PROVIDER === 'gemini' && process.env.GOOGLE_API_KEY) {
-  // --- GEMINI: Cloud-based (legacy fallback using GOOGLE_API_KEY) ---
-  const googleApiKey = process.env.GOOGLE_API_KEY;
+    llm = new ChatOpenAI({
+      modelName: githubModel,
+      openAIApiKey: githubToken,
+      configuration: { baseURL: 'https://models.inference.ai.azure.com' },
+    });
+    classifierLlm = new ChatOpenAI({
+      modelName: 'gpt-4o-mini',
+      openAIApiKey: githubToken,
+      temperature: 0,
+      configuration: { baseURL: 'https://models.inference.ai.azure.com' },
+    });
+    llmProvider = 'github';
 
-  llm = new ChatGoogleGenerativeAI({
-    apiKey: googleApiKey,
-    model: "gemini-3-flash-preview",
-  });
+    console.log(` E.D.I.T.H. Online (GitHub Models: ${githubModel}) - Free cloud LLM via GitHub.`);
 
-  classifierLlm = new ChatGoogleGenerativeAI({
-    apiKey: googleApiKey,
-    model: "gemini-2.0-flash-lite",
-    temperature: 0,
-  });
+  } else if (provider === 'gemini' || (provider === 'auto' && hasGoogleApiKey)) {
+    // Gemini API key mode
+    const googleApiKey = process.env.GOOGLE_API_KEY;
 
-  console.log(" E.D.I.T.H. Online (Gemini 3 Flash) - Semantic Classification Enabled.");
-} else {
-  throw new Error(
-    "No LLM configured. Connect your Google account in the app (recommended), " +
-    "or set GOOGLE_API_KEY in .env, or switch to Ollama (LLM_PROVIDER=ollama) for local mode."
-  );
+    llm = new ChatGoogleGenerativeAI({ apiKey: googleApiKey, model: "gemini-2.5-flash" });
+    classifierLlm = new ChatGoogleGenerativeAI({ apiKey: googleApiKey, model: "gemini-2.0-flash-lite", temperature: 0 });
+    llmProvider = 'apikey';
+
+    console.log(" E.D.I.T.H. Online (Gemini 2.5 Flash via API Key) - Ready to chat.");
+
+  } else {
+    throw new Error(
+      "No LLM configured. Connect your GitHub account in the app for free GPT-4o access, " +
+      "or set GOOGLE_API_KEY in .env, or switch to Ollama (LLM_PROVIDER=ollama) for local mode."
+    );
+  }
+
+  llmInitialized = true;
+}
+
+// Try to init now (works if tokens already exist, e.g. returning user).
+// If it fails, that's fine — we'll retry on first chat request after the user connects.
+try {
+  initLLM();
+} catch (e) {
+  console.log(`[LLM] Deferred initialization — waiting for connection. (${e.message})`);
 }
 
 
@@ -629,7 +648,13 @@ const KEYWORD_MAP = {
         'render an image', 'design a logo', 'generate a logo', 'picture of',
         'create photo', 'make picture', 'generate photo', 'make a photo',
         'generate a photo', 'create a picture', 'create a drawing', 'sketch',
-        'render a', 'paint', 'create graphic', 'make graphic'
+        'render a', 'paint', 'create graphic', 'make graphic',
+        'draw me', 'draw a', 'image of', 'photo of', 'logo of', 'graphic of',
+        'make me an image', 'make me a picture', 'make me a logo', 'make me a graphic',
+        'generate me', 'create me an image', 'create me a picture',
+        'design an image', 'design a picture', 'design a graphic',
+        'can you draw', 'can you generate', 'can you create an image',
+        'show me an image', 'show me a picture', 'depict', 'depiction'
     ]
 };
 
@@ -768,7 +793,7 @@ class JSONFileChatMessageHistory extends BaseListChatMessageHistory {
                 switch (msg.type) {
                      case 'human': return new HumanMessage(msg.content);
                      case 'ai': return new AIMessage(msg.content);
-                     case 'system': return new SystemMessage(msg.content);
+                     case 'system': return new HumanMessage(`[SYSTEM] ${msg.content}`);
                      default: return new HumanMessage(msg.content);
                 }
             });
@@ -862,6 +887,8 @@ function getOrCreateAgent(tools) {
 
 // The main processing function that classifies intent and routes to appropriate agent
 async function processWithSemanticRouting(input) {
+    initLLM(); // Lazy init — safe to call repeatedly, only runs once
+    await ensureFreshLLM(); // Refresh OAuth token if needed
     const { input: userQuery, chat_history } = input;
     const history = trimHistory(Array.isArray(chat_history) ? chat_history : []);
     
@@ -879,8 +906,8 @@ async function processWithSemanticRouting(input) {
         
         // getSystemPrompt() already returns a SystemMessage — don't double-wrap
         const systemPrompt = getSystemPrompt();
-        const noToolsGuard = new SystemMessage(
-            "IMPORTANT: You have NO tools available in this response. " +
+        const noToolsGuard = new HumanMessage(
+            "[SYSTEM NOTICE] IMPORTANT: You have NO tools available in this response. " +
             "You CANNOT perform any actions such as sending emails, creating tickets, " +
             "posting messages, reading files, scheduling events, or querying APIs. " +
             "Do NOT pretend to execute actions or fabricate results. " +
@@ -888,30 +915,41 @@ async function processWithSemanticRouting(input) {
             "that you were unable to route their request to the appropriate tool, " +
             "and ask them to rephrase or be more specific."
         );
+        const now = new Date();
+        const freshTimeReminder = new HumanMessage(
+            `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })} on ${now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}. Any times mentioned in previous messages are outdated — use ONLY this time.`
+        );
         const messages = [
             systemPrompt,
             noToolsGuard,
             ...history,
+            freshTimeReminder,
             new HumanMessage(userQuery)
         ];
-        
+
         const response = await llm.invoke(messages);
         return { messages: [...history, new HumanMessage(userQuery), response] };
     }
     
     // Step 4: Get or create an agent with these specific tools
     const agent = getOrCreateAgent(selectedTools);
-    
-    // Step 5: Execute the agent
+
+    // Step 5: Execute the agent (inject fresh time reminder before user query)
+    const now = new Date();
+    const freshTimeReminder = new HumanMessage(
+        `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })} on ${now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}. Any times mentioned in previous messages are outdated — use ONLY this time.`
+    );
     const result = await agent.invoke({
-        messages: [...history, new HumanMessage(userQuery)]
+        messages: [...history, freshTimeReminder, new HumanMessage(userQuery)]
     });
-    
+
     return result;
 }
 
 // Streaming version for the server to use
 export async function* streamWithSemanticRouting(userQuery, sessionId) {
+    initLLM(); // Lazy init — safe to call repeatedly, only runs once
+    await ensureFreshLLM(); // Refresh OAuth token if needed
     const messageHistory = getMessageHistory(sessionId);
     const fullHistory = await messageHistory.getMessages();
     const history = trimHistory(fullHistory);
@@ -951,8 +989,8 @@ export async function* streamWithSemanticRouting(userQuery, sessionId) {
         
         // getSystemPrompt() already returns a SystemMessage — don't double-wrap
         const systemPrompt = getSystemPrompt();
-        const noToolsGuard = new SystemMessage(
-            "IMPORTANT: You have NO tools available in this response. " +
+        const noToolsGuard = new HumanMessage(
+            "[SYSTEM NOTICE] IMPORTANT: You have NO tools available in this response. " +
             "You CANNOT perform any actions such as sending emails, creating tickets, " +
             "posting messages, reading files, scheduling events, or querying APIs. " +
             "Do NOT pretend to execute actions or fabricate results. " +
@@ -960,13 +998,20 @@ export async function* streamWithSemanticRouting(userQuery, sessionId) {
             "that you were unable to route their request to the appropriate tool, " +
             "and ask them to rephrase or be more specific."
         );
+        // Inject a fresh time reminder right before the user query so the LLM
+        // doesn't rely on stale timestamps from earlier in the conversation history.
+        const now = new Date();
+        const freshTimeReminder = new HumanMessage(
+            `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })} on ${now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}. Any times mentioned in previous messages are outdated — use ONLY this time.`
+        );
         const messages = [
             systemPrompt,
             noToolsGuard,
             ...history,
+            freshTimeReminder,
             new HumanMessage(userQuery)
         ];
-        
+
         const stream = await llm.stream(messages);
         
         let completeResponse = "";
@@ -991,10 +1036,14 @@ export async function* streamWithSemanticRouting(userQuery, sessionId) {
     
     // Step 4: Get or create an agent with these specific tools
     const agent = getOrCreateAgent(selectedTools);
-    
-    // Step 5: Stream events from the agent
+
+    // Step 5: Stream events from the agent (inject fresh time reminder before user query)
+    const agentNow = new Date();
+    const agentTimeReminder = new HumanMessage(
+        `[TIME UPDATE] Current time is now: ${agentNow.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })} on ${agentNow.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}. Any times mentioned in previous messages are outdated — use ONLY this time.`
+    );
     const stream = agent.streamEvents(
-        { messages: [...history, new HumanMessage(userQuery)] },
+        { messages: [...history, agentTimeReminder, new HumanMessage(userQuery)] },
         { version: "v2" }
     );
     

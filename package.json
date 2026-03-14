@@ -2,11 +2,11 @@
   "name": "edith",
   "version": "1.0.0",
   "description": "Assistant",
-  "main": "main.js",
+  "main": "electron-main.cjs",
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "electron .",
+    "start": "concurrently \"cd frontend && npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
     "server": "node server.js",
     "prebuild": "cd frontend && npm run build",
     "pack": "electron-builder --dir",
@@ -18,16 +18,15 @@
   "license": "ISC",
   "dependencies": {
     "@google/genai": "^1.40.0",
-    "@langchain/core": "^1.1.12",
+    "@langchain/core": "^1.1.29",
     "@langchain/google-genai": "^2.1.7",
-    "@langchain/google-vertexai": "^2.1.21",
     "@langchain/ollama": "^1.1.0",
+    "@langchain/openai": "^1.2.13",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
-    "electron-store": "^11.0.2",
+    "electron-store": "^8.2.0",
     "elevenlabs": "^1.59.0",
     "express": "^5.1.0",
-    "google-auth-library": "^10.6.1",
     "googleapis": "^170.1.0",
     "langchain": "^1.2.7",
     "mammoth": "^1.11.0",
@@ -39,13 +38,16 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "electron": "^39.2.7",
-    "electron-builder": "^24.9.1"
+    "electron-builder": "^24.9.1",
+    "wait-on": "^9.0.4"
   },
   "build": {
     "appId": "com.raman.edith",
     "productName": "E.D.I.T.H.",
     "files": [
+      "electron-main.cjs",
       "main.js",
       "preload.js",
       "server.js",
@@ -61,7 +63,10 @@
       "package.json"
     ],
     "extraResources": [
-      { "from": "icon.png.bak", "to": "icon.png" }
+      {
+        "from": "icon.png.bak",
+        "to": "icon.png"
+      }
     ],
     "win": {
       "target": "nsis"

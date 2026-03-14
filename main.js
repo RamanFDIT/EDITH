@@ -1,6 +1,6 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+const { app, BrowserWindow, ipcMain } = global.__electron;
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import store from './store.js';
 import './envConfig.js'; // Load .env BEFORE oauthService reads process.env
 import { startOAuthFlow, clearTokens, getConnectionStatus, populateAllEnvFromOAuth } from './oauthService.js';
@@ -51,7 +51,8 @@ function createWindow() {
     };
     loadDevServer();
   } else {
-    mainWindow.loadFile(path.join(__dirname, 'frontend/dist/index.html'));
+    const indexPath = path.join(__dirname, 'frontend', 'dist', 'index.html');
+    mainWindow.loadURL(pathToFileURL(indexPath).href);
   }
 
   // Hide the default menu bar for a cleaner "Jarvis" look
@@ -99,7 +100,8 @@ function createSettingsWindow() {
     };
     loadDevServer();
   } else {
-    settingsWindow.loadFile(path.join(__dirname, 'frontend/dist/index.html'));
+    const indexPath = path.join(__dirname, 'frontend', 'dist', 'index.html');
+    settingsWindow.loadURL(pathToFileURL(indexPath).href);
   }
 
   settingsWindow.setMenuBarVisibility(false);

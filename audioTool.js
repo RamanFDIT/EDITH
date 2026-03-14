@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import './envConfig.js';
+import { getValidToken } from './oauthService.js';
 
 // =============================================================================
 // AUDIO TOOL — Supports multiple backends:
@@ -29,22 +30,8 @@ export async function transcribeAudio(args) {
 
     if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`);
 
-    // Strategy 1: OpenAI Whisper (if key available)
-    const client = await getOpenAI();
-    if (client) {
-        try {
-            const transcription = await client.audio.transcriptions.create({
-                file: fs.createReadStream(filePath),
-                model: "whisper-1",
-            });
-            return transcription.text;
-        } catch (error) {
-            console.warn(`[Audio] Whisper failed: ${error.message}, falling back to Gemini...`);
-        }
-    }
-
-    // Strategy 2: Gemini audio transcription (uses GOOGLE_API_KEY or Vertex AI OAuth — no extra key)
-    const hasGeminiAccess = process.env.GOOGLE_API_KEY || (process.env.GOOGLE_REFRESH_TOKEN && process.env.GOOGLE_CLOUD_PROJECT);
+    // Strategy 1: Gemini audio transcription (uses bundled GOOGLE_API_KEY — always available)
+    const hasGeminiAccess = process.env.GOOGLE_API_KEY || process.env.GOOGLE_REFRESH_TOKEN;
     if (hasGeminiAccess) {
         try {
             const { GoogleGenAI } = await import('@google/genai');
@@ -52,10 +39,12 @@ export async function transcribeAudio(args) {
             if (process.env.GOOGLE_API_KEY) {
               genai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
             } else {
+              // OAuth mode — get a fresh access token and inject via httpOptions headers
+              const accessToken = await getValidToken('google');
+              if (!accessToken) throw new Error('Google OAuth token unavailable. Please reconnect your Google account.');
               genai = new GoogleGenAI({
-                vertexai: true,
-                project: process.env.GOOGLE_CLOUD_PROJECT,
-                location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
+                apiKey: 'OAUTH_MODE', // Placeholder — Bearer header takes priority on the backend
+                httpOptions: { headers: { 'Authorization': `Bearer ${accessToken}` } },
               });
             }
             const audioBuffer = fs.readFileSync(filePath);
@@ -81,11 +70,25 @@ export async function transcribeAudio(args) {
 
             return response.candidates[0].content.parts[0].text;
         } catch (error) {
-            return `Error transcribing with Gemini: ${error.message}`;
+            console.warn(`[Audio] Gemini transcription failed: ${error.message}, falling back to Whisper...`);
         }
     }
 
-    return "Error: No transcription backend available. Connect your Google account or set OPENAI_API_KEY / GOOGLE_API_KEY.";
+    // Strategy 2: OpenAI Whisper (optional — if user has set OPENAI_API_KEY)
+    const client = await getOpenAI();
+    if (client) {
+        try {
+            const transcription = await client.audio.transcriptions.create({
+                file: fs.createReadStream(filePath),
+                model: "whisper-1",
+            });
+            return transcription.text;
+        } catch (error) {
+            console.warn(`[Audio] Whisper failed: ${error.message}`);
+        }
+    }
+
+    return "Error: No transcription backend available. Set GOOGLE_API_KEY or OPENAI_API_KEY, or connect your Google account.";
 }
 
 // --- TEXT TO SPEECH ---

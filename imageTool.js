@@ -2,24 +2,35 @@ import fs from 'fs';
 import path from 'path';
 import { GoogleGenAI } from '@google/genai';
 import './envConfig.js';
+import { getValidToken } from './oauthService.js';
 
-// Lazy-init: only create the client when actually needed, and support both API key and Vertex AI OAuth
+// Lazy-init: only create the client when actually needed, and support both API key and OAuth
 let _ai = null;
-function getGenAI() {
-  if (_ai) return _ai;
+let _aiMode = null; // 'apikey' or 'oauth'
 
+async function getGenAI() {
   if (process.env.GOOGLE_API_KEY) {
-    _ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
-  } else if (process.env.GOOGLE_REFRESH_TOKEN && process.env.GOOGLE_CLOUD_PROJECT) {
-    // Vertex AI OAuth — use the access token obtained via the OAuth flow
-    // The @google/genai SDK supports vertexai mode with access tokens
-    _ai = new GoogleGenAI({
-      vertexai: true,
-      project: process.env.GOOGLE_CLOUD_PROJECT,
-      location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
-    });
+    // API key mode — stable, create once
+    if (!_ai || _aiMode !== 'apikey') {
+      _ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
+      _aiMode = 'apikey';
+    }
+    return _ai;
   }
-  return _ai;
+
+  if (process.env.GOOGLE_REFRESH_TOKEN) {
+    // OAuth mode — get a fresh access token and inject via httpOptions headers
+    const accessToken = await getValidToken('google');
+    if (!accessToken) return null;
+    _ai = new GoogleGenAI({
+      apiKey: 'OAUTH_MODE', // Placeholder — Bearer header takes priority on the backend
+      httpOptions: { headers: { 'Authorization': `Bearer ${accessToken}` } },
+    });
+    _aiMode = 'oauth';
+    return _ai;
+  }
+
+  return null;
 }
 
 // --- NANO BANANA (Gemini 2.5 Flash Image Generation) ---
@@ -27,7 +38,7 @@ export async function generateImage(args) {
     const { prompt, aspectRatio } = args;
     console.log(`🎨 Generating image (Nano Banana): "${prompt.substring(0, 50)}..."`);
 
-    const ai = getGenAI();
+    const ai = await getGenAI();
     if (!ai) throw new Error("No Google AI credentials available. Connect your Google account or set GOOGLE_API_KEY.");
 
     try {
