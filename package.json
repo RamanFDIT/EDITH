@@ -17,13 +17,15 @@
   "author": "Ramandeep Singh",
   "license": "ISC",
   "dependencies": {
+    "@deepgram/sdk": "^5.0.0",
     "@google/genai": "^1.40.0",
     "@langchain/core": "^1.1.29",
     "@langchain/google-genai": "^2.1.7",
     "@langchain/ollama": "^1.1.0",
     "@langchain/openai": "^1.2.13",
     "cors": "^2.8.5",
-    "dotenv": "^17.2.3",
+    "dotenv": "^17.3.1",
+    "edge-tts-universal": "^1.4.0",
     "electron-store": "^8.2.0",
     "elevenlabs": "^1.59.0",
     "express": "^5.1.0",
@@ -35,6 +37,7 @@
     "open": "^11.0.0",
     "openai": "^6.16.0",
     "pdf-parse": "^2.4.5",
+    "ws": "^8.19.0",
     "zod": "^4.1.12"
   },
   "devDependencies": {

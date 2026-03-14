@@ -30,6 +30,9 @@ const store = new Store({
     oauth_slack: null,
     oauth_figma: null,
     oauth_jira: null,
+
+    // Setup flow flag
+    setupComplete: false,
   }
 });
 

@@ -4,13 +4,33 @@ import { GoogleGenAI } from '@google/genai';
 import './envConfig.js';
 import { getValidToken } from './oauthService.js';
 
-// Lazy-init: only create the client when actually needed, and support both API key and OAuth
+// Lazy-init: only create the client when actually needed, and support both OAuth and API key
 let _ai = null;
-let _aiMode = null; // 'apikey' or 'oauth'
+let _aiMode = null; // 'oauth' or 'apikey'
 
 async function getGenAI() {
+  // Strategy 1: Google OAuth (primary — no API key needed from user)
+  if (process.env.GOOGLE_REFRESH_TOKEN) {
+    try {
+      const accessToken = await getValidToken('google');
+      if (accessToken) {
+        _ai = new GoogleGenAI({
+          auth: {
+            addAuthHeaders: async (headers) => {
+              headers.set('Authorization', `Bearer ${accessToken}`);
+            }
+          }
+        });
+        _aiMode = 'oauth';
+        return _ai;
+      }
+    } catch (e) {
+      console.warn(`[Image] OAuth token retrieval failed: ${e.message}, falling back to API key...`);
+    }
+  }
+
+  // Strategy 2: API key (bundled or user-provided — fallback)
   if (process.env.GOOGLE_API_KEY) {
-    // API key mode — stable, create once
     if (!_ai || _aiMode !== 'apikey') {
       _ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
       _aiMode = 'apikey';
@@ -18,87 +38,100 @@ async function getGenAI() {
     return _ai;
   }
 
-  if (process.env.GOOGLE_REFRESH_TOKEN) {
-    // OAuth mode — get a fresh access token and inject via httpOptions headers
-    const accessToken = await getValidToken('google');
-    if (!accessToken) return null;
-    _ai = new GoogleGenAI({
-      apiKey: 'OAUTH_MODE', // Placeholder — Bearer header takes priority on the backend
-      httpOptions: { headers: { 'Authorization': `Bearer ${accessToken}` } },
-    });
-    _aiMode = 'oauth';
-    return _ai;
-  }
-
   return null;
 }
 
-// --- NANO BANANA (Gemini 2.5 Flash Image Generation) ---
+// --- NANO BANANA (Gemini Image Generation) ---
 export async function generateImage(args) {
     const { prompt, aspectRatio } = args;
     console.log(`🎨 Generating image (Nano Banana): "${prompt.substring(0, 50)}..."`);
 
     const ai = await getGenAI();
-    if (!ai) throw new Error("No Google AI credentials available. Connect your Google account or set GOOGLE_API_KEY.");
-
-    try {
-        const config = {};
-        if (aspectRatio) {
-            config.imageConfig = { aspectRatio };
-        }
-
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash-image",
-            contents: prompt,
-            config: {
-                responseModalities: ['Text', 'Image'],
-                ...config,
-            },
-        });
-
-        // Validate response structure
-        const candidate = response.candidates?.[0];
-        if (!candidate || !candidate.content?.parts?.length) {
-            const reason = candidate?.finishReason || 'unknown';
-            console.error(`🎨 Image generation returned no content. Finish reason: ${reason}`);
-            return `Image generation failed — the model returned no content (reason: ${reason}). The prompt may have been blocked by safety filters. Try rephrasing.`;
-        }
-
-        // Save to temp/
-        const tempDir = path.join(process.cwd(), 'temp');
-        if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-
-        const filename = `image-${Date.now()}.png`;
-        const filePath = path.join(tempDir, filename);
-        let captionText = "";
-        let imageSaved = false;
-
-        for (const part of candidate.content.parts) {
-            if (part.text) {
-                captionText += part.text;
-            } else if (part.inlineData) {
-                const buffer = Buffer.from(part.inlineData.data, "base64");
-                fs.writeFileSync(filePath, buffer);
-                imageSaved = true;
-                console.log(`🎨 Image saved: ${filePath}`);
-            }
-        }
-
-        if (!imageSaved) {
-            console.error("🎨 Model responded but did not produce an image.");
-            return captionText
-                ? `The model did not generate an image, but responded with: ${captionText}`
-                : `Image generation failed — the model did not return any image data. Try a more descriptive prompt.`;
-        }
-
-        return JSON.stringify({
-            success: true,
-            localUrl: `/temp/${filename}`,
-            caption: captionText || null,
-            message: `Image generated and saved. Display it with: [IMAGE:/temp/${filename}]`,
-        });
-    } catch (error) {
-        console.error("Image generation error:", error);
-        return `Error generating image: ${error.message}`;
+    if (!ai) {
+        return "Image generation requires a Google connection. Please connect your Google account in Settings (the same connection used for Calendar & Gmail), or ensure a GOOGLE_API_KEY is available.";
     }
+
+    // Models to try in order of preference
+    const models = ["gemini-2.0-flash-preview-image-generation", "gemini-2.5-flash"];
+
+    for (const model of models) {
+        try {
+            const config = {};
+            if (aspectRatio) {
+                config.imageConfig = { aspectRatio };
+            }
+
+            console.log(`🎨 Trying model: ${model} (auth: ${_aiMode})`);
+
+            const response = await ai.models.generateContent({
+                model,
+                contents: prompt,
+                config: {
+                    responseModalities: ['Text', 'Image'],
+                    ...config,
+                },
+            });
+
+            // Validate response structure
+            const candidate = response.candidates?.[0];
+            if (!candidate || !candidate.content?.parts?.length) {
+                const reason = candidate?.finishReason || 'unknown';
+                console.warn(`🎨 Model ${model} returned no content (reason: ${reason}). Trying next...`);
+                continue; // Try next model
+            }
+
+            // Save to temp/
+            const tempDir = path.join(process.cwd(), 'temp');
+            if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+            const filename = `image-${Date.now()}.png`;
+            const filePath = path.join(tempDir, filename);
+            let captionText = "";
+            let imageSaved = false;
+
+            for (const part of candidate.content.parts) {
+                if (part.text) {
+                    captionText += part.text;
+                } else if (part.inlineData) {
+                    const buffer = Buffer.from(part.inlineData.data, "base64");
+                    fs.writeFileSync(filePath, buffer);
+                    imageSaved = true;
+                    console.log(`🎨 Image saved: ${filePath} (model: ${model}, auth: ${_aiMode})`);
+                }
+            }
+
+            if (!imageSaved) {
+                console.warn(`🎨 Model ${model} responded but no image data. Trying next...`);
+                continue;
+            }
+
+            return JSON.stringify({
+                success: true,
+                localUrl: `/temp/${filename}`,
+                caption: captionText || null,
+                message: `Image generated and saved. Display it with: [IMAGE:/temp/${filename}]`,
+            });
+        } catch (error) {
+            const msg = error.message || '';
+            console.error(`🎨 Model ${model} failed:`, msg);
+
+            // Rate limit — don't try more models, it affects the whole API
+            if (msg.includes('429') || msg.includes('quota') || msg.includes('rate')) {
+                return "Image generation is temporarily rate-limited. The free tier allows limited requests per minute. Please wait a moment and try again.";
+            }
+            // Auth failure
+            if (msg.includes('401') || msg.includes('403') || msg.includes('PERMISSION_DENIED')) {
+                return "Image generation authentication failed. Please reconnect your Google account in Settings, or check that your API key has Gemini access enabled.";
+            }
+            // Safety filter
+            if (msg.includes('SAFETY') || msg.includes('blocked')) {
+                return `Image generation was blocked by safety filters. Try rephrasing your prompt to avoid sensitive content.`;
+            }
+            // Other error — try next model
+            continue;
+        }
+    }
+
+    return "Image generation failed with all available models. Please ensure your Google account is connected in Settings, or try again later.";
 }
+

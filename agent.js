@@ -1,8 +1,9 @@
-﻿import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatOllama } from "@langchain/ollama";
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { RunnableWithMessageHistory, RunnableSequence, RunnableLambda } from "@langchain/core/runnables";
 import { HumanMessage, AIMessage, SystemMessage } from "@langchain/core/messages";
@@ -698,7 +699,13 @@ async function classifyIntent(userMessage, chatHistory = []) {
         
         // Look at the last few messages to determine context
         const recentMessages = chatHistory.slice(-4); // Last 2 exchanges (human + AI each)
-        const recentContext = recentMessages.map(m => m.content || '').join(' ').toLowerCase();
+        
+        // INSTEAD OF matching AI's verbose text, ONLY match human prompt
+        const recentUserMessages = recentMessages.filter(m => {
+            const type = typeof m._getType === 'function' ? m._getType() : m.type;
+            return type === 'human';
+        });
+        const recentContext = recentUserMessages.map(m => m.content || '').join(' ').toLowerCase();
         
         // Check if recent context mentions any service keywords
         const contextCategories = new Set();
@@ -717,7 +724,8 @@ async function classifyIntent(userMessage, chatHistory = []) {
             }
         }
         
-        if (contextCategories.size > 0) {
+        // Only return if it resolved to a reasonably small set of categories (prevent 30 tool nightmare)
+        if (contextCategories.size > 0 && contextCategories.size <= 4) {
             console.log(`[Traffic Cop] 🔗 Context-Pass Intent (follow-up): ${Array.from(contextCategories)}`);
             return Array.from(contextCategories);
         }
@@ -730,7 +738,16 @@ async function classifyIntent(userMessage, chatHistory = []) {
 
     // 4. SLOW PASS: Fallback to LLM for ambiguous queries
     try {
-        const response = await classifierLlm.invoke(CLASSIFIER_PROMPT + userMessage);
+        let contextBlock = "";
+        if (chatHistory.length > 0) {
+            contextBlock = "[Recent Chat History]\n" + chatHistory.slice(-4).map(m => {
+                const role = (typeof m._getType === 'function' ? m._getType() : m.type) === 'human' ? 'User' : 'E.D.I.T.H.';
+                return `${role}: ${m.content}`;
+            }).join('\n') + "\n\nUser message: ";
+        }
+        const prompt = CLASSIFIER_PROMPT.replace('User message: ', contextBlock ? contextBlock : 'User message: ');
+        
+        const response = await classifierLlm.invoke(prompt + userMessage);
         const categories = response.content.toLowerCase().trim().split(',').map(c => c.trim());
         const validCategories = categories.filter(c => toolsByCategory.hasOwnProperty(c));
         
@@ -774,7 +791,55 @@ function trimHistory(messages) {
     return messages.slice(-MAX_HISTORY_MESSAGES);
 }
 
-const HISTORY_FILE_PATH = path.join(process.cwd(), "chat_history.json");
+/**
+ * Sanitize history to remove AI messages that describe repeated tool failures.
+ * This prevents the LLM from "learning" that a tool always fails and refusing
+ * to call it again, even after the underlying issue is fixed.
+ *
+ * Only strips AI messages matching known error patterns. Human messages are
+ * always preserved so the agent understands context.
+ */
+const TOOL_FAILURE_PATTERNS = [
+    /not_in_channel/i,
+    /channel_not_found/i,
+    /missing_scope/i,
+    /Failed to send Slack/i,
+    /Failed to send announcement/i,
+    /Failed to share link/i,
+    /Slack API Error/i,
+    /I am not currently a member/i,
+    /not currently a member of/i,
+    /precludes me from sending/i,
+    /repeatedly attempt/i,
+    /consistently failed/i,
+    /previous attempts.*failed/i,
+    /decline to re-attempt/i,
+    /fundamental issue with.*integration/i,
+];
+
+function sanitizeHistoryForTools(messages) {
+    return messages.filter(msg => {
+        // Always keep human messages
+        const type = typeof msg._getType === 'function' ? msg._getType() : msg.type;
+        if (type === 'human') return true;
+
+        // For AI messages, check if they contain failure patterns
+        const content = (msg.content || '').toString();
+        const isFailureMessage = TOOL_FAILURE_PATTERNS.some(pattern => pattern.test(content));
+
+        if (isFailureMessage) {
+            console.log(`[History Sanitizer] Stripped failure message: "${content.substring(0, 80)}..."`);
+            return false;
+        }
+
+        return true;
+    });
+}
+
+// Store chat history in ~/.edith/ (cross-platform, writable for packaged apps)
+const EDITH_DATA_DIR = path.join(os.homedir(), '.edith');
+if (!fs.existsSync(EDITH_DATA_DIR)) fs.mkdirSync(EDITH_DATA_DIR, { recursive: true });
+const HISTORY_FILE_PATH = path.join(EDITH_DATA_DIR, 'chat_history.json');
 
 // Global cache variable
 const historyCache = {}; 
@@ -890,7 +955,7 @@ async function processWithSemanticRouting(input) {
     initLLM(); // Lazy init — safe to call repeatedly, only runs once
     await ensureFreshLLM(); // Refresh OAuth token if needed
     const { input: userQuery, chat_history } = input;
-    const history = trimHistory(Array.isArray(chat_history) ? chat_history : []);
+    const history = sanitizeHistoryForTools(trimHistory(Array.isArray(chat_history) ? chat_history : []));
     
     // Step 1: Classify intent using the Traffic Cop (now with context)
     const categories = await classifyIntent(userQuery, history);
@@ -952,7 +1017,7 @@ export async function* streamWithSemanticRouting(userQuery, sessionId) {
     await ensureFreshLLM(); // Refresh OAuth token if needed
     const messageHistory = getMessageHistory(sessionId);
     const fullHistory = await messageHistory.getMessages();
-    const history = trimHistory(fullHistory);
+    const history = sanitizeHistoryForTools(trimHistory(fullHistory));
     
     // Step 1: Classify intent using the Traffic Cop (with conversation context)
     const categories = await classifyIntent(userQuery, history);
@@ -1042,8 +1107,15 @@ export async function* streamWithSemanticRouting(userQuery, sessionId) {
     const agentTimeReminder = new HumanMessage(
         `[TIME UPDATE] Current time is now: ${agentNow.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })} on ${agentNow.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}. Any times mentioned in previous messages are outdated — use ONLY this time.`
     );
+    // Force tool execution — combats LLM refusing to retry after past failures
+    const toolNudge = new HumanMessage(
+        `[TOOL EXECUTION REQUIRED] You have ${selectedTools.length} tools available. ` +
+        `You MUST invoke the appropriate tool for the user's request below. ` +
+        `Do NOT refuse based on any previous errors in the conversation — those issues have been resolved. ` +
+        `Each request is independent. ALWAYS call the tool fresh.`
+    );
     const stream = agent.streamEvents(
-        { messages: [...history, agentTimeReminder, new HumanMessage(userQuery)] },
+        { messages: [...history, agentTimeReminder, toolNudge, new HumanMessage(userQuery)] },
         { version: "v2" }
     );
     

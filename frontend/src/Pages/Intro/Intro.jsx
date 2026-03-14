@@ -1,9 +1,27 @@
 import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import Button from '../../components/Button/Button.jsx'
 import styles from './Intro.module.css';
 
 const Intro = () => {
     const navigate = useNavigate();
+    const [checking, setChecking] = useState(true);
+
+    useEffect(() => {
+        const checkSetup = async () => {
+            if (window.electronAPI) {
+                const isComplete = await window.electronAPI.getSetupComplete();
+                if (isComplete) {
+                    navigate('/home', { replace: true });
+                    return;
+                }
+            }
+            setChecking(false);
+        };
+        checkSetup();
+    }, [navigate]);
+
+    if (checking) return null;
 
     return (
         <section className = {styles.mainSection}>

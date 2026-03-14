@@ -10,7 +10,10 @@
     @apply ml-15 w-full h-full flex flex-col py-12 px-16 overflow-y-auto transition-all duration-300 ease-in-out;
 }
 .header {
-    @apply text-bgCTA font-fontDisplay text-4xl font-semibold mb-2;
+    @apply text-bgCTA font-fontDisplay text-4xl font-semibold;
+}
+.headerRow {
+    @apply flex items-center gap-4 mb-2;
 }
 .subheading {
     @apply text-textPrimary font-fontBody text-lg mb-10;

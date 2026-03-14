@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import { Github, Figma, Calendar, MessageSquare, CheckCircle2, Plug, Unplug, Wifi } from 'lucide-react';
 import styles from './Settings.module.css';
 import { useNavBar } from '../../components/NavBar/NavBarContext.jsx';
+import BackButton from '../../components/BackButton/BackButton.jsx';
+import { useApp } from '../../context/AppContext.jsx';
 
 const providers = [
-  { key: 'google', label: 'Google', description: 'Calendar, Gmail & Vertex AI', icon: Calendar, },
+  { key: 'google', label: 'Google', description: 'Calendar & Gmail', icon: Calendar, },
   { key: 'github', label: 'GitHub', description: 'Repos, PRs, commits, issues', icon: Github },
   { key: 'slack', label: 'Slack', description: 'Send messages, post announcements', icon: MessageSquare },
   { key: 'figma', label: 'Figma', description: 'Read designs, post comments', icon: Figma },
@@ -13,6 +15,7 @@ const providers = [
 
 const Settings = () => {
   const { expanded } = useNavBar();
+  const { refreshOauthStatus } = useApp();
   const [oauthStatus, setOauthStatus] = useState({
     google: { connected: false },
     github: { connected: false },
@@ -41,6 +44,7 @@ const Settings = () => {
           [provider]: { connected: true, expired: false, hasRefreshToken: true },
         }));
         setStatus({ type: 'success', message: `Connected to ${provider}!` });
+        refreshOauthStatus();
       } else {
         setStatus({ type: 'error', message: `Failed to connect ${provider}: ${result.error}` });
       }
@@ -60,13 +64,17 @@ const Settings = () => {
       [provider]: { connected: false, expired: true, hasRefreshToken: false },
     }));
     setStatus({ type: 'info', message: `Disconnected from ${provider}.` });
+    refreshOauthStatus();
     setTimeout(() => setStatus({ type: '', message: '' }), 3000);
   };
 
   return (
     <section className={styles.mainSection}>
       <div className={expanded ? styles.container : styles.containerCompact}>
-        <h1 className={styles.header}>Settings</h1>
+        <div className={styles.headerRow}>
+          <BackButton />
+          <h1 className={styles.header}>Settings</h1>
+        </div>
         <p className={styles.subheading}>Manage your connected integrations</p>
 
         {status.message && (

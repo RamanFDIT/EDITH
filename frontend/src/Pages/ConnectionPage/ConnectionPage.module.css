@@ -10,7 +10,10 @@
     @apply text-bgCTA w-43 h-auto mb-10;
 }
 .header {
-    @apply text-bgCTA font-fontDisplay text-4xl font-semibold mb-2;
+    @apply text-bgCTA font-fontDisplay text-4xl font-semibold;
+}
+.headerRow {
+    @apply flex items-center gap-4 mb-2;
 }
 .subheading {
     @apply text-textPrimary font-fontBody text-lg mb-10;
@@ -46,7 +49,11 @@
     @apply text-colorFail;
 }
 .cardLabel {
-    @apply text-textPrimary font-fontDisplay text-lg font-semibold;
+    @apply text-textPrimary font-fontDisplay text-lg font-semibold flex items-center gap-2;
+}
+.requiredBadge {
+    @apply text-xs font-fontBody text-textPrimary/50 border border-textPrimary/20
+           px-2 py-0.5 rounded-sm;
 }
 .cardDescription {
     @apply text-textPrimary/60 font-fontBody text-sm;

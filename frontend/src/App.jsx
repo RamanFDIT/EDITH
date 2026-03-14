@@ -2,6 +2,7 @@ import React from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import NavBar from './components/NavBar/NavBar.jsx';
 import { NavBarProvider } from './components/NavBar/NavBarContext.jsx';
+import { AppProvider } from './context/AppContext.jsx';
 import Settings from './Pages/Settings/Settings.jsx';
 import Intro from './Pages/Intro/Intro.jsx';
 import Onboarding from './Pages/Onboarding/Onboarding.jsx';
@@ -15,18 +16,20 @@ function AppContent() {
   const showNavBar = !hideNavBarRoutes.includes(location.pathname);
 
   return (
-    <NavBarProvider>
-      <div className="min-h-screen bg-[#0a0a0a]">
-        {showNavBar && <NavBar />}
-        <Routes>
-          <Route path="/" element={<Intro />} />
-          <Route path="/onboarding" element={<Onboarding />} />
-          <Route path="/connectionPage" element={<ConnectionPage />} />
-          <Route path="/home" element={<Home />} />
-          <Route path="/settings" element={<Settings />} />
-        </Routes>
-      </div>
-    </NavBarProvider>
+    <AppProvider>
+      <NavBarProvider>
+        <div className="min-h-screen bg-[#0a0a0a]">
+          {showNavBar && <NavBar />}
+          <Routes>
+            <Route path="/" element={<Intro />} />
+            <Route path="/onboarding" element={<Onboarding />} />
+            <Route path="/connectionPage" element={<ConnectionPage />} />
+            <Route path="/home" element={<Home />} />
+            <Route path="/settings" element={<Settings />} />
+          </Routes>
+        </div>
+      </NavBarProvider>
+    </AppProvider>
   );
 }
 

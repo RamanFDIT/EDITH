@@ -3,6 +3,9 @@
 .logo {
     @apply text-bgCTA w-43 h-auto;
 }
+.logoRow {
+    @apply flex items-center gap-4;
+}
 .container {
     @apply w-full max-w-200 h-screen flex items-center justify-center flex-col gap-10;
 }

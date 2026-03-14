@@ -1,0 +1,6 @@
+@reference '../../index.css';
+
+.backButton {
+    @apply flex items-center gap-2 text-textPrimary font-fontBody text-sm
+           cursor-pointer hover:text-bgCTA transition-colors;
+}

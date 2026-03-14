@@ -15,6 +15,10 @@ function getJiraDomain() {
     return domain;
 }
 
+function getJiraCloudId() {
+    return (process.env.JIRA_CLOUD_ID || '').trim();
+}
+
 function getOAuthToken() {
     return (process.env.JIRA_OAUTH_TOKEN || '').trim();
 }
@@ -41,11 +45,27 @@ const getAuthHeader = () => {
 };
 
 /**
+ * Get the correct Jira API base URL.
+ * OAuth tokens are scoped to api.atlassian.com and require the cloud ID path.
+ * Legacy Basic auth tokens go directly to the site domain.
+ */
+function getJiraBaseUrl() {
+    const cloudId = getJiraCloudId();
+    const oauthToken = getOAuthToken();
+    if (oauthToken && cloudId) {
+        return `https://api.atlassian.com/ex/jira/${cloudId}`;
+    }
+    return `https://${getJiraDomain()}`;
+}
+
+/**
  * Check if Jira credentials are available (either OAuth or legacy)
  */
 function hasCredentials() {
+    const oauthToken = getOAuthToken();
+    const cloudId = getJiraCloudId();
+    if (oauthToken && cloudId) return true;
     const domain = getJiraDomain();
-    if (getOAuthToken() && domain) return true;
     if (getApiToken() && getEmail() && domain) return true;
     return false;
 }
@@ -61,7 +81,7 @@ export async function getJiraIssues(input) {
         throw new Error("Missing Jira credentials or query. Connect Jira via OAuth in Settings, or set JIRA_API_TOKEN + JIRA_EMAIL + JIRA_DOMAIN.");
     }
     
-    const url = `https://${getJiraDomain()}/rest/api/3/search/jql`;
+    const url = `${getJiraBaseUrl()}/rest/api/3/search`;
 
     try {
         const response = await fetch(url, {
@@ -99,7 +119,7 @@ export async function createJiraIssue(input) {
         throw new Error("Missing required fields: projectKey and summary are mandatory.");
     }
 
-    const url = `https://${getJiraDomain()}/rest/api/3/issue`;
+    const url = `${getJiraBaseUrl()}/rest/api/3/issue`;
 
     // Jira Cloud requires "Atlassian Document Format" (ADF) for descriptions
     const adfDescription = {
@@ -172,7 +192,7 @@ export async function updateJiraIssue(input) {
     if (status) {
         try {
             // A. Get available transitions for this ticket
-            const transUrl = `https://${getJiraDomain()}/rest/api/3/issue/${issueKey}/transitions`;
+            const transUrl = `${getJiraBaseUrl()}/rest/api/3/issue/${issueKey}/transitions`;
             const transRes = await fetch(transUrl, {
                 method: 'GET',
                 headers: { 'Authorization': getAuthHeader(), 'Accept': 'application/json' }
@@ -237,7 +257,7 @@ export async function updateJiraIssue(input) {
                 };
             }
 
-            const updateUrl = `https://${getJiraDomain()}/rest/api/3/issue/${issueKey}`;
+            const updateUrl = `${getJiraBaseUrl()}/rest/api/3/issue/${issueKey}`;
             const updateRes = await fetch(updateUrl, {
                 method: 'PUT',
                 headers: {
@@ -272,7 +292,7 @@ export async function deleteJiraIssue(input) {
     }
     if (!issueKey) throw new Error("Issue Key (e.g., FDIT-1) is required.");
 
-    const url = `https://${getJiraDomain()}/rest/api/3/issue/${issueKey}`;
+    const url = `${getJiraBaseUrl()}/rest/api/3/issue/${issueKey}`;
 
     try {
         const response = await fetch(url, {
@@ -306,7 +326,7 @@ export async function createJiraProject(input) {
 
     try {
         // 1. Fetch Current User to assign as Lead
-        const myselfUrl = `https://${getJiraDomain()}/rest/api/3/myself`;
+        const myselfUrl = `${getJiraBaseUrl()}/rest/api/3/myself`;
         const myselfRes = await fetch(myselfUrl, {
             method: 'GET',
             headers: { 'Authorization': getAuthHeader(), 'Accept': 'application/json' }
@@ -317,7 +337,7 @@ export async function createJiraProject(input) {
         const leadAccountId = myself.accountId;
 
         // 2. Create Project
-        const url = `https://${getJiraDomain()}/rest/api/3/project`;
+        const url = `${getJiraBaseUrl()}/rest/api/3/project`;
         const bodyData = {
             key: key.toUpperCase(),
             name: name,

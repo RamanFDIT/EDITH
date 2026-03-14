@@ -3,10 +3,10 @@ import styles from "./NavBar.module.css";
 import Logo from '../../assets/EDITH.svg?react';
 import settings from '../../assets/settings.svg';
 import hamburger from '../../assets/hamburger.svg';
-import profile from '../../assets/profile.svg';
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { Github, Figma, Calendar, MessageSquare, Plus, LogOut } from 'lucide-react';
 import { useNavBar } from './NavBarContext.jsx';
+import { useApp } from '../../context/AppContext.jsx';
 
 const toolDisplayNames = {
   google: 'Google',
@@ -26,29 +26,30 @@ const toolIcons = {
 
 const NavBar = () => {
   const { expanded: toggle, setExpanded } = useNavBar();
-  const [connectedTools, setConnectedTools] = useState([]);
+  const { oauthStatus, refreshOauthStatus } = useApp();
   const navigate = useNavigate();
+
+  const connectedTools = Object.entries(oauthStatus)
+    .filter(([, info]) => info.connected)
+    .map(([provider]) => provider);
 
   const handleClick = () => {
     setExpanded(!toggle);
   };
 
   useEffect(() => {
-    if (window.electronAPI) {
-      window.electronAPI.oauthStatus().then((status) => {
-        const active = Object.entries(status)
-          .filter(([, info]) => info.connected)
-          .map(([provider]) => provider);
-        setConnectedTools(active);
-      });
-    }
-  }, []);
+    refreshOauthStatus();
+  }, [refreshOauthStatus]);
 
   return (
     <nav className={toggle ? styles.navBar : styles.navBarCompact}>
       <div className = {toggle ? styles.logoContainer : styles.logoContainerCompact}>
-        <Logo className = {toggle ? styles.logo : styles.displayNone} alt = "EDITH Logo">
-        </Logo>
+        <Logo
+          className = {toggle ? styles.logo : styles.displayNone}
+          alt = "EDITH Logo"
+          onClick={() => navigate('/home')}
+          style={{ cursor: 'pointer' }}
+        />
         <img onClick = {handleClick} src = {hamburger} className = {styles.hamburger} alt = "arrow"></img>
       </div>
       <div className = {styles.activeToolContainer}>
@@ -73,17 +74,12 @@ const NavBar = () => {
             <img src = {settings} className = {styles.settings} alt = "settings"></img>
             <p className = {!toggle && styles.displayNone }>Settings</p>
           </NavLink>
-          <NavLink 
-          to = "/profile"
-          className= {toggle ? styles.profile : styles.profileCompact}>
-            <img src = {profile} className = {styles.settings} alt = "Profile"></img>
-            <p className = {!toggle && styles.displayNone }>Profile</p>
-          </NavLink>
           <button
             className={toggle ? styles.logoutButton : styles.logoutButtonCompact}
             onClick={async () => {
               if (window.electronAPI) {
                 await window.electronAPI.logout();
+                await window.electronAPI.setSetupComplete(false);
               }
               navigate('/');
             }}

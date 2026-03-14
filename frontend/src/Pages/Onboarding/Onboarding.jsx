@@ -2,6 +2,7 @@ import Logo from '../../assets/EDITH.svg?react';
 import styles from './Onboarding.module.css';
 import QuestionOption from '../../components/QuestionOption/QuestionOption.jsx';
 import Button from '../../components/Button/Button.jsx';
+import BackButton from '../../components/BackButton/BackButton.jsx';
 import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 
@@ -53,7 +54,10 @@ const Onboarding = () => {
     return (
         <section className = {styles.mainSection}>
             <div className={styles.container}>
-                <Logo className={styles.logo} />
+                <div className={styles.logoRow}>
+                    <BackButton />
+                    <Logo className={styles.logo} />
+                </div>
                 <div className={styles.questionContainer}>
                     <p className = {styles.question}>What are the 2 main tools that you’d like to set up first ?</p>
                     <div className={styles.optionContainer}>

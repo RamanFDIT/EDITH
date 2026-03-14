@@ -14,6 +14,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Logout
   logout: () => ipcRenderer.invoke('oauth-logout-all'),
 
+  // Setup flow
+  getSetupComplete: () => ipcRenderer.invoke('get-setup-complete'),
+  setSetupComplete: (value) => ipcRenderer.invoke('set-setup-complete', value),
+
   // Legacy alias
   triggerGoogleAuth: () => ipcRenderer.invoke('trigger-google-auth'),
 });

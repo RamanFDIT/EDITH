@@ -166,6 +166,16 @@ app.whenReady().then(() => {
     }
   });
 
+  // --- Setup flow handlers ---
+  ipcMain.handle('get-setup-complete', () => {
+    return store.get('setupComplete', false);
+  });
+
+  ipcMain.handle('set-setup-complete', (event, value) => {
+    store.set('setupComplete', value);
+    return true;
+  });
+
   createWindow();
 
   app.on('activate', function () {

@@ -33,6 +33,20 @@ function getCalendarClient() {
 }
 
 /**
+ * Ensures a date string is in RFC3339 format (ISO). 
+ * If the input is invalid, it returns the input as-is or throws for critical fields.
+ */
+function formatRFC3339(input, defaultValue = undefined) {
+    if (!input) return defaultValue;
+    const date = new Date(input);
+    if (isNaN(date.getTime())) {
+        console.warn(`[calendarTool] Invalid date input: ${input}. Using original or default.`);
+        return input;
+    }
+    return date.toISOString();
+}
+
+/**
  * Check if calendar is configured (kept for call-sites that reference it)
  */
 function checkConfig() {
@@ -56,8 +70,8 @@ export async function getCalendarEvents(input) {
         const cal = getCalendarClient();
         const response = await cal.events.list({
             calendarId: calendarId,
-            timeMin: timeMin || new Date().toISOString(),
-            timeMax: timeMax || undefined,
+            timeMin: formatRFC3339(timeMin, new Date().toISOString()),
+            timeMax: formatRFC3339(timeMax),
             maxResults: maxResults,
             singleEvents: true,
             orderBy: 'startTime',
@@ -113,11 +127,11 @@ export async function createCalendarEvent(input) {
             description: description || '',
             location: location || '',
             start: {
-                dateTime: startDateTime,
+                dateTime: formatRFC3339(startDateTime),
                 timeZone: timeZone,
             },
             end: {
-                dateTime: endDateTime,
+                dateTime: formatRFC3339(endDateTime),
                 timeZone: timeZone,
             },
         };
@@ -187,10 +201,10 @@ export async function updateCalendarEvent(input) {
         };
 
         if (startDateTime) {
-            updatedEvent.start = { dateTime: startDateTime, timeZone };
+            updatedEvent.start = { dateTime: formatRFC3339(startDateTime), timeZone };
         }
         if (endDateTime) {
-            updatedEvent.end = { dateTime: endDateTime, timeZone };
+            updatedEvent.end = { dateTime: formatRFC3339(endDateTime), timeZone };
         }
 
         const response = await cal.events.update({
@@ -260,8 +274,8 @@ export async function findFreeTime(input) {
         const cal = getCalendarClient();
         const response = await cal.freebusy.query({
             resource: {
-                timeMin: timeMin,
-                timeMax: timeMax,
+                timeMin: formatRFC3339(timeMin),
+                timeMax: formatRFC3339(timeMax),
                 timeZone: timeZone,
                 items: [{ id: calendarId }]
             }

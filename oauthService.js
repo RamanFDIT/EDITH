@@ -37,6 +37,8 @@ function getOAuthProviders() {
         'https://www.googleapis.com/auth/gmail.send',           // Gmail: send emails
         'https://www.googleapis.com/auth/gmail.readonly',       // Gmail: read inbox
         'https://www.googleapis.com/auth/gmail.compose',        // Gmail: compose/draft
+        'https://www.googleapis.com/auth/generative-language.retriever',
+        'https://www.googleapis.com/auth/generative-language.tuning',
       ],
       redirectUri: 'http://localhost:18923/oauth/callback',
       extraParams: { access_type: 'offline', prompt: 'consent' },
@@ -58,7 +60,7 @@ function getOAuthProviders() {
       clientId: process.env.OAUTH_SLACK_CLIENT_ID || '',
       clientSecret: process.env.OAUTH_SLACK_CLIENT_SECRET || '',
       scopes: ['chat:write', 'channels:read', 'channels:join', 'chat:write.customize'],
-      redirectUri: process.env.OAUTH_SLACK_REDIRECT_URI || 'https://localhost:18923/oauth/callback',
+      redirectUri: process.env.OAUTH_SLACK_REDIRECT_URI || 'http://localhost:18923/oauth/callback',
       extraParams: {},
       isBotScope: true,
     },
@@ -130,6 +132,11 @@ function storeTokens(provider, tokenData) {
       ? Date.now() + tokenData.expires_in * 1000
       : null,
   };
+
+  // Slack bot tokens don't expire — set a far-future expiry so isTokenExpired() works
+  if (provider === 'slack' && !toStore.expires_at) {
+    toStore.expires_at = Date.now() + 10 * 365 * 24 * 60 * 60 * 1000; // 10 years
+  }
 
   // Jira-specific: store cloud ID for API base URL
   if (tokenData.cloud_id) {
@@ -325,8 +332,11 @@ async function exchangeCodeForTokens(provider, code) {
 
   const data = await response.json();
 
-  // Slack nests the token differently
-  if (provider === 'slack' && data.ok) {
+  // Slack returns HTTP 200 even on errors — check data.ok
+  if (provider === 'slack') {
+    if (!data.ok) {
+      throw new Error(`Slack token exchange failed: ${data.error || 'unknown error'}`);
+    }
     return {
       access_token: data.access_token,
       token_type: 'Bearer',
