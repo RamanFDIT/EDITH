@@ -16,7 +16,7 @@ import { getValidToken } from "./oauthService.js";
 import { EDITH_SYSTEM_PROMPT, getSystemPrompt } from "./systemPrompt.js";
 import { getSystemStatus, executeSystemCommand, openApplication } from "./systemTool.js";
 import { generateImage } from "./imageTool.js";
-import { getJiraIssues, createJiraIssue, updateJiraIssue, deleteJiraIssue, createJiraProject } from "./jiraTool.js";
+import { getJiraIssues, createJiraIssue, updateJiraIssue, deleteJiraIssue, createJiraProject, listJiraProjects } from "./jiraTool.js";
 import { getCalendarEvents, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent, findFreeTime } from "./calendarTool.js";
 import { sendSlackMessage, sendSlackAnnouncement, sendSlackLink } from "./slackTool.js";
 import { createRepository, getRepoIssues, createRepoIssue, listCommits, listPullRequests, getPullRequest, getCommit, getRepoChecks } from "./githubTool.js";
@@ -181,6 +181,12 @@ const jiraReadTools = [
       jql: z.string().describe("REQUIRED: The JQL query string. Should include 'project = KEY' for faster results. ASK user for project key if not provided."),
     }),
     func: getJiraIssues,
+  }),
+  new DynamicStructuredTool({
+    name: "list_jira_projects",
+    description: "List all Jira projects the user has access to. Returns each project's key, name, and type. Use this when the user asks to find a project, check if a project exists, or list all projects/spaces.",
+    schema: z.object({}),
+    func: listJiraProjects,
   }),
 ];
 
@@ -596,12 +602,17 @@ User message: `;
 const KEYWORD_MAP = {
     jira_read: [
         'list tickets', 'show tickets', 'get tickets', 'search jira', 'find ticket',
-        'how many epics', 'what tickets', 'show epics', 'backlog', 'sprint status'
+        'how many epics', 'what tickets', 'show epics', 'backlog', 'sprint status',
+        'list projects', 'show projects', 'find project', 'what projects', 'jira projects',
+        'list spaces', 'show spaces', 'find space', 'what spaces', 'my spaces',
+        'check space', 'check project', 'does project exist', 'does space exist',
+        'look for project', 'look for space', 'which projects', 'which spaces'
     ],
     jira_write: [
         'create ticket', 'make ticket', 'new ticket', 'update ticket', 'delete ticket',
         'mark as done', 'change status', 'assign to', 'set priority', 'create issue',
-        'create epic', 'create project'
+        'create epic', 'create project', 'create space', 'new project', 'new space',
+        'make task', 'create task', 'new task'
     ],
     github_read: [
         'list commits', 'show commits', 'check pr', 'list pr', 'show pull requests',
@@ -661,7 +672,7 @@ const KEYWORD_MAP = {
 
 // Fallback keywords that map to both read and write
 const FALLBACK_KEYWORD_MAP = {
-    jira: ['jira', 'ticket', 'sprint', 'epic', 'kanban', 'issue', 'bug', 'board'],
+    jira: ['jira', 'ticket', 'sprint', 'epic', 'kanban', 'issue', 'bug', 'board', 'space', 'task'],
     github: ['github', 'repo', 'pr', 'pull request', 'commit', 'branch', 'push', 'merge', 'clone', 'check', 'code'],
 };
 
@@ -800,6 +811,7 @@ function trimHistory(messages) {
  * always preserved so the agent understands context.
  */
 const TOOL_FAILURE_PATTERNS = [
+    // Slack failures
     /not_in_channel/i,
     /channel_not_found/i,
     /missing_scope/i,
@@ -810,6 +822,15 @@ const TOOL_FAILURE_PATTERNS = [
     /I am not currently a member/i,
     /not currently a member of/i,
     /precludes me from sending/i,
+    // Jira failures (deprecated API, 410 Gone, etc.)
+    /410 Gone/i,
+    /API has been removed/i,
+    /migrate to.*search\/jql/i,
+    /recalcitrant/i,
+    /no longer supported by Atlassian/i,
+    /Jira API.*Error/i,
+    /protocols are updated/i,
+    // General failure patterns
     /repeatedly attempt/i,
     /consistently failed/i,
     /previous attempts.*failed/i,

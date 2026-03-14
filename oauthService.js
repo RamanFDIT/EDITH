@@ -263,8 +263,109 @@ async function discoverJiraCloudId(accessToken) {
   const sites = await response.json();
   if (sites.length === 0) throw new Error('No Jira sites found for this account');
 
-  // Use the first site (most users have one)
-  return { cloud_id: sites[0].id, cloud_url: sites[0].url, site_name: sites[0].name };
+  // Single site — use it directly
+  if (sites.length === 1) {
+    console.log(`[Jira] Single site found: ${sites[0].name} (${sites[0].url})`);
+    return { cloud_id: sites[0].id, cloud_url: sites[0].url, site_name: sites[0].name };
+  }
+
+  // Multiple sites — show a picker so the user can choose
+  console.log(`[Jira] ${sites.length} sites found — showing picker...`);
+  const selected = await showJiraSitePicker(sites);
+  console.log(`[Jira] User selected: ${selected.name} (${selected.url})`);
+  return { cloud_id: selected.id, cloud_url: selected.url, site_name: selected.name };
+}
+
+/**
+ * Show an Electron BrowserWindow with a list of Jira sites for the user to pick from.
+ * Returns a Promise that resolves with the chosen site object.
+ */
+function showJiraSitePicker(sites) {
+  const { BrowserWindow, ipcMain } = global.__electron;
+
+  return new Promise((resolve, reject) => {
+    const pickerWindow = new BrowserWindow({
+      width: 480,
+      height: Math.min(200 + sites.length * 80, 600),
+      title: 'Select Jira Site',
+      resizable: false,
+      minimizable: false,
+      maximizable: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: false,   // needed for inline script postMessage
+        preload: undefined,
+      },
+    });
+
+    pickerWindow.setMenuBarVisibility(false);
+
+    // Build the site list HTML
+    const siteItems = sites.map((site, index) => {
+      const domain = site.url.replace(/^https?:\/\//, '');
+      return `
+        <button class="site-btn" onclick="selectSite(${index})">
+          <div class="site-name">${site.name}</div>
+          <div class="site-url">${domain}</div>
+        </button>
+      `;
+    }).join('');
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0a0a0a; color: #e0e0e0;
+      display: flex; flex-direction: column; align-items: center;
+      padding: 28px 24px 20px;
+    }
+    h2 { font-size: 18px; color: #00ff88; margin-bottom: 6px; }
+    p  { font-size: 13px; color: #888; margin-bottom: 20px; }
+    .site-btn {
+      width: 100%; padding: 14px 18px; margin-bottom: 10px;
+      background: #1a1a2e; border: 1px solid #333; border-radius: 10px;
+      cursor: pointer; text-align: left; color: #e0e0e0;
+      transition: all 0.15s ease;
+    }
+    .site-btn:hover { background: #16213e; border-color: #00ff88; }
+    .site-name { font-size: 15px; font-weight: 600; }
+    .site-url  { font-size: 12px; color: #888; margin-top: 3px; }
+  </style>
+</head>
+<body>
+  <h2>Multiple Jira Sites Found</h2>
+  <p>Select which Jira instance to connect:</p>
+  ${siteItems}
+  <script>
+    function selectSite(index) {
+      document.title = 'SELECTED:' + index;
+    }
+  </script>
+</body>
+</html>`;
+
+    pickerWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+
+    // Watch for title changes as a simple IPC mechanism
+    pickerWindow.on('page-title-updated', (event, title) => {
+      if (title.startsWith('SELECTED:')) {
+        const index = parseInt(title.replace('SELECTED:', ''), 10);
+        const chosen = sites[index];
+        if (chosen) {
+          pickerWindow.close();
+          resolve(chosen);
+        }
+      }
+    });
+
+    pickerWindow.on('closed', () => {
+      // If user closes without picking, default to first site
+      resolve(sites[0]);
+    });
+  });
 }
 
 // =============================================================================

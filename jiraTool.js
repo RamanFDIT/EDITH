@@ -81,7 +81,7 @@ export async function getJiraIssues(input) {
         throw new Error("Missing Jira credentials or query. Connect Jira via OAuth in Settings, or set JIRA_API_TOKEN + JIRA_EMAIL + JIRA_DOMAIN.");
     }
     
-    const url = `${getJiraBaseUrl()}/rest/api/3/search`;
+    const url = `${getJiraBaseUrl()}/rest/api/3/search/jql`;
 
     try {
         const response = await fetch(url, {
@@ -314,7 +314,38 @@ export async function deleteJiraIssue(input) {
     }
 }
 
-// --- TOOL 5: CREATE JIRA PROJECT ---
+// --- TOOL 5: LIST JIRA PROJECTS ---
+export async function listJiraProjects(input) {
+    console.log("📋 Jira List Projects Invoked");
+
+    if (!hasCredentials()) {
+        throw new Error("Missing Jira credentials. Connect Jira via OAuth in Settings, or set JIRA_API_TOKEN + JIRA_EMAIL + JIRA_DOMAIN.");
+    }
+
+    const url = `${getJiraBaseUrl()}/rest/api/3/project`;
+
+    try {
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Authorization': getAuthHeader(),
+                'Accept': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            const txt = await response.text();
+            throw new Error(`Jira API Error ${response.status}: ${txt}`);
+        }
+        const data = await response.json();
+        const projects = data.map(p => ({ key: p.key, name: p.name, type: p.projectTypeKey }));
+        return JSON.stringify(projects);
+    } catch (error) {
+        return `Error listing Jira projects: ${error.message}`;
+    }
+}
+
+// --- TOOL 6: CREATE JIRA PROJECT ---
 export async function createJiraProject(input) {
     console.log("🏗️ Jira Create Project Invoked:", JSON.stringify(input));
     const { key, name, templateKey, projectTypeKey, description } = input;

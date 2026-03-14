@@ -385,7 +385,7 @@ server.on('upgrade', (request, socket, head) => {
 // Keep-alive to prevent process exit if something is weird
 setInterval(() => {
   console.log('[Heartbeat] Server is alive...');
-}, 10000);
+}, 300000); // 5 minutes
 
 // Global Error Handlers
 process.on('uncaughtException', (err) => {
