@@ -7,7 +7,6 @@ const BackButton = () => {
     return (
         <button className={styles.backButton} onClick={() => navigate(-1)}>
             <ArrowLeft size={20} />
-            <span>Back</span>
         </button>
     );
 };
