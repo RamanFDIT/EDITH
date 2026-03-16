@@ -67,7 +67,7 @@
     ],
     "extraResources": [
       {
-        "from": "icon.png.bak",
+        "from": "icon.png",
         "to": "icon.png"
       }
     ],
