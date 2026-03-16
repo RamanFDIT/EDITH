@@ -841,22 +841,35 @@ function getMessageHistory(sessionId) {
 // DYNAMIC AGENT CREATION (Traffic Cop Pattern)
 // =============================================================================
 
-// Create agent with fresh timestamp each time (don't cache system prompt)
+const agentCache = new Map();
+
 function getOrCreateAgent(tools) {
-    // Always get fresh system prompt with current time
-    const systemPrompt = getSystemPrompt();
-    
-    // Create a signature based on tool names
+    // Create a signature based on tool names for caching
     const toolSignature = tools.map(t => t.name).sort().join(',');
+
+    if (agentCache.has(toolSignature)) {
+        console.log(`[Traffic Cop] Reusing cached agent for tool signature: ${toolSignature || '(none)'}`);
+        return agentCache.get(toolSignature);
+    }
+
+    console.log(`[Traffic Cop] Compiling new agent for tool signature: ${toolSignature || '(none)'}`);
     
-    // Don't cache agents - always create fresh to ensure current timestamp
     const agent = createReactAgent({
         llm,
         tools,
-        stateModifier: systemPrompt,
+        // Instead of a static string, we pass a state modifier function.
+        // This function runs on EVERY request, fetching the fresh system prompt
+        // (including the exact current timestamp) and prepending it to the messages.
+        stateModifier: (state) => {
+            const systemPrompt = getSystemPrompt();
+            return [
+                new SystemMessage(systemPrompt),
+                ...state.messages
+            ];
+        }
     });
     
-    console.log(`[Agent Factory] Created agent with tools: ${toolSignature || '(none)'}`);
+    agentCache.set(toolSignature, agent);
     return agent;
 }
 
