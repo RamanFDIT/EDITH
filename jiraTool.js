@@ -349,3 +349,29 @@ export async function createJiraProject(input) {
         return `Error creating project: ${error.message}`;
     }
 }
+
+// --- TOOL 6: LIST PROJECTS ---
+export async function listJiraProjects() {
+    console.log("📂 Jira List Projects Invoked");
+    if (!hasCredentials()) {
+        throw new Error("Missing Jira credentials. Connect Jira via OAuth in Settings.");
+    }
+    const url = `https://${getJiraDomain()}/rest/api/3/project`;
+    try {
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Authorization': getAuthHeader(),
+                'Accept': 'application/json'
+            }
+        });
+        if (!response.ok) {
+            const txt = await response.text();
+            throw new Error(`Jira API Error ${response.status}: ${txt}`);
+        }
+        const data = await response.json();
+        return JSON.stringify(data.map(p => ({ key: p.key, name: p.name, id: p.id })));
+    } catch (error) {
+        return `Error listing projects: ${error.message}`;
+    }
+}

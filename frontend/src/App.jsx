@@ -8,6 +8,8 @@ import Onboarding from './Pages/Onboarding/Onboarding.jsx';
 import ConnectionPage from './Pages/ConnectionPage/ConnectionPage.jsx';
 import Home from './Pages/Home/Home.jsx'
 
+import { AppProvider } from './context/AppContext.jsx';
+
 const hideNavBarRoutes = ['/', '/onboarding', '/connectionPage'];
 
 function AppContent() {
@@ -15,18 +17,20 @@ function AppContent() {
   const showNavBar = !hideNavBarRoutes.includes(location.pathname);
 
   return (
-    <NavBarProvider>
-      <div className="min-h-screen bg-[#0a0a0a]">
-        {showNavBar && <NavBar />}
-        <Routes>
-          <Route path="/" element={<Intro />} />
-          <Route path="/onboarding" element={<Onboarding />} />
-          <Route path="/connectionPage" element={<ConnectionPage />} />
-          <Route path="/home" element={<Home />} />
-          <Route path="/settings" element={<Settings />} />
-        </Routes>
-      </div>
-    </NavBarProvider>
+    <AppProvider>
+      <NavBarProvider>
+        <div className="min-h-screen bg-[#0a0a0a]">
+          {showNavBar && <NavBar />}
+          <Routes>
+            <Route path="/" element={<Intro />} />
+            <Route path="/onboarding" element={<Onboarding />} />
+            <Route path="/connectionPage" element={<ConnectionPage />} />
+            <Route path="/home" element={<Home />} />
+            <Route path="/settings" element={<Settings />} />
+          </Routes>
+        </div>
+      </NavBarProvider>
+    </AppProvider>
   );
 }
 

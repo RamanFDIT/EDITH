@@ -12,7 +12,8 @@
  *   - Atlassian/Jira (OAuth 2.0 3LO)
  */
 
-import { BrowserWindow } from 'electron';
+import electron from 'electron';
+const { BrowserWindow } = electron || {};
 import crypto from 'crypto';
 import http from 'http';
 import { URL } from 'url';

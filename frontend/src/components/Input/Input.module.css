@@ -1,18 +1,63 @@
 @reference '../../index.css';
 
+.inputWrapper {
+    @apply w-full flex flex-col gap-2 relative;
+}
+
 .inputContainer {
-    @apply w-full flex items-end gap-3;
+    @apply w-full flex items-end gap-2 bg-bgComponents/40 backdrop-blur-xl 
+           border border-white/5 rounded-2xl px-4 py-3 transition-all duration-300
+           focus-within:border-white/15 focus-within:bg-bgComponents/60 focus-within:ring-1 focus-within:ring-white/5;
 }
+
 .input {
-    @apply flex-1 bg-bgComponents text-textPrimary font-fontBody text-base
-           px-5 py-3 rounded-sm outline-none resize-none overflow-y-auto max-h-[150px]
-           placeholder:text-textPrimary/40
-           focus:ring-1 focus:ring-bgHover;
+    @apply flex-1 bg-transparent text-textPrimary font-fontBody text-base
+           py-1.5 px-2 outline-none resize-none overflow-y-auto max-h-[150px]
+           placeholder:text-textPrimary/20 selection:bg-white/10;
 }
+
+.attachButton, .micButton {
+    @apply p-2.5 rounded-xl text-textPrimary/30 hover:text-textPrimary hover:bg-white/5
+           transition-all cursor-pointer disabled:opacity-10 disabled:cursor-default
+           flex items-center justify-center;
+}
+
+.micRecording {
+    @apply text-red-500 bg-red-500/10 animate-pulse;
+}
+
 .sendButton {
-    @apply bg-bgCTA text-textCTA font-fontDisplay font-semibold text-sm
-           px-5 py-3 rounded-sm
-           hover:bg-bgHover hover:text-bgCTA hover:cursor-pointer
-           transition-all ease-out active:scale-95
-           disabled:opacity-30 disabled:cursor-default disabled:hover:bg-bgCTA disabled:hover:text-textCTA disabled:active:scale-100;
+    @apply p-2.5 rounded-xl bg-bgCTA text-textCTA hover:bg-bgCTA/90 
+           transition-all cursor-pointer disabled:opacity-10 disabled:cursor-default
+           active:scale-90 flex items-center justify-center shadow-lg shadow-black/20;
+}
+
+.hiddenFileInput {
+    @apply hidden;
+}
+
+.fileChips {
+    @apply flex flex-wrap gap-2 px-2 pb-1;
+}
+
+.fileChip {
+    @apply flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 
+           text-[10px] uppercase tracking-wider text-textPrimary/60 font-fontMono;
+}
+
+.fileChipRemove {
+    @apply text-textPrimary/30 hover:text-red-400 transition-colors cursor-pointer p-0.5;
+}
+
+.liveTranscriptBanner {
+    @apply flex items-center gap-3 bg-red-500/5 border border-red-500/10 rounded-xl px-4 py-3 mb-2 
+           backdrop-blur-sm;
+}
+
+.liveTranscriptDot {
+    @apply w-2 h-2 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.5)];
+}
+
+.liveTranscriptText {
+    @apply text-xs font-fontMono text-red-400/60 lowercase italic;
 }
