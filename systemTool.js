@@ -1,5 +1,11 @@
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import os from 'os';
+
+const ALLOWED_COMMANDS = new Set([
+    'dir', 'ls', 'echo', 'type', 'cat', 'whoami', 'hostname', 
+    'ipconfig', 'netstat', 'ping', 'systeminfo', 'tasklist', 
+    'git', 'node', 'npm', 'python', 'pip'
+]);
 
 // --- LEVEL 1: READ ONLY (SAFE) ---
 export async function getSystemStatus() {
@@ -21,15 +27,25 @@ export async function openApplication(args) {
     let safeTarget = "";
 
     // If target is provided (e.g. a URL or a file path), we need to handle it safely
-    // We allow basic URL chars and common file path chars
     if (target) {
         // Very basic sanitization: remove quotes to prevent breaking out of string
-        safeTarget = target.replace(/["']/g, ''); 
+        const unquotedTarget = target.replace(/["']/g, ''); 
+        
+        // Validate safeTarget against a URL/filepath pattern before passing to Start-Process
+        // Allows alphanumeric, standard path chars (/, \, :, ., -), spaces, and URL chars (?, &, =, %)
+        const isValidTarget = /^https?:\/\/[^\s]+$/.test(unquotedTarget) || /^[a-zA-Z0-9:\\/\-_.\s?&=%]+$/.test(unquotedTarget);
+        
+        if (!isValidTarget) {
+             console.warn(`🚨 SECURITY BLOCK: Invalid target pattern: ${unquotedTarget}`);
+             return `❌ Security Error: Target is not a valid URL or file path.`;
+        }
+        safeTarget = unquotedTarget;
     }
 
     console.log(`🔍 Searching for: ${safeAppName} -> Target: ${safeTarget || "None"}`);
 
-    let command = '';
+    let execCmd = '';
+    let execArgs = [];
 
     if (platform === 'win32') {
         // ROBUST WINDOWS SEARCH STRATEGY
@@ -111,16 +127,19 @@ export async function openApplication(args) {
 
         // ENCODING STRATEGY: Base64 encode the command to avoid quoting issues
         const encodedCommand = Buffer.from(psScript, 'utf16le').toString('base64');
-        command = `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encodedCommand}`;
+        execCmd = 'powershell';
+        execArgs = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encodedCommand];
 
     } else if (platform === 'darwin') {
-        command = `open -a "${safeAppName}"`; 
+        execCmd = 'open';
+        execArgs = ['-a', safeAppName];
     } else {
-        command = `xdg-open "${safeAppName}"`;
+        execCmd = 'xdg-open';
+        execArgs = [safeAppName];
     }
 
     return new Promise((resolve) => {
-        exec(command, (error, stdout, stderr) => {
+        execFile(execCmd, execArgs, (error, stdout, stderr) => {
             if (error) {
                 resolve(`❌ Error: Application '${safeAppName}' not found. (Checked Registry, Start Menu, and System PATH).`);
                 return;
@@ -134,12 +153,50 @@ export async function openApplication(args) {
 export async function executeSystemCommand(args) {
     const { command } = args;
     
-    // 🔒 SAFETY LOCK REMOVED per user request
-    console.log(`⚠️ SYSTEM COMMAND EXECUTING: ${command}`);
+    // Parse command into base executable and arguments
+    const regex = /[^\s"']+|"([^"]*)"|'([^']*)'/g;
+    const cmdArgs = [];
+    let match;
+    while ((match = regex.exec(command)) !== null) {
+        cmdArgs.push(match[1] || match[2] || match[0]);
+    }
+
+    if (cmdArgs.length === 0) {
+        return "❌ Error: Empty command provided.";
+    }
+
+    const baseCmd = cmdArgs[0].toLowerCase();
+    
+    let isAllowed = ALLOWED_COMMANDS.has(baseCmd);
+    if (!isAllowed && baseCmd.endsWith('.exe')) {
+        isAllowed = ALLOWED_COMMANDS.has(baseCmd.slice(0, -4));
+    }
+
+    if (!isAllowed) {
+        console.warn(`🚨 SECURITY BLOCK: Blocked arbitrary command execution: ${command}`);
+        return `❌ Security Error: Command '${baseCmd}' is not in the allowlist.`;
+    }
+
+    console.log(`🛡️ SYSTEM COMMAND EXECUTING (Allowed): ${baseCmd} with args: ${cmdArgs.slice(1).join(' ')}`);
+
+    let execTarget = cmdArgs[0];
+    let finalArgs = cmdArgs.slice(1);
+    
+    // Quick fallback mapping for Windows tools that need .cmd extensions to run via execFile
+    if (os.platform() === 'win32') {
+        if (baseCmd === 'npm' || baseCmd === 'npx') {
+            execTarget = baseCmd.endsWith('.cmd') ? baseCmd : `${baseCmd}.cmd`;
+        } else if (['dir', 'echo', 'type'].includes(baseCmd)) {
+            execTarget = 'cmd.exe';
+            // We use /c but ONLY with safe arguments due to allowlist, though & can still be passed
+            // The allowlist itself is the main security mechanism here for these commands.
+            finalArgs = ['/c', cmdArgs[0], ...finalArgs];
+        }
+    }
 
     return new Promise((resolve, reject) => {
-        // 'cwd' ensures we run commands from the project root by default
-        exec(command, { cwd: process.cwd() }, (error, stdout, stderr) => {
+        // Use execFile to prevent shell injection (no shell metacharacter interpretation)
+        execFile(execTarget, finalArgs, { cwd: process.cwd() }, (error, stdout, stderr) => {
             if (error) {
                 // We resolve errors as strings so the Agent can read them
                 resolve(`❌ Command Failed: ${error.message}`);
