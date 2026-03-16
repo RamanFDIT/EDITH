@@ -20,6 +20,11 @@
     "@langchain/google-genai": "^2.1.7",
     "@langchain/google-vertexai": "^2.1.21",
     "@langchain/ollama": "^1.1.0",
+<<<<<<< Updated upstream
+=======
+    "@langchain/openai": "^1.2.13",
+    "better-sqlite3": "^12.8.0",
+>>>>>>> Stashed changes
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "electron-store": "^11.0.2",
@@ -38,6 +43,11 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
+<<<<<<< Updated upstream
+=======
+    "@electron/rebuild": "^4.0.3",
+    "concurrently": "^9.2.1",
+>>>>>>> Stashed changes
     "electron": "^39.2.7",
     "electron-builder": "^24.9.1"
   },

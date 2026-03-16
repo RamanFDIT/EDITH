@@ -10,18 +10,20 @@
     @apply ml-15 w-full h-screen flex flex-col transition-all duration-300 ease-in-out;
 }
 .messageArea {
-    @apply flex-1 overflow-y-auto px-12 py-8 flex flex-col gap-6;
+    @apply flex-1 overflow-y-auto px-10 pt-20 pb-10 space-y-4 scroll-smooth;
+}
+.messageArea::-webkit-scrollbar {
+    @apply w-1.5;
+}
+.messageArea::-webkit-scrollbar-track {
+    @apply bg-transparent;
+}
+.messageArea::-webkit-scrollbar-thumb {
+    @apply bg-white/10 rounded-full hover:bg-white/20 transition-colors;
 }
 .inputArea {
-    @apply px-12 py-6 border-t border-bgComponents;
+    @apply p-8 bg-gradient-to-t from-bgPrimary to-transparent flex items-center gap-4;
 }
-.emptyState {
-    @apply flex-1 flex flex-col items-center justify-center gap-4;
+.voiceToggle {
+    @apply p-3 rounded-full bg-white/5 border border-white/10 text-white/50 hover:bg-white/10 hover:text-white transition-all;
 }
-.emptyTitle {
-    @apply text-textPrimary/40 font-fontDisplay text-2xl font-semibold;
-}
-.emptySubtitle {
-    @apply text-textPrimary/25 font-fontBody text-base;
-}
-
