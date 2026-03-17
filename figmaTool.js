@@ -49,13 +49,23 @@ export async function getFigmaFileStructure(input) {
             
             // Handle specific error cases
             if (response.status === 400 && errorData.err?.includes("not supported")) {
-                return `Error: This file type is not supported. The file key "${fileKey}" may be a FigJam board or Figma Slides, not a regular Figma design file. Only Figma design files (.fig) are supported by this tool.`;
+                return JSON.stringify({
+                    status: "error",
+                    message: `This file type is not supported. The file key "${fileKey}" may be a FigJam board or Figma Slides.`,
+                    suggestion: "Only Figma design files (.fig) are supported by this tool."
+                });
             }
             if (response.status === 403) {
-                return `Error: Access denied. The FIGMA_TOKEN may not have permission to access this file, or the file is private.`;
+                return JSON.stringify({
+                    status: "error",
+                    message: "Access denied. The FIGMA_TOKEN may not have permission to access this file, or the file is private."
+                });
             }
             if (response.status === 404) {
-                return `Error: File not found. The file key "${fileKey}" does not exist or has been deleted.`;
+                return JSON.stringify({
+                    status: "error",
+                    message: `File not found. The file key "${fileKey}" does not exist or has been deleted.`
+                });
             }
             
             throw new Error(`Figma API Error: ${response.status} - ${JSON.stringify(errorData)}`);
@@ -68,7 +78,16 @@ export async function getFigmaFileStructure(input) {
             frames: p.children?.map(f => ({ id: f.id, name: f.name, type: f.type })) || []
         }));
 
+        if (pages.length === 0) {
+            return JSON.stringify({
+                status: "no_results_found",
+                message: `The Figma file "${data.name}" contains no pages or frames.`,
+                fileName: data.name
+            });
+        }
+
         return JSON.stringify({
+            status: "success",
             name: data.name,
             lastModified: data.lastModified,
             editorType: data.editorType,
@@ -76,7 +95,7 @@ export async function getFigmaFileStructure(input) {
         });
 
     } catch (error) {
-        return `Error scanning Figma file: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error scanning Figma file: ${error.message}` });
     }
 }
 
@@ -101,9 +120,20 @@ export async function getFigmaComments(input) {
             resolved: c.resolved ? "Resolved" : "Open"
         })).slice(0, 10); // Limit to last 10 to save token space
 
-        return JSON.stringify(comments);
+        if (comments.length === 0) {
+            return JSON.stringify({
+                status: "no_results_found",
+                message: "No comments found on this Figma file.",
+                fileKey: fileKey
+            });
+        }
+
+        return JSON.stringify({
+            status: "success",
+            comments: comments
+        });
     } catch (error) {
-        return `Error reading comments: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error reading comments: ${error.message}` });
     }
 }
 
@@ -148,9 +178,14 @@ export async function postFigmaComment(input) {
         }
         
         const data = await response.json();
-        return `Comment posted successfully by E.D.I.T.H. (ID: ${data.id})`;
+        return JSON.stringify({
+            status: "success",
+            message: "Comment posted successfully by E.D.I.T.H.",
+            commentId: data.id,
+            timestamp: data.created_at
+        });
 
     } catch (error) {
-        return `Error posting comment: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error posting comment: ${error.message}` });
     }
 }

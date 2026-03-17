@@ -27,8 +27,14 @@ const voiceUpload = multer({ storage: multer.memoryStorage() });
 
 // --- Middlewares ---
 app.use(express.json());
-app.use(cors()); // <-- 2. Use cors (This tells your server to accept requests)
+app.use(cors()); 
 app.use(express.static('.')); // Serve static files from current directory
+
+// --- Global Request Logger ---
+app.use((req, res, next) => {
+    console.log(`[HTTP] ${req.method} ${req.url}`);
+    next();
+});
 
 // --- API: File Upload ---
 const fileUpload = multer({
@@ -61,7 +67,6 @@ app.post('/api/ask', async (req, res) => {
       return res.status(400).json({ error: 'Question is required' });
     }
 
-    // If files were uploaded, prepend instructions to read them
     let fullQuestion = question;
     if (files && files.length > 0) {
         const fileList = files.map(f => `- "${f.path}" (${f.originalName})`).join('\n');
@@ -71,15 +76,46 @@ app.post('/api/ask', async (req, res) => {
 
     console.log(`[Server] Received question: ${question}`);
 
-    // Set headers for SSE
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-    // Use the Traffic Cop streaming function
     const stream = streamWithSemanticRouting(fullQuestion, "user-1");
     
     let sentenceBuffer = "";
+    
+    // --- Audio Generation Logic ---
+    const ttsPromises = [];
+
+    function generateAudioChunk(text) {
+        console.log(`[Server] Triggering TTS for chunk: "${text.substring(0, 40)}..."`);
+        const promise = (async () => {
+            try {
+                console.log(`[Server] Generating speech...`);
+                const audioResult = await generateSpeech({ text });
+                console.log(`[Server] TTS result type: ${typeof audioResult}, length: ${audioResult ? audioResult.length : 0}`);
+                
+                if (typeof audioResult === 'string') {
+                    try {
+                        const parsed = JSON.parse(audioResult);
+                        if (parsed.fallback === 'web-speech-api') {
+                            console.log(`[Server] Sending tts_fallback event`);
+                            res.write(`data: ${JSON.stringify({ type: "tts_fallback", text: parsed.text })}\n\n`);
+                            return;
+                        }
+                    } catch (e) {}
+
+                    if (audioResult && !audioResult.startsWith("Error")) {
+                        console.log(`[Server] Sending audio event (Base64 length: ${audioResult.length})`);
+                        res.write(`data: ${JSON.stringify({ type: "audio", url: audioResult })}\n\n`);
+                    } else {
+                        console.warn(`[Server] TTS returned error string:`, audioResult);
+                    }
+                }
+            } catch (e) { console.error("[Server] TTS Error caught:", e); }
+        })();
+        ttsPromises.push(promise);
+    }
 
     for await (const event of stream) {
         const eventType = event.event;
@@ -88,27 +124,21 @@ app.post('/api/ask', async (req, res) => {
             const content = event.data?.chunk?.content;
             if (content) {
                 res.write(`data: ${JSON.stringify({ type: "token", content })}\n\n`);
-                
-                // Add to buffer and check for sentence end
                 sentenceBuffer += content;
-                if (/[.?!]\s$/.test(sentenceBuffer) && sentenceBuffer.length > 5) {
-                    // Send this chunk to TTS immediately (don't await!)
+                if (/[.?!](\s|$)/.test(sentenceBuffer) && sentenceBuffer.length > 20) {
                     generateAudioChunk(sentenceBuffer.trim());
-                    sentenceBuffer = ""; // Clear buffer
+                    sentenceBuffer = "";
                 }
             }
         } else if (eventType === "on_tool_start") {
              res.write(`data: ${JSON.stringify({ type: "tool_start", name: event.name, input: event.data?.input })}\n\n`);
         } else if (eventType === "on_tool_end") {
-             // LangGraph streamEvents v2: output may be a ToolMessage object or a plain string
              const rawOutput = event.data?.output;
-             console.log(`[DEBUG on_tool_end] name=${event.name}, rawOutput type=${typeof rawOutput}, keys=${rawOutput && typeof rawOutput === 'object' ? Object.keys(rawOutput).join(',') : 'N/A'}, preview=${JSON.stringify(rawOutput).substring(0, 200)}`);
              const toolOutput = typeof rawOutput === 'object' && rawOutput !== null
                  ? (rawOutput.content || rawOutput.text || JSON.stringify(rawOutput))
                  : rawOutput;
              res.write(`data: ${JSON.stringify({ type: "tool_end", name: event.name, output: toolOutput })}\n\n`);
 
-             // Detect generated images in tool output and send as dedicated event
              const outputStr = typeof toolOutput === 'string' ? toolOutput : JSON.stringify(toolOutput);
              if (outputStr) {
                  try {
@@ -116,121 +146,31 @@ app.post('/api/ask', async (req, res) => {
                      if (parsed.success && parsed.localUrl && parsed.localUrl.startsWith('/temp/')) {
                          res.write(`data: ${JSON.stringify({ type: "image", url: `http://localhost:3000${parsed.localUrl}`, caption: parsed.caption || null })}\n\n`);
                      }
-                 } catch (e) { /* not JSON, ignore */ }
+                 } catch (e) { }
              }
         }
     }
 
-    // Process any remaining text in the buffer
+    // Flush remaining text in the sentence buffer
     if (sentenceBuffer.trim().length > 0) {
-        generateAudioChunk(sentenceBuffer.trim());
+        queueAudioChunk(sentenceBuffer.trim());
     }
-    
-    // Helper function for Fire-and-Forget Audio
-    async function generateAudioChunk(text) {
-        try {
-             const audioResult = await generateSpeech({ text });
-             // Check if it's a file path or a Web Speech API fallback
-             if (typeof audioResult === 'string') {
-                  try {
-                    const parsed = JSON.parse(audioResult);
-                    if (parsed.fallback === 'web-speech-api') {
-                      // Tell frontend to use browser TTS
-                      res.write(`data: ${JSON.stringify({ type: "tts_fallback", text: parsed.text })}\n\n`);
-                      return;
-                    }
-                  } catch (e) {
-                    // Not JSON — treat as file path
-                  }
-                  if (audioResult && !audioResult.startsWith("Error")) {
-                      const audioUrl = audioResult.startsWith('data:') ? audioResult : '/temp/' + path.basename(audioResult);
-                      res.write(`data: ${JSON.stringify({ type: "audio", url: audioUrl })}\n\n`);
-                  }
-             }
-        } catch (e) { console.error("TTS Chunk Error:", e); }
+
+    // Wait for ALL TTS processing to complete before closing the stream
+    if (ttsProcessingPromise) {
+        console.log('[TTS] Awaiting TTS queue drain...');
+        await ttsProcessingPromise;
+        console.log('[TTS] Queue drained.');
     }
 
     res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
     res.end();
 
   } catch (error) {
-    console.error("[Server] Error processing request:", error);
+    console.error("[Server] Ask Error:", error);
     res.write(`data: ${JSON.stringify({ type: "error", content: error.message })}\n\n`);
     res.end();
   }
-});
-
-// --- NEW API: Deepgram WebSocket Proxy (Live Transcription) ---
-import { WebSocketServer, WebSocket } from 'ws';
-
-const wss = new WebSocketServer({ noServer: true });
-
-wss.on('connection', (ws) => {
-    console.log('[WebSocket] Client connected for live transcription');
-    let deepgramWs = null;
-
-    if (!process.env.DEEPGRAM_API_KEY) {
-        console.error('[WebSocket] DEEPGRAM_API_KEY is missing');
-        ws.send(JSON.stringify({ error: 'Deepgram API Key not configured' }));
-        ws.close();
-        return;
-    }
-
-    try {
-        deepgramWs = new WebSocket('wss://api.deepgram.com/v1/listen?model=nova-2&punctuate=true&interim_results=true', {
-            headers: {
-                Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`
-            }
-        });
-
-        deepgramWs.on('open', () => {
-             console.log('[Deepgram] WebSocket connected');
-             ws.send(JSON.stringify({ type: 'ready' }));
-        });
-
-        deepgramWs.on('message', (data) => {
-            try {
-               const parsed = JSON.parse(data);
-               if (parsed.channel && parsed.channel.alternatives && parsed.channel.alternatives[0]) {
-                   const transcript = parsed.channel.alternatives[0].transcript;
-                   if (transcript) {
-                       ws.send(JSON.stringify({
-                           type: 'transcript',
-                           isFinal: parsed.is_final,
-                           text: transcript
-                       }));
-                   }
-               }
-            } catch (e) { }
-        });
-
-        deepgramWs.on('close', () => {
-             console.log('[Deepgram] WebSocket closed');
-             ws.close();
-        });
-
-        deepgramWs.on('error', (err) => {
-             console.error('[Deepgram] WebSocket Error:', err);
-             ws.close();
-        });
-    } catch(err) {
-        console.error('[WebSocket] Failed to connect to Deepgram:', err);
-        ws.close();
-    }
-
-    ws.on('message', (message) => {
-        // message is expected to be binary audio data from MediaRecorder
-        if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
-            deepgramWs.send(message);
-        }
-    });
-
-    ws.on('close', () => {
-        console.log('[WebSocket] Client disconnected');
-        if (deepgramWs && deepgramWs.readyState === WebSocket.OPEN) {
-            deepgramWs.close();
-        }
-    });
 });
 
 // --- API: Voice Interaction (Streaming SSE) ---
@@ -238,7 +178,6 @@ app.post('/api/voice', voiceUpload.single('audio'), async (req, res) => {
   try {
     if (!req.file) throw new Error("No audio file uploaded.");
 
-    // Set headers for SSE streaming (same as /api/ask)
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -246,58 +185,60 @@ app.post('/api/voice', voiceUpload.single('audio'), async (req, res) => {
     const base64Audio = req.file.buffer.toString('base64');
     const mimeType = req.file.mimetype || 'audio/webm';
 
-    // 1. Transcribe audio (in-memory, no temp files)
-    let userText;
-    try {
-      userText = await transcribeAudio({ base64Audio, mimeType });
-      if (typeof userText === 'string' && userText.startsWith("Error")) throw new Error(userText);
-    } catch (transcribeErr) {
-      res.write(`data: ${JSON.stringify({ type: 'error', content: transcribeErr.message })}\n\n`);
-      res.end();
-      return;
-    }
+    let userText = await transcribeAudio({ base64Audio, mimeType });
+    if (typeof userText === 'string' && userText.startsWith("Error")) throw new Error(userText);
 
     console.log(`[Voice] User said: "${userText}"`);
-
-    // 2. Immediately tell the frontend what the user said (no waiting for agent)
     res.write(`data: ${JSON.stringify({ type: 'user_text', content: userText })}\n\n`);
 
-    // 3. Stream agent response (same pipeline as /api/ask)
     const stream = streamWithSemanticRouting(userText, "user-1");
-
     let sentenceBuffer = "";
+    
+    // --- Audio Queue System (properly awaited) ---
+    const ttsQueue = [];
+    let ttsProcessingPromise = null;
 
-    // Helper: TTS for each sentence chunk
-    async function generateAudioChunk(text) {
-      try {
-        const audioResult = await generateSpeech({ text });
-        if (typeof audioResult === 'string') {
-          try {
-            const parsed = JSON.parse(audioResult);
-            if (parsed.fallback === 'web-speech-api') {
-              res.write(`data: ${JSON.stringify({ type: 'tts_fallback', text: parsed.text })}\n\n`);
-              return;
-            }
-          } catch (e) { /* not JSON */ }
-          if (audioResult && !audioResult.startsWith('Error')) {
-            const audioUrl = audioResult.startsWith('data:') ? audioResult : '/temp/' + path.basename(audioResult);
-            res.write(`data: ${JSON.stringify({ type: 'audio', url: audioUrl })}\n\n`);
-          }
+    async function processTTSQueue() {
+        while (ttsQueue.length > 0) {
+            const currentItem = ttsQueue.shift();
+            console.log(`[Voice TTS Queue] Generating for: "${currentItem.text.substring(0, 50)}..."`);
+            try {
+                const audioResult = await generateSpeech({ text: currentItem.text });
+                if (typeof audioResult === 'string') {
+                    try {
+                        const parsed = JSON.parse(audioResult);
+                        if (parsed.fallback === 'web-speech-api') {
+                            res.write(`data: ${JSON.stringify({ type: "tts_fallback", text: parsed.text })}\n\n`);
+                            continue;
+                        }
+                    } catch (e) {}
+                    if (audioResult && !audioResult.startsWith('Error')) {
+                        const audioUrl = audioResult.startsWith('data:') ? audioResult : '/temp/' + path.basename(audioResult);
+                        res.write(`data: ${JSON.stringify({ type: 'audio', url: audioUrl })}\n\n`);
+                    }
+                }
+            } catch (e) { console.error('[Voice TTS Error]', e); }
         }
-      } catch (e) { console.error('[Voice] TTS Chunk Error:', e); }
+    }
+
+    function queueAudioChunk(text) {
+        ttsQueue.push({ text });
+        if (ttsProcessingPromise) {
+            ttsProcessingPromise = ttsProcessingPromise.then(() => processTTSQueue());
+        } else {
+            ttsProcessingPromise = processTTSQueue();
+        }
     }
 
     for await (const event of stream) {
       const eventType = event.event;
-
       if (eventType === 'on_chat_model_stream') {
         const content = event.data?.chunk?.content;
         if (content) {
           res.write(`data: ${JSON.stringify({ type: 'token', content })}\n\n`);
-
           sentenceBuffer += content;
-          if (/[.?!]\s$/.test(sentenceBuffer) && sentenceBuffer.length > 5) {
-            generateAudioChunk(sentenceBuffer.trim()); // fire-and-forget
+          if (/[.?!](\s|$)/.test(sentenceBuffer) && sentenceBuffer.length > 20) {
+            queueAudioChunk(sentenceBuffer.trim());
             sentenceBuffer = '';
           }
         }
@@ -312,20 +253,24 @@ app.post('/api/voice', voiceUpload.single('audio'), async (req, res) => {
       }
     }
 
-    // Any leftover text in the buffer
     if (sentenceBuffer.trim().length > 0) {
-      generateAudioChunk(sentenceBuffer.trim());
+      queueAudioChunk(sentenceBuffer.trim());
+    }
+
+    // Wait for ALL TTS processing to complete before closing
+    if (ttsProcessingPromise) {
+        await ttsProcessingPromise;
     }
 
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     res.end();
 
   } catch (error) {
-    console.error('[Voice] Error:', error);
+    console.error('[Voice Error]', error);
     try {
       res.write(`data: ${JSON.stringify({ type: 'error', content: error.message })}\n\n`);
       res.end();
-    } catch (e) { /* headers already sent */ }
+    } catch (e) { }
   }
 });
 
@@ -335,73 +280,68 @@ app.get('/api/history', async (req, res) => {
         const sessionId = req.query.sessionId || 'user-1';
         const offset = parseInt(req.query.offset) || 0;
         const limit = parseInt(req.query.limit) || 20;
-
         const historyPath = path.join(os.homedir(), '.edith', 'chat_history.json');
-
-        if (!fs.existsSync(historyPath)) {
-            return res.json({ messages: [], total: 0, hasMore: false });
-        }
-
+        if (!fs.existsSync(historyPath)) return res.json({ messages: [], total: 0, hasMore: false });
         const fileContent = await fs.promises.readFile(historyPath, 'utf-8');
-        if (!fileContent || !fileContent.trim()) {
-            return res.json({ messages: [], total: 0, hasMore: false });
-        }
-
+        if (!fileContent || !fileContent.trim()) return res.json({ messages: [], total: 0, hasMore: false });
         const allHistory = JSON.parse(fileContent);
         const sessionHistory = allHistory[sessionId] || [];
         const total = sessionHistory.length;
-
-        // offset 0 = most recent `limit` messages
         const start = Math.max(0, total - offset - limit);
         const end = Math.max(0, total - offset);
         const slice = sessionHistory.slice(start, end);
-
-        res.json({
-            messages: slice,
-            total,
-            hasMore: start > 0,
-        });
+        res.json({ messages: slice, total, hasMore: start > 0 });
     } catch (error) {
-        console.error('[Server] Error reading history:', error);
+        console.error('[History Error]', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// --- Start Server ---
-const server = app.listen(port, () => {
-  console.log(`Server is listening at http://localhost:3000`);
+// --- NEW API: Deepgram WebSocket Proxy ---
+import { WebSocketServer, WebSocket } from 'ws';
+const wss = new WebSocketServer({ noServer: true });
+wss.on('connection', (ws) => {
+    let deepgramWs = null;
+    if (!process.env.DEEPGRAM_API_KEY) { ws.close(); return; }
+    try {
+        deepgramWs = new WebSocket('wss://api.deepgram.com/v1/listen?model=nova-2&punctuate=true&interim_results=true', {
+            headers: { Authorization: `Token ${process.env.DEEPGRAM_API_KEY}` }
+        });
+        deepgramWs.on('open', () => ws.send(JSON.stringify({ type: 'ready' })));
+        deepgramWs.on('message', (data) => {
+            try {
+               const parsed = JSON.parse(data);
+               if (parsed.channel?.alternatives?.[0]) {
+                   const transcript = parsed.channel.alternatives[0].transcript;
+                   if (transcript) ws.send(JSON.stringify({ type: 'transcript', isFinal: parsed.is_final, text: transcript }));
+               }
+            } catch (e) { }
+        });
+        deepgramWs.on('close', () => ws.close());
+        deepgramWs.on('error', () => ws.close());
+    } catch(err) { ws.close(); }
+    ws.on('message', (message) => { if (deepgramWs?.readyState === WebSocket.OPEN) deepgramWs.send(message); });
+    ws.on('close', () => { if (deepgramWs?.readyState === WebSocket.OPEN) deepgramWs.close(); });
 });
 
+// --- Start Server ---
+const server = app.listen(port, () => console.log(`Server is listening at http://localhost:${port}`));
+server.on('error', (e) => {
+    if (e.code === 'EADDRINUSE') {
+        console.error(`\n[CRITICAL] Port ${port} is already in use!`);
+        console.error(`[CRITICAL] Another instance of EDITH or node is likely running.`);
+        console.error(`[CRITICAL] Please kill the zombie process and restart.\n`);
+        process.exit(1);
+    } else {
+        console.error('[CRITICAL] Server error:', e);
+    }
+});
 server.on('upgrade', (request, socket, head) => {
   if (request.url === '/api/live-transcription') {
-    wss.handleUpgrade(request, socket, head, (ws) => {
-      wss.emit('connection', ws, request);
-    });
-  } else {
-    socket.destroy();
-  }
+    wss.handleUpgrade(request, socket, head, (ws) => wss.emit('connection', ws, request));
+  } else { socket.destroy(); }
 });
-
-// Keep-alive to prevent process exit if something is weird
-setInterval(() => {
-  console.log('[Heartbeat] Server is alive...');
-}, 300000); // 5 minutes
-
-// Global Error Handlers
-process.on('uncaughtException', (err) => {
-  console.error('[CRITICAL] Uncaught Exception:', err);
-});
-
-process.on('exit', (code) => {
-    console.log(`[Server] Process exited with code: ${code}`);
-});
-
-process.on('SIGINT', async () => {
-    console.log('[Server] Shutting down...');
-    process.exit(0);
-});
-
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('[CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason);
-});
+setInterval(() => console.log('[Heartbeat] Server is alive...'), 300000);
+process.on('uncaughtException', (err) => console.error('[CRITICAL] Uncaught Exception:', err));
+process.on('SIGINT', () => process.exit(0));
+process.on('unhandledRejection', (reason, promise) => console.error('[CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason));

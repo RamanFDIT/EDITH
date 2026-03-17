@@ -48,7 +48,9 @@ export async function generateImage(args) {
 
     const ai = await getGenAI();
     if (!ai) {
-        return "Image generation requires a Google connection. Please connect your Google account in Settings (the same connection used for Calendar & Gmail), or ensure a GOOGLE_API_KEY is available.";
+        return "Image generation (Nano Banana) requires a Google connection. " +
+               "Note: GitHub Models (GPT-4o) does not yet support image generation endpoints. " +
+               "Please connect your Google account in Settings, or ensure a GOOGLE_API_KEY is available in your environment.";
     }
 
     // Models to try in order of preference

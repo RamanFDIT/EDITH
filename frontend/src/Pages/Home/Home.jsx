@@ -18,7 +18,18 @@ const Home = () => {
   const [files, setFiles] = useState([]);
   const [hasMore, setHasMore] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
-  const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(() => {
+    const saved = localStorage.getItem('edithVoiceEnabled');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
+
+  const voiceEnabledRef = useRef(voiceEnabled);
+
+  useEffect(() => {
+    voiceEnabledRef.current = voiceEnabled;
+    localStorage.setItem('edithVoiceEnabled', JSON.stringify(voiceEnabled));
+  }, [voiceEnabled]);
+
   const messageEndRef = useRef(null);
   const topSentinelRef = useRef(null);
   const messageAreaRef = useRef(null);
@@ -33,12 +44,19 @@ const Home = () => {
     }
     isPlayingRef.current = true;
     const item = audioQueueRef.current.shift();
+    console.log('[Audio] Playing:', item.type === 'url' ? item.url.substring(0, 50) + '...' : 'Web Speech');
 
     if (item.type === 'url') {
       const audio = new Audio(item.url);
       audio.onended = playNextAudio;
-      audio.onerror = playNextAudio;
-      audio.play().catch(playNextAudio);
+      audio.onerror = (e) => {
+        console.error('[Audio] Playback error:', e);
+        playNextAudio();
+      };
+      audio.play().catch(err => {
+        console.warn('[Audio] Autoplay blocked or error:', err);
+        playNextAudio();
+      });
     } else if (item.type === 'speech') {
       const utterance = new SpeechSynthesisUtterance(item.text);
       utterance.lang = 'en-GB';
@@ -50,10 +68,14 @@ const Home = () => {
   }, []);
 
   const enqueueAudio = useCallback((item) => {
-    if (!voiceEnabled) return;
+    if (!voiceEnabledRef.current) {
+      console.log('[Audio] Voice disabled, skipping:', item.type === 'url' ? item.url : 'Web Speech');
+      return;
+    }
+    console.log('[Audio] Enqueuing:', item.type === 'url' ? item.url : 'Web Speech');
     audioQueueRef.current.push(item);
     if (!isPlayingRef.current) playNextAudio();
-  }, [voiceEnabled, playNextAudio]);
+  }, [playNextAudio]);
 
   // Load initial history on first mount
   useEffect(() => {
@@ -191,7 +213,13 @@ const Home = () => {
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
-          const data = JSON.parse(line.slice(6));
+          let data;
+          try {
+            data = JSON.parse(line.slice(6));
+          } catch (parseErr) {
+            console.error('[Stream] JSON parse error:', parseErr, 'Line preview:', line.substring(0, 100));
+            continue;
+          }
 
           if (data.type === 'token') {
             setMessages(prev => {
@@ -213,8 +241,8 @@ const Home = () => {
               return updated;
             });
           } else if (data.type === 'audio') {
-            // Edge TTS audio file — play it
-            enqueueAudio({ type: 'url', url: `http://localhost:3000${data.url}` });
+            // Edge TTS audio data (Base64) — play it
+            enqueueAudio({ type: 'url', url: data.url });
           } else if (data.type === 'tts_fallback') {
             // Web Speech API fallback
             enqueueAudio({ type: 'speech', text: data.text });
@@ -233,6 +261,7 @@ const Home = () => {
         }
       }
     } catch (err) {
+      console.error('[Stream] Fetch or read error:', err);
       setMessages(prev => {
         const updated = [...prev];
         const last = updated[updated.length - 1];
@@ -264,7 +293,13 @@ const Home = () => {
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
-          const data = JSON.parse(line.slice(6));
+          let data;
+          try {
+            data = JSON.parse(line.slice(6));
+          } catch (parseErr) {
+            console.error('[Voice] JSON parse error:', parseErr, 'Line preview:', line.substring(0, 100));
+            continue;
+          }
 
           if (data.type === 'user_text') {
             // Show what the user said in the chat immediately
@@ -283,7 +318,7 @@ const Home = () => {
               return updated;
             });
           } else if (data.type === 'audio') {
-            enqueueAudio({ type: 'url', url: `http://localhost:3000${data.url}` });
+            enqueueAudio({ type: 'url', url: data.url });
           } else if (data.type === 'tts_fallback') {
             enqueueAudio({ type: 'speech', text: data.text });
           } else if (data.type === 'error') {

@@ -52,13 +52,14 @@ export async function readTextFile(input) {
     
     try {
         if (!fs.existsSync(resolvedPath)) {
-            return `Error: File not found at "${resolvedPath}"`;
+            return JSON.stringify({ status: "error", message: `File not found at "${resolvedPath}"` });
         }
         
         const content = await fs.promises.readFile(resolvedPath, encoding);
         const stats = fs.statSync(resolvedPath);
         
         return JSON.stringify({
+            status: "success",
             filePath: resolvedPath,
             fileName: path.basename(resolvedPath),
             size: stats.size,
@@ -68,7 +69,7 @@ export async function readTextFile(input) {
         });
     } catch (error) {
         console.error("File Read Error:", error);
-        return `Error reading file: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error reading file: ${error.message}` });
     }
 }
 
@@ -86,12 +87,12 @@ export async function readWordDocument(input) {
     
     try {
         if (!fs.existsSync(resolvedPath)) {
-            return `Error: File not found at "${resolvedPath}"`;
+            return JSON.stringify({ status: "error", message: `File not found at "${resolvedPath}"` });
         }
         
         const ext = path.extname(resolvedPath).toLowerCase();
         if (ext !== '.docx') {
-            return `Error: Expected .docx file, got "${ext}". Use readTextFile for plain text files.`;
+            return JSON.stringify({ status: "error", message: `Expected .docx file, got "${ext}".` });
         }
         
         const buffer = await fs.promises.readFile(resolvedPath);
@@ -99,6 +100,7 @@ export async function readWordDocument(input) {
         const stats = fs.statSync(resolvedPath);
         
         return JSON.stringify({
+            status: "success",
             filePath: resolvedPath,
             fileName: path.basename(resolvedPath),
             size: stats.size,
@@ -109,7 +111,7 @@ export async function readWordDocument(input) {
         });
     } catch (error) {
         console.error("Word Document Error:", error);
-        return `Error reading Word document: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error reading Word document: ${error.message}` });
     }
 }
 
@@ -127,12 +129,12 @@ export async function readPdfDocument(input) {
     
     try {
         if (!fs.existsSync(resolvedPath)) {
-            return `Error: File not found at "${resolvedPath}"`;
+            return JSON.stringify({ status: "error", message: `File not found at "${resolvedPath}"` });
         }
         
         const ext = path.extname(resolvedPath).toLowerCase();
         if (ext !== '.pdf') {
-            return `Error: Expected .pdf file, got "${ext}"`;
+            return JSON.stringify({ status: "error", message: `Expected .pdf file, got "${ext}"` });
         }
         
         const buffer = await fs.promises.readFile(resolvedPath);
@@ -143,6 +145,7 @@ export async function readPdfDocument(input) {
         await parser.destroy();
 
         return JSON.stringify({
+            status: "success",
             filePath: resolvedPath,
             fileName: path.basename(resolvedPath),
             size: stats.size,
@@ -154,7 +157,7 @@ export async function readPdfDocument(input) {
         });
     } catch (error) {
         console.error("PDF Read Error:", error);
-        return `Error reading PDF: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error reading PDF: ${error.message}` });
     }
 }
 
@@ -173,7 +176,7 @@ export async function listDirectory(input) {
     
     try {
         if (!fs.existsSync(resolvedPath)) {
-            return `Error: Directory not found at "${resolvedPath}"`;
+            return JSON.stringify({ status: "error", message: `Directory not found at "${resolvedPath}"` });
         }
         
         const entries = await fs.promises.readdir(resolvedPath, { withFileTypes: true });
@@ -214,6 +217,16 @@ export async function listDirectory(input) {
             files.sort((a, b) => b.size - a.size);
         }
         
+        if (files.length === 0) {
+            return JSON.stringify({ 
+                status: "no_results_found", 
+                message: filter 
+                    ? `No files found in "${resolvedPath}" matching "${filter}"` 
+                    : `No files found in "${resolvedPath}"`,
+                directory: resolvedPath
+            });
+        }
+
         // Limit results
         files = files.slice(0, limit);
         
@@ -221,13 +234,14 @@ export async function listDirectory(input) {
         files = files.map(({ modifiedTimestamp, ...rest }) => rest);
         
         return JSON.stringify({
+            status: "success",
             directory: resolvedPath,
             totalFiles: files.length,
             files: files
         });
     } catch (error) {
         console.error("Directory List Error:", error);
-        return `Error listing directory: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error listing directory: ${error.message}` });
     }
 }
 
@@ -244,7 +258,7 @@ export async function getLatestFile(input) {
     
     try {
         if (!fs.existsSync(resolvedPath)) {
-            return `Error: Directory not found at "${resolvedPath}"`;
+            return JSON.stringify({ status: "error", message: `Directory not found at "${resolvedPath}"` });
         }
         
         const entries = await fs.promises.readdir(resolvedPath, { withFileTypes: true });
@@ -274,9 +288,10 @@ export async function getLatestFile(input) {
         
         if (files.length === 0) {
             return JSON.stringify({ 
+                status: "no_results_found",
                 message: extension 
-                    ? `No ${extension} files found in ${resolvedPath}` 
-                    : `No files found in ${resolvedPath}`,
+                    ? `No ${extension} files found in "${resolvedPath}"` 
+                    : `No files found in "${resolvedPath}"`,
                 file: null 
             });
         }
@@ -286,6 +301,7 @@ export async function getLatestFile(input) {
         const latest = files[0];
         
         return JSON.stringify({
+            status: "success",
             message: "Found latest file",
             file: {
                 name: latest.name,
@@ -297,7 +313,7 @@ export async function getLatestFile(input) {
         });
     } catch (error) {
         console.error("Get Latest File Error:", error);
-        return `Error finding latest file: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error finding latest file: ${error.message}` });
     }
 }
 

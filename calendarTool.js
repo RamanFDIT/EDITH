@@ -80,7 +80,11 @@ export async function getCalendarEvents(input) {
         const events = response.data.items || [];
         
         if (events.length === 0) {
-            return JSON.stringify({ message: "No upcoming events found.", events: [] });
+            return JSON.stringify({ 
+                status: "no_results_found", 
+                message: "No upcoming events found for the specified period.",
+                events: [] 
+            });
         }
 
         const formattedEvents = events.map(event => ({
@@ -94,10 +98,10 @@ export async function getCalendarEvents(input) {
             htmlLink: event.htmlLink
         }));
 
-        return JSON.stringify({ events: formattedEvents });
+        return JSON.stringify({ status: "success", events: formattedEvents });
     } catch (error) {
         console.error("Calendar API Error:", error);
-        return `Error fetching calendar events: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error fetching calendar events: ${error.message}` });
     }
 }
 
@@ -149,6 +153,7 @@ export async function createCalendarEvent(input) {
         });
 
         return JSON.stringify({
+            status: "success",
             message: "Event created successfully!",
             event: {
                 id: response.data.id,
@@ -160,7 +165,7 @@ export async function createCalendarEvent(input) {
         });
     } catch (error) {
         console.error("Calendar API Error:", error);
-        return `Error creating calendar event: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error creating calendar event: ${error.message}` });
     }
 }
 
@@ -214,6 +219,7 @@ export async function updateCalendarEvent(input) {
         });
 
         return JSON.stringify({
+            status: "success",
             message: "Event updated successfully!",
             event: {
                 id: response.data.id,
@@ -223,7 +229,7 @@ export async function updateCalendarEvent(input) {
         });
     } catch (error) {
         console.error("Calendar API Error:", error);
-        return `Error updating calendar event: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error updating calendar event: ${error.message}` });
     }
 }
 
@@ -246,11 +252,12 @@ export async function deleteCalendarEvent(input) {
         });
 
         return JSON.stringify({
+            status: "success",
             message: `Event ${eventId} deleted successfully!`
         });
     } catch (error) {
         console.error("Calendar API Error:", error);
-        return `Error deleting calendar event: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error deleting calendar event: ${error.message}` });
     }
 }
 
@@ -284,6 +291,7 @@ export async function findFreeTime(input) {
         const busyTimes = response.data.calendars[calendarId]?.busy || [];
 
         return JSON.stringify({
+            status: "success",
             timeRange: { start: timeMin, end: timeMax },
             busyTimes: busyTimes,
             message: busyTimes.length === 0 
@@ -292,7 +300,7 @@ export async function findFreeTime(input) {
         });
     } catch (error) {
         console.error("Calendar API Error:", error);
-        return `Error checking free time: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error checking free time: ${error.message}` });
     }
 }
 

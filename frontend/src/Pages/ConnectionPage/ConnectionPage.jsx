@@ -99,7 +99,7 @@ const ConnectionPage = () => {
                                     <div>
                                         <p className={styles.cardLabel}>
                                             {cardHead}
-                                            {isRequired && <span className={styles.requiredBadge}>Required</span>}
+                                            {isRequired && <span className={styles.requiredBadge}>Primary Model</span>}
                                         </p>
                                         <p className={styles.cardDescription}>{description}</p>
                                     </div>

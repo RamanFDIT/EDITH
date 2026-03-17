@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import './envConfig.js';
 import { getValidToken } from './oauthService.js';
 
@@ -94,42 +95,77 @@ export async function transcribeAudio(args) {
         }
     }
 
-    return `Error: No transcription backend available. env.API_KEY=${!!process.env.GOOGLE_API_KEY}, env.REFRESH=${!!process.env.GOOGLE_REFRESH_TOKEN}`;
+    return `Error: No transcription backend available. ` +
+           `Note: GitHub Models (GPT-4o) does not yet support audio transcription. ` +
+           `Please connect your Google account in Settings to enable Gemini-based transcription.`;
 }
 
-// --- TEXT TO SPEECH (Edge TTS — zero API keys) ---
+// --- TEXT TO SPEECH (Supports ElevenLabs & Edge TTS) ---
 export async function generateSpeech(args) {
     const { text, voiceId } = args;
     console.log(`🗣️ Generating Speech for: "${text.substring(0, 40)}..."`);
 
-    // Strategy 1: Edge TTS (Microsoft neural voices — free, no API key)
-    try {
-        const { Communicate } = await import('edge-tts-universal');
-        const voice = voiceId || DEFAULT_EDGE_VOICE;
-        const communicate = new Communicate(text, { voice });
+    // Strategy 1: ElevenLabs (High quality — requires API key)
+    if (process.env.ELEVENLABS_API_KEY) {
+        try {
+            const { ElevenLabsClient } = await import('elevenlabs');
+            const client = new ElevenLabsClient({ apiKey: process.env.ELEVENLABS_API_KEY });
+            
+            console.log(`🗣️ Using ElevenLabs TTS (Voice: ${voiceId || 'JBFqnCBv7zXP0t9NvYI8 (Sonia)'})`);
+            const audio = await client.generate({
+                voice: voiceId || "JBFqnCBv7zXP0t9NvYI8", // Default to Sonia or a known good voice
+                text: text,
+                model_id: "eleven_multilingual_v2"
+            });
 
-        // Collect audio chunks and write to file
-        const audioChunks = [];
-        for await (const chunk of communicate.stream()) {
-            if (chunk.type === 'audio' && chunk.data) {
-                audioChunks.push(chunk.data);
+            // Convert Stream to Buffer for base64
+            const chunks = [];
+            for await (const chunk of audio) {
+                chunks.push(chunk);
             }
-        }
-
-        if (audioChunks.length > 0) {
-            const audioBuffer = Buffer.concat(audioChunks);
+            const audioBuffer = Buffer.concat(chunks);
             const base64Audio = audioBuffer.toString('base64');
+            console.log(`✅ ElevenLabs audio generated`);
+            return `data:audio/mp3;base64,${base64Audio}`;
+
+        } catch (error) {
+            console.warn(`[Audio] ElevenLabs TTS failed: ${error.message}. Falling back to Edge TTS...`);
+        }
+    }
+
+    // Strategy 2: Edge TTS via node-edge-tts (Microsoft neural voices — free, no API key)
+    try {
+        const { EdgeTTS } = await import('node-edge-tts');
+        const voice = voiceId || DEFAULT_EDGE_VOICE;
+        
+        // node-edge-tts requires writing to a file, so we use a temp file
+        const tempPath = path.join(os.tmpdir(), `edith-tts-${Date.now()}.mp3`);
+        
+        const tts = new EdgeTTS({
+            voice: voice,
+            lang: 'en-GB',
+            outputFormat: 'audio-24khz-48kbitrate-mono-mp3'
+        });
+
+        await tts.ttsPromise(text, tempPath);
+
+        // Read the generated file into a buffer
+        if (fs.existsSync(tempPath)) {
+            const audioBuffer = await fs.promises.readFile(tempPath);
+            const base64Audio = audioBuffer.toString('base64');
+            
+            // Clean up temp file
+            fs.promises.unlink(tempPath).catch(e => console.warn('Failed to delete temp TTS file:', e));
+            
             console.log(`🗣️ Edge TTS audio generated (voice: ${voice})`);
             return `data:audio/mp3;base64,${base64Audio}`;
         } else {
-            throw new Error('No audio data received from Edge TTS');
+            throw new Error('TTS file was not created');
         }
     } catch (error) {
         console.warn(`[Audio] Edge TTS failed: ${error.message}, falling back to Web Speech API...`);
     }
 
-    // Strategy 2: Return text for client-side Web Speech API (zero cost, zero keys)
-    // The frontend will use window.speechSynthesis to speak this text
+    // Strategy 3: Return text for client-side Web Speech API (zero cost, zero keys)
     return JSON.stringify({ fallback: 'web-speech-api', text: text });
 }
-

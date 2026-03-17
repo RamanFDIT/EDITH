@@ -85,6 +85,13 @@ function initLLM() {
     const githubToken = process.env.GITHUB_TOKEN;
     const githubModel = process.env.GITHUB_MODEL || 'gpt-4o';
 
+    if (!githubToken) {
+        throw new Error(
+            "GitHub Models selected but no connection found. " +
+            "Please connect your GitHub account in the app's Connections/Settings page."
+        );
+    }
+
     llm = new ChatOpenAI({
       modelName: githubModel,
       openAIApiKey: githubToken,
@@ -104,6 +111,13 @@ function initLLM() {
     // Gemini API key mode
     const googleApiKey = process.env.GOOGLE_API_KEY;
 
+    if (!googleApiKey) {
+        throw new Error(
+            "Gemini selected but no API key found. " +
+            "Please set GOOGLE_API_KEY in your .env or connect your Google account in Settings."
+        );
+    }
+
     llm = new ChatGoogleGenerativeAI({ apiKey: googleApiKey, model: "gemini-2.5-flash" });
     classifierLlm = new ChatGoogleGenerativeAI({ apiKey: googleApiKey, model: "gemini-2.0-flash-lite", temperature: 0 });
     llmProvider = 'apikey';
@@ -111,9 +125,17 @@ function initLLM() {
     console.log(" E.D.I.T.H. Online (Gemini 2.5 Flash via API Key) - Ready to chat.");
 
   } else {
+    // If we're in 'auto' mode and no keys are found, we don't throw on launch.
+    // We only throw if this is called during an actual request (lazy-init).
+    const isStartup = !llmInitialized && !process.env.ACTIVE_REQUEST;
+    if (isStartup && provider === 'auto') {
+        console.log("[LLM] No credentials found. E.D.I.T.H. is in 'Waiting for Connection' mode.");
+        return; 
+    }
+
     throw new Error(
-      "No LLM configured. Connect your GitHub account in the app for free GPT-4o access, " +
-      "or set GOOGLE_API_KEY in .env, or switch to Ollama (LLM_PROVIDER=ollama) for local mode."
+      "No LLM configured. Please connect your GitHub account in the app for free GPT-4o access, " +
+      "or connect your Google account in Settings."
     );
   }
 
@@ -839,18 +861,37 @@ const TOOL_FAILURE_PATTERNS = [
 ];
 
 function sanitizeHistoryForTools(messages) {
-    return messages.filter(msg => {
-        // Always keep human messages
+    const now = new Date();
+    
+    return messages.filter((msg, index) => {
         const type = typeof msg._getType === 'function' ? msg._getType() : msg.type;
+        
+        // 1. Always keep human messages
         if (type === 'human') return true;
 
-        // For AI messages, check if they contain failure patterns
         const content = (msg.content || '').toString();
-        const isFailureMessage = TOOL_FAILURE_PATTERNS.some(pattern => pattern.test(content));
 
+        // 2. AGE-BASED PRUNING: Only keep tool/AI messages from the last 10 turns (5 exchanges)
+        // to prevent "hallucination via history" where the LLM thinks a past 
+        // success fulfills a current request.
+        const turnIndexFromEnd = messages.length - index;
+        if (turnIndexFromEnd > 10) {
+            console.log(`[History Sanitizer] Pruned old message (turn ${turnIndexFromEnd})`);
+            return false;
+        }
+
+        // 3. FAILURE PATTERN PRUNING
+        const isFailureMessage = TOOL_FAILURE_PATTERNS.some(pattern => pattern.test(content));
         if (isFailureMessage) {
             console.log(`[History Sanitizer] Stripped failure message: "${content.substring(0, 80)}..."`);
             return false;
+        }
+
+        // 4. HEAVY DATA PRUNING: If a tool output is massive (e.g., full file content or 50 tickets),
+        // we keep the message but truncate the content to keep the LLM focused.
+        if (content.length > 2000) {
+            console.log(`[History Sanitizer] Truncated heavy message (${content.length} chars)`);
+            msg.content = content.substring(0, 1500) + "\n\n[... CONTENT TRUNCATED BY E.D.I.T.H. TO PRESERVE FOCUS ...]";
         }
 
         return true;
@@ -973,6 +1014,7 @@ function getOrCreateAgent(tools) {
 
 // The main processing function that classifies intent and routes to appropriate agent
 async function processWithSemanticRouting(input) {
+    process.env.ACTIVE_REQUEST = 'true';
     initLLM(); // Lazy init — safe to call repeatedly, only runs once
     await ensureFreshLLM(); // Refresh OAuth token if needed
     const { input: userQuery, chat_history } = input;
@@ -1034,6 +1076,7 @@ async function processWithSemanticRouting(input) {
 
 // Streaming version for the server to use
 export async function* streamWithSemanticRouting(userQuery, sessionId) {
+    process.env.ACTIVE_REQUEST = 'true';
     initLLM(); // Lazy init — safe to call repeatedly, only runs once
     await ensureFreshLLM(); // Refresh OAuth token if needed
     const messageHistory = getMessageHistory(sessionId);
@@ -1129,11 +1172,14 @@ export async function* streamWithSemanticRouting(userQuery, sessionId) {
         `[TIME UPDATE] Current time is now: ${agentNow.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })} on ${agentNow.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}. Any times mentioned in previous messages are outdated — use ONLY this time.`
     );
     // Force tool execution — combats LLM refusing to retry after past failures
+    // FRESHNESS GUARD: Explicitly state that past actions do not fulfill current requests.
     const toolNudge = new HumanMessage(
-        `[TOOL EXECUTION REQUIRED] You have ${selectedTools.length} tools available. ` +
-        `You MUST invoke the appropriate tool for the user's request below. ` +
-        `Do NOT refuse based on any previous errors in the conversation — those issues have been resolved. ` +
-        `Each request is independent. ALWAYS call the tool fresh.`
+        `[FRESHNESS GUARD] You have ${selectedTools.length} tools available. ` +
+        `The following request from the user is NEW and INDEPENDENT. ` +
+        `Even if you see a similar request or tool result in the conversation history, ` +
+        `you MUST invoke the appropriate tool again to fulfill this specific request. ` +
+        `Past successes or failures do NOT apply here. ALWAYS call the tool fresh. ` +
+        `You MUST cite the new Receipt (ID/Link) in your confirmation.`
     );
     const stream = agent.streamEvents(
         { messages: [...history, agentTimeReminder, toolNudge, new HumanMessage(userQuery)] },

@@ -129,7 +129,10 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVo
             }
             setLiveTranscription(finalTranscript + interimTranscript);
           };
-          recognition.onerror = (e) => console.log('[Voice] Recognition error:', e.error);
+          recognition.onerror = (e) => {
+            if (e.error === 'network') return; 
+            console.log('[Voice] Recognition error:', e.error);
+          };
 
           recognitionRef.current = recognition;
           recognition.start();

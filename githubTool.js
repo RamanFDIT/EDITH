@@ -23,7 +23,8 @@ async function githubFetch(url) {
     });
 
     if (!response.ok) {
-        throw new Error(`GitHub Status: ${response.status} ${response.statusText}`);
+        const errorText = await response.text();
+        throw new Error(`GitHub Status: ${response.status} ${response.statusText} - ${errorText}`);
     }
     return await response.json();
 }
@@ -59,9 +60,14 @@ export async function createRepository(args) {
         }
 
         const data = await response.json();
-        return `Success! Created Repository '${data.full_name}'. URL: ${data.html_url}`;
+        return JSON.stringify({
+            status: "success",
+            message: `Created Repository '${data.full_name}'`,
+            fullName: data.full_name,
+            url: data.html_url
+        });
     } catch (error) {
-        return `Error creating repository: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error creating repository: ${error.message}` });
     }
 }
 
@@ -71,14 +77,18 @@ export async function getRepoIssues(args) {
   if (!owner || !repo) throw new Error('Owner and Repo required.');
   try {
     const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/issues`);
-    return JSON.stringify(data.map(i => ({ 
+    if (!data || data.length === 0) {
+        return JSON.stringify({ status: "no_results_found", message: `No issues found for ${owner}/${repo}.` });
+    }
+    const issues = data.map(i => ({ 
         number: i.number, 
         title: i.title, 
         state: i.state, 
         user: i.user.login 
-    })));
+    }));
+    return JSON.stringify({ status: "success", issues });
   } catch (error) {
-    return `Error fetching issues: ${error.message}`;
+    return JSON.stringify({ status: "error", message: `Error fetching issues: ${error.message}` });
   }
 }
 
@@ -104,9 +114,14 @@ export async function createRepoIssue(args) {
 
         if (!response.ok) throw new Error(`GitHub API Error: ${await response.text()}`);
         const data = await response.json();
-        return `Success! Created Issue #${data.number}. URL: ${data.html_url}`;
+        return JSON.stringify({
+            status: "success",
+            message: `Created Issue #${data.number} in ${owner}/${repo}`,
+            issueNumber: data.number,
+            url: data.html_url
+        });
     } catch (error) {
-        return `Error creating issue: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error creating issue: ${error.message}` });
     }
 }
 
@@ -115,14 +130,18 @@ export async function listCommits(args) {
     const { owner, repo, limit = 5 } = args;
     try {
         const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/commits?per_page=${limit}`);
-        return JSON.stringify(data.map(c => ({
+        if (!data || data.length === 0) {
+            return JSON.stringify({ status: "no_results_found", message: `No commits found for ${owner}/${repo}.` });
+        }
+        const commits = data.map(c => ({
             sha: c.sha.substring(0, 7),
             message: c.commit.message.split('\n')[0],
             author: c.commit.author.name,
             date: c.commit.author.date
-        })));
+        }));
+        return JSON.stringify({ status: "success", commits });
     } catch (error) {
-        return `Error listing commits: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error listing commits: ${error.message}` });
     }
 }
 
@@ -130,15 +149,19 @@ export async function listPullRequests(args) {
     const { owner, repo, state = 'open' } = args;
     try {
         const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/pulls?state=${state}`);
-        return JSON.stringify(data.map(pr => ({
+        if (!data || data.length === 0) {
+            return JSON.stringify({ status: "no_results_found", message: `No ${state} pull requests found for ${owner}/${repo}.` });
+        }
+        const pulls = data.map(pr => ({
             number: pr.number,
             title: pr.title,
             user: pr.user.login,
             state: pr.state,
             url: pr.html_url
-        })));
+        }));
+        return JSON.stringify({ status: "success", pullRequests: pulls });
     } catch (error) {
-        return `Error listing PRs: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error listing PRs: ${error.message}` });
     }
 }
 
@@ -147,16 +170,20 @@ export async function getPullRequest(args) {
     try {
         const pr = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${pullNumber}`);
         return JSON.stringify({
-            number: pr.number,
-            title: pr.title,
-            body: pr.body,
-            state: pr.state,
-            merged: pr.merged,
-            commits: pr.commits,
-            changed_files: pr.changed_files
+            status: "success",
+            pullRequest: {
+                number: pr.number,
+                title: pr.title,
+                body: pr.body,
+                state: pr.state,
+                merged: pr.merged,
+                commits: pr.commits,
+                changed_files: pr.changed_files,
+                url: pr.html_url
+            }
         });
     } catch (error) {
-        return `Error getting PR #${pullNumber}: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error getting PR #${pullNumber}: ${error.message}` });
     }
 }
 
@@ -165,14 +192,17 @@ export async function getCommit(args) {
     try {
         const c = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/commits/${sha}`);
         return JSON.stringify({
-            sha: c.sha,
-            author: c.commit.author.name,
-            message: c.commit.message,
-            stats: c.stats,
-            files: c.files.map(f => f.filename)
+            status: "success",
+            commit: {
+                sha: c.sha,
+                author: c.commit.author.name,
+                message: c.commit.message,
+                stats: c.stats,
+                files: c.files.map(f => f.filename)
+            }
         });
     } catch (error) {
-        return `Error getting commit ${sha}: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error getting commit ${sha}: ${error.message}` });
     }
 }
 
@@ -181,8 +211,8 @@ export async function getRepoChecks(args) {
     if (!owner || !repo || !ref) throw new Error('Owner, Repo, and Ref are required.');
     try {
         const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/commits/${ref}/check-runs`);
-        return JSON.stringify(data);
+        return JSON.stringify({ status: "success", checks: data });
     } catch (error) {
-        return `Error getting checks for ${ref}: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error getting checks for ${ref}: ${error.message}` });
     }
 }

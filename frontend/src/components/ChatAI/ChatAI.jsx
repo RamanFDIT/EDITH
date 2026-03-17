@@ -33,4 +33,4 @@ const ChatAI = ({ message, images }) => {
   );
 };
 
-export default ChatAI;
+export default ChatAI

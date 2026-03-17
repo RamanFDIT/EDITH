@@ -118,6 +118,13 @@ Prevents rapid sequential file writes during a streaming response
 Sliding window: The existing MAX_HISTORY_MESSAGES = 30 already limits LLM context. Add disk-level pruning:
 When the on-disk history exceeds 200 messages, prune the oldest messages (keep last 200)
 This prevents the JSON file from growing indefinitely
+
+Anti-Hallucination Protocols
+- **[MODIFY] All Tool Modules**: Standardize "No Results" and "Error" responses to return descriptive objects instead of empty values, forcing the LLM to acknowledge data absence.
+- **[MODIFY] systemPrompt.js**: Implement "Receipt Protocol" — the AI must cite real tool outputs (IDs, links) in its response.
+- **[MODIFY] agent.js**: Implement "Freshness Guard" — a system message injected before each query to prevent history confusion.
+- **[MODIFY] agent.js**: Enhance `sanitizeHistoryForTools` to prune potentially confusing past tool outputs.
+
 Verification Plan
 Manual Verification
 Since this project has no test suite, the changes will be verified manually:
@@ -128,6 +135,9 @@ File upload test: Upload a file via the frontend and check that the saved filena
 Command injection test: Ask the agent to run a benign command like node --version (should work) and then something dangerous like rm -rf / (should be blocked with a logged warning)
 TTS ordering: Ask a multi-sentence question and verify audio chunks play in order
 Agent caching: Check server logs for "Reusing cached agent" messages on repeat queries to the same tool category
+Anti-Hallucination: Ask for a non-existent Jira ticket; verify "not found" response
+Receipt Protocol: Create a calendar event; verify the response includes the real Event ID
+Freshness Check: Ask for a meeting at 2pm, then immediately ask for another; verify it doesn't confuse the two
 TIP
 
 I'd appreciate your suggestions on any additional manual tests you'd like to see, especially around the encrypted store migration.

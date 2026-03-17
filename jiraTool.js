@@ -103,9 +103,20 @@ export async function getJiraIssues(input) {
             throw new Error(`Jira API Error ${response.status}: ${txt}`);
         }
         const data = await response.json();
+        if (!data.issues || data.issues.length === 0) {
+            return JSON.stringify({ 
+                status: "no_results_found", 
+                message: `No Jira issues matched the JQL query: "${jql}"`,
+                suggestion: "Try a broader search or verify the project key and issue status."
+            });
+        }
         return JSON.stringify(data.issues);
     } catch(error){
-        return `Error searching Jira: ${error.message}`;
+        return JSON.stringify({ 
+            status: "error", 
+            message: `Error searching Jira: ${error.message}`,
+            suggestion: "Check your JQL syntax or Jira connection status."
+        });
     }
 };
 
@@ -165,10 +176,16 @@ export async function createJiraIssue(input) {
 
         const data = await response.json();
         console.log(`✅ Ticket Created: ${data.key}`);
-        return `Success! Created Jira Ticket: ${data.key} (ID: ${data.id}). Link: https://${getJiraDomain()}/browse/${data.key}`;
+        return JSON.stringify({
+            status: "success",
+            message: `Created Jira Ticket: ${data.key}`,
+            key: data.key,
+            id: data.id,
+            link: `https://${getJiraDomain()}/browse/${data.key}`
+        });
 
     } catch (error) {
-        return `Error creating ticket: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error creating ticket: ${error.message}` });
     }
 }
 
@@ -183,10 +200,11 @@ export async function updateJiraIssue(input) {
     if (!issueKey) throw new Error("Issue Key (e.g., FDIT-1) is required.");
 
     if (!status && !summary && !description && !priority && !assignee && !duedate && !labels && !parent) {
-        return "⚠️ No updates requested. Please provide status, summary, description, priority, assignee, due date, labels, or parent.";
+        return JSON.stringify({ status: "no_action", message: "No updates requested. Provide at least one field to update." });
     }
 
     let results = [];
+    let success = true;
 
     // 1. HANDLE STATUS CHANGE (Transitions)
     if (status) {
@@ -211,7 +229,8 @@ export async function updateJiraIssue(input) {
             );
 
             if (!transition) {
-                results.push(`❌ Could not move to '${status}'. Available states: ${transData.transitions.map(t => `${t.name} (-> ${t.to ? t.to.name : '?'})`).join(", ")}`);
+                results.push(`Could not move to '${status}'. Available states: ${transData.transitions.map(t => `${t.name} (-> ${t.to ? t.to.name : '?'})`).join(", ")}`);
+                success = false;
             } else {
                 // C. Perform the transition
                 const moveRes = await fetch(transUrl, {
@@ -225,14 +244,16 @@ export async function updateJiraIssue(input) {
                 });
 
                 if (moveRes.status === 204) {
-                    results.push(`✅ Status updated to '${transition.name}'`);
+                    results.push(`Status updated to '${transition.name}'`);
                 } else {
                     const errorText = await moveRes.text();
-                    results.push(`❌ Failed to move status. Code: ${moveRes.status}. Response: ${errorText}`);
+                    results.push(`Failed to move status. Code: ${moveRes.status}. Response: ${errorText}`);
+                    success = false;
                 }
             }
         } catch (e) {
-            results.push(`❌ Status Error: ${e.message}`);
+            results.push(`Status Error: ${e.message}`);
+            success = false;
         }
     }
 
@@ -269,17 +290,23 @@ export async function updateJiraIssue(input) {
             });
 
             if (updateRes.status === 204) {
-                results.push(`✅ Fields updated successfully.`);
+                results.push(`Fields updated successfully.`);
             } else {
                 const txt = await updateRes.text();
-                results.push(`❌ Update Failed: ${txt}`);
+                results.push(`Update Failed: ${txt}`);
+                success = false;
             }
         } catch (e) {
-            results.push(`❌ Field Update Error: ${e.message}`);
+            results.push(`Field Update Error: ${e.message}`);
+            success = false;
         }
     }
 
-    return results.join(" ");
+    return JSON.stringify({
+        status: success ? "success" : "partial_success_or_failure",
+        message: results.join(" "),
+        issueKey: issueKey
+    });
 }
 
 // --- TOOL 4: DELETE ISSUE ---
@@ -304,13 +331,13 @@ export async function deleteJiraIssue(input) {
         });
 
         if (response.status === 204) {
-             return `✅ Successfully deleted ticket ${issueKey}.`;
+             return JSON.stringify({ status: "success", message: `Successfully deleted ticket ${issueKey}.` });
         } else {
             const txt = await response.text();
             throw new Error(`Failed to delete issue: ${response.status} - ${txt}`);
         }
     } catch (error) {
-        return `Error deleting ticket: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error deleting ticket: ${error.message}` });
     }
 }
 
@@ -339,9 +366,14 @@ export async function listJiraProjects(input) {
         }
         const data = await response.json();
         const projects = data.map(p => ({ key: p.key, name: p.name, type: p.projectTypeKey }));
+        
+        if (projects.length === 0) {
+            return JSON.stringify({ status: "no_results_found", message: "No Jira projects found." });
+        }
+        
         return JSON.stringify(projects);
     } catch (error) {
-        return `Error listing Jira projects: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error listing Jira projects: ${error.message}` });
     }
 }
 
@@ -391,12 +423,18 @@ export async function createJiraProject(input) {
 
         if (response.status === 201) {
             const data = await response.json();
-            return `✅ Successfully created project '${name}' (Key: ${data.key}). ID: ${data.id}. Link: https://${getJiraDomain()}/browse/${data.key}`;
+            return JSON.stringify({
+                status: "success",
+                message: `Successfully created project '${name}' (Key: ${data.key})`,
+                key: data.key,
+                id: data.id,
+                link: `https://${getJiraDomain()}/browse/${data.key}`
+            });
         } else {
             const txt = await response.text();
             throw new Error(`Failed to create project: ${response.status} - ${txt}`);
         }
     } catch (error) {
-        return `Error creating project: ${error.message}`;
+        return JSON.stringify({ status: "error", message: `Error creating project: ${error.message}` });
     }
 }
