@@ -10,8 +10,8 @@ import { getValidToken } from './oauthService.js';
 //   2. TTS: Edge TTS (Microsoft neural voices, zero API keys) → Web Speech fallback
 // =============================================================================
 
-// Default voice: British female to match EDITH personality
-const DEFAULT_EDGE_VOICE = "en-GB-SoniaNeural";
+// Default voice: American female (Ava), modern, energetic and clear
+const DEFAULT_EDGE_VOICE = "en-US-AvaNeural";
 
 // --- SPEECH TO TEXT ---
 export async function transcribeAudio(args) {
@@ -115,7 +115,8 @@ export async function generateSpeech(args) {
         
         const tts = new EdgeTTS({
             voice: voice,
-            lang: 'en-GB',
+            lang: voice.substring(0, 5) || 'en-US',
+            rate: '+15%',
             outputFormat: 'audio-24khz-48kbitrate-mono-mp3'
         });
 

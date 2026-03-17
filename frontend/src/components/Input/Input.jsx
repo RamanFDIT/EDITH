@@ -12,14 +12,53 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVo
   const analyserRef = useRef(null);
   const animationFrameRef = useRef(null);
   const lastAudioTimeRef = useRef(Date.now());
-  const recognitionRef = useRef(null);
   const stopRecordingRef = useRef(null);
+  
+  // Whisper Worker Ref
+  const workerRef = useRef(null);
+  const [isModelReady, setIsModelReady] = useState(false);
 
   const onSubmitRef = useRef(onSubmit);
   const onChangeRef = useRef(onChange);
   const valueRef = useRef(value);
   const [isRecording, setIsRecording] = useState(false);
   const [liveTranscription, setLiveTranscription] = useState('');
+
+  // Initialize Worker
+  useEffect(() => {
+    if (!workerRef.current) {
+      workerRef.current = new Worker(new URL('../../workers/whisperWorker.js', import.meta.url), {
+        type: 'module'
+      });
+      
+      workerRef.current.addEventListener('message', (e) => {
+        switch (e.data.status) {
+          case 'ready':
+            setIsModelReady(true);
+            setLiveTranscription('');
+            break;
+          case 'progress':
+            setLiveTranscription(`Loading local AI Model...`);
+            break;
+          case 'complete':
+            setLiveTranscription('');
+            if (e.data.output && e.data.output.text) {
+               const text = e.data.output.text.trim();
+               if (text && onSubmitRef.current) {
+                   onSubmitRef.current(text);
+               }
+            }
+            break;
+          case 'error':
+            console.error('[Whisper] Worker Error:', e.data.error);
+            setLiveTranscription('');
+            break;
+        }
+      });
+      // Trigger load immediately in background
+      workerRef.current.postMessage({ action: 'load' });
+    }
+  }, []);
 
   useEffect(() => {
     onSubmitRef.current = onSubmit;
@@ -36,9 +75,6 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVo
       }
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop();
-      }
-      if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch (e) {}
       }
     };
   }, []);
@@ -105,44 +141,10 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVo
       };
       detectSilence();
 
-      // -----------------------------------------------------------------------
-      // LIVE TRANSCRIPTION — Use Web Speech API directly (no Deepgram needed)
-      // -----------------------------------------------------------------------
-      setLiveTranscription('');
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (SpeechRecognition && !recognitionRef.current) {
-        try {
-          const recognition = new SpeechRecognition();
-          recognition.continuous = true;
-          recognition.interimResults = true;
-          recognition.lang = 'en-US';
-
-          let finalTranscript = '';
-          recognition.onresult = (event) => {
-            let interimTranscript = '';
-            for (let i = event.resultIndex; i < event.results.length; ++i) {
-              if (event.results[i].isFinal) {
-                finalTranscript += event.results[i][0].transcript;
-              } else {
-                interimTranscript += event.results[i][0].transcript;
-              }
-            }
-            setLiveTranscription(finalTranscript + interimTranscript);
-          };
-          recognition.onerror = (e) => {
-            if (e.error === 'network') return; 
-            console.log('[Voice] Recognition error:', e.error);
-          };
-
-          recognitionRef.current = recognition;
-          recognition.start();
-        } catch (e) {
-          console.log('[Voice] Live transcription failed to start:', e);
-        }
-      }
+      setLiveTranscription('Listening...');
 
       // -----------------------------------------------------------------------
-      // MEDIA RECORDER — collect audio blobs for Gemini transcription
+      // MEDIA RECORDER — collect audio blobs for local processing
       // -----------------------------------------------------------------------
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
       const mediaRecorder = new MediaRecorder(stream, { mimeType });
@@ -161,37 +163,28 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVo
         if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
         if (audioContext && audioContext.state !== 'closed') audioContext.close();
 
-        // Stop live transcription
-        if (recognitionRef.current) {
-          try { recognitionRef.current.stop(); } catch (e) {}
-          recognitionRef.current = null;
-        }
-        setLiveTranscription('');
+        setLiveTranscription('Transcribing (Local)...');
 
         const blob = new Blob(chunksRef.current, { type: mimeType });
-        if (blob.size === 0) return;
-
-        // Upload to /api/voice — now returns SSE stream
-        const formData = new FormData();
-        formData.append('audio', blob, `voice-${Date.now()}.webm`);
+        if (blob.size === 0) {
+            setLiveTranscription('');
+            return;
+        }
 
         try {
-          const res = await fetch('http://localhost:3000/api/voice', {
-            method: 'POST',
-            body: formData,
-          });
-
-          if (!res.ok) {
-            console.error('[Voice] Server returned error:', res.status);
-            return;
-          }
-
-          // Pass the SSE stream to the parent (Home.jsx) so it can render in chat
-          if (onVoiceStream) {
-            onVoiceStream(res.body);
-          }
+            // Decode blob to Float32Array at 16000Hz required by Whisper
+            const arrayBuffer = await blob.arrayBuffer();
+            const decodeContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            const audioBuffer = await decodeContext.decodeAudioData(arrayBuffer);
+            const float32Array = audioBuffer.getChannelData(0);
+            
+            // Send to Web Worker
+            if (workerRef.current) {
+                workerRef.current.postMessage({ audio: float32Array });
+            }
         } catch (err) {
-          console.error('[Voice] Upload failed:', err);
+            console.error('[Whisper] Decode error:', err);
+            setLiveTranscription('');
         }
       };
 
@@ -201,7 +194,7 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVo
     } catch (err) {
       console.error('[Voice] Microphone access denied or Error:', err);
     }
-  }, [onVoiceStream]);
+  }, []);
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -210,10 +203,6 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVo
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
-    }
-    if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch (e) {}
-      recognitionRef.current = null;
     }
     setIsRecording(false);
   }, []);
@@ -259,7 +248,7 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVo
         <button
           className={styles.attachButton}
           onClick={() => fileInputRef.current?.click()}
-          disabled={disabled || isRecording}
+          disabled={disabled || isRecording || !isModelReady}
           title="Attach files"
         >
           <Paperclip size={18} />
@@ -278,13 +267,13 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVo
           value={value}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          placeholder="Ask E.D.I.T.H. anything..."
-          disabled={disabled || isRecording}
+          placeholder={isModelReady ? "Ask E.D.I.T.H. anything..." : "Loading STT model..."}
+          disabled={disabled || isRecording || !isModelReady}
         />
         <button
           className={`${styles.micButton} ${isRecording ? styles.micRecording : ''}`}
           onClick={toggleRecording}
-          disabled={disabled}
+          disabled={disabled || !isModelReady}
           title={isRecording ? 'Stop recording' : 'Voice input'}
         >
           <Mic size={18} />
@@ -292,7 +281,7 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVo
         <button
           className={styles.sendButton}
           onClick={onSubmit}
-          disabled={disabled || isRecording || !value.trim()}
+          disabled={disabled || isRecording || !value.trim() || !isModelReady}
         >
           <Send size={18} />
         </button>

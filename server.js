@@ -153,13 +153,13 @@ app.post('/api/ask', async (req, res) => {
 
     // Flush remaining text in the sentence buffer
     if (sentenceBuffer.trim().length > 0) {
-        queueAudioChunk(sentenceBuffer.trim());
+        generateAudioChunk(sentenceBuffer.trim());
     }
 
     // Wait for ALL TTS processing to complete before closing the stream
-    if (ttsProcessingPromise) {
+    if (ttsPromises.length > 0) {
         console.log('[TTS] Awaiting TTS queue drain...');
-        await ttsProcessingPromise;
+        await Promise.all(ttsPromises);
         console.log('[TTS] Queue drained.');
     }
 

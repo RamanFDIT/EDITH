@@ -172,8 +172,8 @@ const Home = () => {
     return data.files; // [{ originalName, path, size }]
   };
 
-  const handleSubmit = async () => {
-    const question = input.trim();
+  const handleSubmit = async (overrideText) => {
+    const question = typeof overrideText === 'string' ? overrideText.trim() : input.trim();
     if (!question || isStreaming) return;
 
     const attachedFiles = [...files];

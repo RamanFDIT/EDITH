@@ -7,4 +7,7 @@ import svgr from 'vite-plugin-svgr'
 export default defineConfig({
   base: './',
   plugins: [react(), tailwindcss(), svgr()],
+  worker: {
+    format: 'es',
+  }
 })
