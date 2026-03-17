@@ -105,35 +105,7 @@ export async function generateSpeech(args) {
     const { text, voiceId } = args;
     console.log(`🗣️ Generating Speech for: "${text.substring(0, 40)}..."`);
 
-    // Strategy 1: ElevenLabs (High quality — requires API key)
-    if (process.env.ELEVENLABS_API_KEY) {
-        try {
-            const { ElevenLabsClient } = await import('elevenlabs');
-            const client = new ElevenLabsClient({ apiKey: process.env.ELEVENLABS_API_KEY });
-            
-            console.log(`🗣️ Using ElevenLabs TTS (Voice: ${voiceId || 'JBFqnCBv7zXP0t9NvYI8 (Sonia)'})`);
-            const audio = await client.generate({
-                voice: voiceId || "JBFqnCBv7zXP0t9NvYI8", // Default to Sonia or a known good voice
-                text: text,
-                model_id: "eleven_multilingual_v2"
-            });
-
-            // Convert Stream to Buffer for base64
-            const chunks = [];
-            for await (const chunk of audio) {
-                chunks.push(chunk);
-            }
-            const audioBuffer = Buffer.concat(chunks);
-            const base64Audio = audioBuffer.toString('base64');
-            console.log(`✅ ElevenLabs audio generated`);
-            return `data:audio/mp3;base64,${base64Audio}`;
-
-        } catch (error) {
-            console.warn(`[Audio] ElevenLabs TTS failed: ${error.message}. Falling back to Edge TTS...`);
-        }
-    }
-
-    // Strategy 2: Edge TTS via node-edge-tts (Microsoft neural voices — free, no API key)
+    // Strategy 1: Edge TTS via node-edge-tts (Microsoft neural voices — free, no API key)
     try {
         const { EdgeTTS } = await import('node-edge-tts');
         const voice = voiceId || DEFAULT_EDGE_VOICE;
@@ -163,7 +135,35 @@ export async function generateSpeech(args) {
             throw new Error('TTS file was not created');
         }
     } catch (error) {
-        console.warn(`[Audio] Edge TTS failed: ${error.message}, falling back to Web Speech API...`);
+        console.warn(`[Audio] Edge TTS failed: ${error.message}. Falling back to ElevenLabs TTS...`);
+    }
+
+    // Strategy 2: ElevenLabs (High quality — requires API key)
+    if (process.env.ELEVENLABS_API_KEY) {
+        try {
+            const { ElevenLabsClient } = await import('elevenlabs');
+            const client = new ElevenLabsClient({ apiKey: process.env.ELEVENLABS_API_KEY });
+            
+            console.log(`🗣️ Using ElevenLabs TTS (Voice: ${voiceId || 'JBFqnCBv7zXP0t9NvYI8 (Sonia)'})`);
+            const audio = await client.generate({
+                voice: voiceId || "JBFqnCBv7zXP0t9NvYI8", // Default to Sonia or a known good voice
+                text: text,
+                model_id: "eleven_multilingual_v2"
+            });
+
+            // Convert Stream to Buffer for base64
+            const chunks = [];
+            for await (const chunk of audio) {
+                chunks.push(chunk);
+            }
+            const audioBuffer = Buffer.concat(chunks);
+            const base64Audio = audioBuffer.toString('base64');
+            console.log(`✅ ElevenLabs audio generated`);
+            return `data:audio/mp3;base64,${base64Audio}`;
+
+        } catch (error) {
+            console.warn(`[Audio] ElevenLabs TTS failed: ${error.message}. Falling back to Web Speech API...`);
+        }
     }
 
     // Strategy 3: Return text for client-side Web Speech API (zero cost, zero keys)
