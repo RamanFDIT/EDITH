@@ -10,7 +10,7 @@
     @apply text-textPrimary;
 }
 .bubble {
-    @apply bg-bgComponents rounded-sm px-5 py-4 max-w-3/4 text-textPrimary font-fontBody text-base leading-relaxed;
+    @apply bg-bgComponents rounded-sm px-5 py-4 max-w-[85%] text-textPrimary font-fontBody text-base leading-relaxed;
 }
 .bubble h1 {
     @apply text-2xl font-fontDisplay font-semibold text-bgCTA mt-4 mb-2;

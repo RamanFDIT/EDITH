@@ -115,7 +115,7 @@ const Home = () => {
 
   // Load older messages when scrolling to top
   const loadOlderMessages = useCallback(async () => {
-    if (loadingOlder || !hasMore) return;
+    if (loadingOlder || !hasMore || !historyLoaded) return;
     setLoadingOlder(true);
 
     const area = messageAreaRef.current;
