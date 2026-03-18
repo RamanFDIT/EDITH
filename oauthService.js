@@ -43,7 +43,7 @@ function getOAuthProviders() {
       clientId: process.env.OAUTH_SLACK_CLIENT_ID || '',
       clientSecret: process.env.OAUTH_SLACK_CLIENT_SECRET || '',
       scopes: ['chat:write', 'channels:read', 'channels:join', 'chat:write.customize'],
-      redirectUri: process.env.OAUTH_SLACK_REDIRECT_URI || callbackUrl,
+      redirectUri: callbackUrl,
       extraParams: {},
     },
     figma: {
