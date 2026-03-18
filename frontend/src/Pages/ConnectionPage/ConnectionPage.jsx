@@ -77,7 +77,7 @@ const ConnectionPage = () => {
                 <p className={styles.subheading}>Connect your tools to get started</p>
 
                 <h2 className={styles.sectionTitle}>
-                    <Plug size={20} className={styles.sectionIcon} />
+                    <Plug size={20} className={styles.sectionIcon} /> 
                     Integrations
                 </h2>
 
