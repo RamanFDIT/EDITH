@@ -119,7 +119,23 @@ app.get('/api/oauth/callback', async (req, res) => {
         }
         await storeTokens(user._id, provider, tokenData);
 
-        res.send('<html><body style="font-family:sans-serif;text-align:center;padding:50px;background:#0a0a0a;color:#00ff88"><h2>Successfully Connected!</h2><p>You can close this tab and return to EDITH.</p><script>setTimeout(() => window.close(), 3000)</script></body></html>');
+        res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
+        res.send(`
+            <html>
+                <body style="font-family:sans-serif;text-align:center;padding:50px;background:#0a0a0a;color:#00ff88">
+                    <h2>Successfully Connected!</h2>
+                    <p>You can close this tab and return to EDITH.</p>
+                    <script>
+                        try {
+                            if (window.opener) {
+                                window.opener.postMessage({ type: 'OAUTH_COMPLETE', provider: '${provider}' }, '*');
+                            }
+                        } catch (e) {}
+                        setTimeout(() => window.close(), 3000);
+                    </script>
+                </body>
+            </html>
+        `);
     } catch (error) {
         res.status(500).send(`Authentication failed: ${error.message}`);
     }

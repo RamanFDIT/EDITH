@@ -41,18 +41,28 @@ const ConnectionPage = () => {
             const authWindow = window.open(url, '_blank', 'width=600,height=800');
             
             const checkInterval = setInterval(async () => {
-                if (authWindow.closed) {
-                    clearInterval(checkInterval);
+                try {
+                    // Periodic poll regardless of window state
                     const statusRes = await fetch(`${API_URL}/api/oauth/status`);
                     const statusData = await statusRes.json();
+                    
                     if (statusData[providerKey]?.connected) {
+                        clearInterval(checkInterval);
                         setConnectionStatus(prev => ({ ...prev, [providerKey]: 'connected' }));
                         refreshOauthStatus();
-                    } else {
+                        authWindow.close();
+                        return;
+                    }
+
+                    if (authWindow.closed) {
+                        clearInterval(checkInterval);
                         setConnectionStatus(prev => ({ ...prev, [providerKey]: 'failed' }));
                     }
+                } catch (err) {
+                    // If COOP blocks authWindow.closed, we just keep polling the status
+                    console.log("Window check blocked or fetch failed, continuing poll...");
                 }
-            }, 1000);
+            }, 2000);
 
         } catch (err) {
             console.error(`OAuth error for "${providerKey}":`, err);
