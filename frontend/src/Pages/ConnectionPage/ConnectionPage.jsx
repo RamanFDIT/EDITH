@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { Github, Calendar, MessageSquare, CheckCircle2, Plug, Wifi, AlertCircle } from 'lucide-react';
 import styles from './ConnectionPage.module.css';
 import { useApp } from '../../context/AppContext.jsx';
+import { API_URL } from '../../apiConfig.js';
 
 const cardInfo = [
     { id: 1, cardHead: 'Google', oauth: 'google', description: 'Calendar & Gmail', icon: Calendar },
@@ -34,7 +35,7 @@ const ConnectionPage = () => {
         setConnectionStatus(prev => ({ ...prev, [providerKey]: 'connecting' }));
 
         try {
-            const res = await fetch(`http://localhost:3000/api/oauth/connect/${providerKey}`);
+            const res = await fetch(`${API_URL}/api/oauth/connect/${providerKey}`);
             const { url } = await res.json();
             
             const authWindow = window.open(url, '_blank', 'width=600,height=800');
@@ -42,7 +43,7 @@ const ConnectionPage = () => {
             const checkInterval = setInterval(async () => {
                 if (authWindow.closed) {
                     clearInterval(checkInterval);
-                    const statusRes = await fetch('http://localhost:3000/api/oauth/status');
+                    const statusRes = await fetch(`${API_URL}/api/oauth/status`);
                     const statusData = await statusRes.json();
                     if (statusData[providerKey]?.connected) {
                         setConnectionStatus(prev => ({ ...prev, [providerKey]: 'connected' }));

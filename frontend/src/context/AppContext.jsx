@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback } from 'react';
+import { API_URL } from '../apiConfig';
 
 const AppContext = createContext();
 
@@ -8,7 +9,7 @@ export const AppProvider = ({ children }) => {
 
     const refreshOauthStatus = useCallback(async () => {
         try {
-            const res = await fetch('http://localhost:3000/api/oauth/status');
+            const res = await fetch(`${API_URL}/api/oauth/status`);
             const status = await res.json();
             setOauthStatus(status);
         } catch (err) {

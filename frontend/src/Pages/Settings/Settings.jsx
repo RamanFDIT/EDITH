@@ -4,6 +4,7 @@ import styles from './Settings.module.css';
 import { useNavBar } from '../../components/NavBar/NavBarContext.jsx';
 import BackButton from '../../components/BackButton/BackButton.jsx';
 import { useApp } from '../../context/AppContext.jsx';
+import { API_URL } from '../../apiConfig.js';
 
 const providers = [
   { key: 'google', label: 'Google', description: 'Calendar & Gmail', icon: Calendar, },
@@ -30,7 +31,7 @@ const Settings = () => {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const res = await fetch('http://localhost:3000/api/oauth/status');
+        const res = await fetch(`${API_URL}/api/oauth/status`);
         const data = await res.json();
         setOauthStatus(data);
       } catch (err) {
@@ -43,7 +44,7 @@ const Settings = () => {
   const handleConnect = async (provider) => {
     setConnecting(provider);
     try {
-      const res = await fetch(`http://localhost:3000/api/oauth/connect/${provider}`);
+      const res = await fetch(`${API_URL}/api/oauth/connect/${provider}`);
       const { url } = await res.json();
       
       // Open auth in a new window
@@ -53,7 +54,7 @@ const Settings = () => {
       const checkInterval = setInterval(async () => {
         if (authWindow.closed) {
           clearInterval(checkInterval);
-          const statusRes = await fetch('http://localhost:3000/api/oauth/status');
+          const statusRes = await fetch(`${API_URL}/api/oauth/status`);
           const statusData = await statusRes.json();
           setOauthStatus(statusData);
           if (statusData[provider]?.connected) {
@@ -74,7 +75,7 @@ const Settings = () => {
 
   const handleDisconnect = async (provider) => {
     try {
-      await fetch(`http://localhost:3000/api/oauth/disconnect/${provider}`, { method: 'POST' });
+      await fetch(`${API_URL}/api/oauth/disconnect/${provider}`, { method: 'POST' });
       setOauthStatus(prev => ({
         ...prev,
         [provider]: { connected: false, expired: true, hasRefreshToken: false },

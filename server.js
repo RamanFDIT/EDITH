@@ -235,7 +235,7 @@ app.post('/api/ask', async (req, res) => {
                  try {
                      const parsed = JSON.parse(outputStr);
                      if (parsed.success && parsed.localUrl && parsed.localUrl.startsWith('/temp/')) {
-                         res.write(`data: ${JSON.stringify({ type: "image", url: `http://localhost:3000${parsed.localUrl}`, caption: parsed.caption || null })}\n\n`);
+                                                  res.write(`data: ${JSON.stringify({ type: "image", url: `${process.env.APP_URL}${parsed.localUrl}`, caption: parsed.caption || null })}\n\n`);
                      }
                  } catch (e) { }
              }

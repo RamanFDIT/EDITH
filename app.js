@@ -63,7 +63,7 @@ document.addEventListener("DOMContentLoaded", () => {
       formData.append("audio", blob, "recording.webm");
 
       try {
-        const response = await fetch("http://localhost:3000/api/voice", {
+        const response = await fetch("https://edith-4ihs.onrender.com/api/voice", {
              method: "POST",
              body: formData 
         });
@@ -104,7 +104,7 @@ document.addEventListener("DOMContentLoaded", () => {
     userInput.value = "";
 
     try {
-      const response = await fetch("http://localhost:3000/api/ask", {
+      const response = await fetch("https://edith-4ihs.onrender.com/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: question }),

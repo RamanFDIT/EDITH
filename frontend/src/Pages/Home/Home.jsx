@@ -84,7 +84,7 @@ const Home = () => {
 
     const loadHistory = async () => {
       try {
-        const res = await fetch(`http://localhost:3000/api/history?sessionId=user-1&limit=${MESSAGES_PER_PAGE}`);
+        const res = await fetch(`${API_URL}/api/history?sessionId=user-1&limit=${MESSAGES_PER_PAGE}`);
         const data = await res.json();
         if (data.messages && data.messages.length > 0) {
           const mapped = data.messages.map(msg => ({
@@ -123,7 +123,7 @@ const Home = () => {
 
     try {
       const res = await fetch(
-        `http://localhost:3000/api/history?sessionId=user-1&offset=${messages.length}&limit=${MESSAGES_PER_PAGE}`
+        `${API_URL}/api/history?sessionId=user-1&offset=${messages.length}&limit=${MESSAGES_PER_PAGE}`
       );
       const data = await res.json();
       if (data.messages && data.messages.length > 0) {
@@ -165,7 +165,7 @@ const Home = () => {
   const uploadFiles = async (fileList) => {
     const formData = new FormData();
     fileList.forEach(f => formData.append('files', f));
-    const res = await fetch('http://localhost:3000/api/upload', {
+    const res = await fetch(`${API_URL}/api/upload`, {
       method: 'POST',
       body: formData,
     });
@@ -194,7 +194,7 @@ const Home = () => {
         uploadedFiles = await uploadFiles(attachedFiles);
       }
 
-      const res = await fetch('http://localhost:3000/api/ask', {
+      const res = await fetch(`${API_URL}/api/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question, files: uploadedFiles }),
