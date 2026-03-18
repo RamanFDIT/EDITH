@@ -16,7 +16,7 @@ const providers = [
 
 const Settings = () => {
   const { expanded } = useNavBar();
-  const { refreshOauthStatus } = useApp();
+  const { userId, refreshOauthStatus } = useApp();
   const [oauthStatus, setOauthStatus] = useState({
     google: { connected: false },
     github: { connected: false },
@@ -31,7 +31,9 @@ const Settings = () => {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/oauth/status`);
+        const res = await fetch(`${API_URL}/api/oauth/status`, {
+          headers: { 'X-User-ID': userId }
+        });
         const data = await res.json();
         setOauthStatus(data);
       } catch (err) {
@@ -39,22 +41,26 @@ const Settings = () => {
       }
     };
     fetchStatus();
-  }, []);
+  }, [userId]);
 
   const handleConnect = async (provider) => {
     setConnecting(provider);
     try {
-      const res = await fetch(`${API_URL}/api/oauth/connect/${provider}`);
+      const res = await fetch(`${API_URL}/api/oauth/connect/${provider}`, {
+        headers: { 'X-User-ID': userId }
+      });
       const { url } = await res.json();
       
       // Open auth in a new window
       const authWindow = window.open(url, '_blank', 'width=600,height=800');
       
-      // Poll for completion (simple way for this prototype)
+      // Poll for completion
       const checkInterval = setInterval(async () => {
         if (authWindow.closed) {
           clearInterval(checkInterval);
-          const statusRes = await fetch(`${API_URL}/api/oauth/status`);
+          const statusRes = await fetch(`${API_URL}/api/oauth/status`, {
+            headers: { 'X-User-ID': userId }
+          });
           const statusData = await statusRes.json();
           setOauthStatus(statusData);
           if (statusData[provider]?.connected) {
@@ -75,7 +81,10 @@ const Settings = () => {
 
   const handleDisconnect = async (provider) => {
     try {
-      await fetch(`${API_URL}/api/oauth/disconnect/${provider}`, { method: 'POST' });
+      await fetch(`${API_URL}/api/oauth/disconnect/${provider}`, { 
+        method: 'POST',
+        headers: { 'X-User-ID': userId }
+      });
       setOauthStatus(prev => ({
         ...prev,
         [provider]: { connected: false, expired: true, hasRefreshToken: false },

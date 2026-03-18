@@ -7,7 +7,10 @@ import Settings from './Pages/Settings/Settings.jsx';
 import Intro from './Pages/Intro/Intro.jsx';
 import Onboarding from './Pages/Onboarding/Onboarding.jsx';
 import ConnectionPage from './Pages/ConnectionPage/ConnectionPage.jsx';
-import Home from './Pages/Home/Home.jsx'
+import Home from './Pages/Home/Home.jsx';
+import NotFound from './Pages/NotFound/NotFound.jsx';
+import { ProtectedRoute } from './components/Navigation/ProtectedRoute.jsx';
+import { PublicOnlyRoute } from './components/Navigation/PublicOnlyRoute.jsx';
 
 const hideNavBarRoutes = ['/', '/onboarding', '/connectionPage'];
 
@@ -21,11 +24,14 @@ function AppContent() {
         <div className="min-h-screen bg-[#0a0a0a]">
           {showNavBar && <NavBar />}
           <Routes>
-            <Route path="/" element={<Intro />} />
-            <Route path="/onboarding" element={<Onboarding />} />
-            <Route path="/connectionPage" element={<ConnectionPage />} />
-            <Route path="/home" element={<Home />} />
-            <Route path="/settings" element={<Settings />} />
+            <Route path="/" element={<PublicOnlyRoute><Intro /></PublicOnlyRoute>} />
+            <Route path="/onboarding" element={<PublicOnlyRoute><Onboarding /></PublicOnlyRoute>} />
+            <Route path="/connectionPage" element={<PublicOnlyRoute><ConnectionPage /></PublicOnlyRoute>} />
+            
+            <Route path="/home" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+            
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </div>
       </NavBarProvider>

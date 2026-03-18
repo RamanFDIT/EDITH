@@ -13,7 +13,7 @@ const MESSAGES_PER_PAGE = 20;
 
 const Home = () => {
   const { expanded } = useNavBar();
-  const { messages, setMessages, historyLoaded, setHistoryLoaded } = useApp();
+  const { userId, messages, setMessages, historyLoaded, setHistoryLoaded } = useApp();
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [files, setFiles] = useState([]);
@@ -84,11 +84,13 @@ const Home = () => {
 
     const loadHistory = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/history?sessionId=user-1&limit=${MESSAGES_PER_PAGE}`);
+        const res = await fetch(`${API_URL}/api/history?sessionId=user-1&limit=${MESSAGES_PER_PAGE}`, {
+            headers: { 'X-User-ID': userId }
+        });
         const data = await res.json();
         if (data.messages && data.messages.length > 0) {
           const mapped = data.messages.map(msg => ({
-            role: msg.type === 'human' ? 'user' : 'ai',
+            role: (msg.role === 'user' || msg.type === 'human') ? 'user' : 'ai',
             content: msg.content,
           }));
           setMessages(mapped);
@@ -104,7 +106,7 @@ const Home = () => {
       }
     };
     loadHistory();
-  }, [historyLoaded, setMessages, setHistoryLoaded]);
+  }, [historyLoaded, setMessages, setHistoryLoaded, userId]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -123,12 +125,13 @@ const Home = () => {
 
     try {
       const res = await fetch(
-        `${API_URL}/api/history?sessionId=user-1&offset=${messages.length}&limit=${MESSAGES_PER_PAGE}`
+        `${API_URL}/api/history?sessionId=user-1&offset=${messages.length}&limit=${MESSAGES_PER_PAGE}`,
+        { headers: { 'X-User-ID': userId } }
       );
       const data = await res.json();
       if (data.messages && data.messages.length > 0) {
         const mapped = data.messages.map(msg => ({
-          role: msg.type === 'human' ? 'user' : 'ai',
+          role: (msg.role === 'user' || msg.type === 'human') ? 'user' : 'ai',
           content: msg.content,
         }));
         setMessages(prev => [...mapped, ...prev]);
@@ -148,7 +151,7 @@ const Home = () => {
     } finally {
       setLoadingOlder(false);
     }
-  }, [messages.length, loadingOlder, hasMore, setMessages]);
+  }, [messages.length, loadingOlder, hasMore, historyLoaded, setMessages, userId]);
 
   // Intersection observer for scroll-to-load-older
   useEffect(() => {
@@ -196,7 +199,10 @@ const Home = () => {
 
       const res = await fetch(`${API_URL}/api/ask`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+            'Content-Type': 'application/json',
+            'X-User-ID': userId 
+        },
         body: JSON.stringify({ 
           question, 
           files: uploadedFiles,
@@ -392,4 +398,3 @@ const Home = () => {
 };
 
 export default Home;
-

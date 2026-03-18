@@ -40,6 +40,28 @@ app.use((req, res, next) => {
     next();
 });
 
+// --- Middleware: User Isolation ---
+async function extractUser(req, res, next) {
+    const userId = req.headers['x-user-id'] || req.query.userId || 'default-user';
+    
+    try {
+        let user = await User.findOne({ email: `${userId}@edith.local` });
+        if (!user) {
+            user = await User.create({ 
+                email: `${userId}@edith.local`, 
+                name: `User ${userId.substring(0, 8)}`,
+                authProvider: 'local'
+            });
+            console.log(`[User] Created new isolated user: ${userId}`);
+        }
+        req.user = user;
+        next();
+    } catch (err) {
+        console.error('[User] Middleware error:', err);
+        res.status(500).json({ error: 'Failed to identify user' });
+    }
+}
+
 // --- API: File Upload ---
 const fileUpload = multer({
     storage: multer.diskStorage({
@@ -75,11 +97,13 @@ import crypto from 'crypto';
 // --- API: OAuth ---
 
 // 1. Get Auth URL
-app.get('/api/oauth/connect/:provider', async (req, res) => {
+app.get('/api/oauth/connect/:provider', extractUser, async (req, res) => {
     try {
         const { provider } = req.params;
-        // Encode provider in state so callback knows who sent it
-        const state = `${provider}_${crypto.randomBytes(16).toString('hex')}`;
+        const userId = req.user.email.split('@')[0]; // Extract the ID we used
+        
+        // Encode provider AND userId in state so callback knows who sent it
+        const state = `${provider}__${userId}__${crypto.randomBytes(8).toString('hex')}`;
         
         const authUrl = buildAuthUrl(provider, state);
         res.json({ url: authUrl });
@@ -95,8 +119,8 @@ app.get('/api/oauth/callback', async (req, res) => {
 
         if (!state) return res.status(400).send("Missing state parameter");
 
-        // Extract provider from state (e.g. "google_...")
-        const provider = state.split('_')[0]; 
+        // Extract provider and userId from state (e.g. "google__user_abc__...")
+        const [provider, userId] = state.split('__'); 
 
         if (error) return res.status(400).send(`OAuth Error: ${error}`);
 
@@ -108,12 +132,12 @@ app.get('/api/oauth/callback', async (req, res) => {
             tokenData.cloud_url = jiraInfo.cloud_url;
         }
 
-        // Get default user for now
-        let user = await User.findOne({ email: 'default@edith.local' });
+        // Find the specific isolated user
+        let user = await User.findOne({ email: `${userId}@edith.local` });
         if (!user) {
             user = await User.create({ 
-                email: 'default@edith.local', 
-                name: 'Default User',
+                email: `${userId}@edith.local`, 
+                name: `User ${userId.substring(0, 8)}`,
                 authProvider: 'local'
             });
         }
@@ -142,11 +166,9 @@ app.get('/api/oauth/callback', async (req, res) => {
 });
 
 // 3. Status
-app.get('/api/oauth/status', async (req, res) => {
+app.get('/api/oauth/status', extractUser, async (req, res) => {
     try {
-        let user = await User.findOne({ email: 'default@edith.local' });
-        if (!user) return res.json({});
-        const status = await getConnectionStatus(user._id);
+        const status = await getConnectionStatus(req.user._id);
         res.json(status);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -154,13 +176,10 @@ app.get('/api/oauth/status', async (req, res) => {
 });
 
 // 4. Disconnect
-app.post('/api/oauth/disconnect/:provider', async (req, res) => {
+app.post('/api/oauth/disconnect/:provider', extractUser, async (req, res) => {
     try {
         const { provider } = req.params;
-        let user = await User.findOne({ email: 'default@edith.local' });
-        if (user) {
-            await clearTokens(user._id, provider);
-        }
+        await clearTokens(req.user._id, provider);
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -168,7 +187,7 @@ app.post('/api/oauth/disconnect/:provider', async (req, res) => {
 });
 
 // --- API Endpoint ---
-app.post('/api/ask', async (req, res) => {
+app.post('/api/ask', extractUser, async (req, res) => {
   try {
     const { question, files, timezone } = req.body;
 
@@ -183,13 +202,13 @@ app.post('/api/ask', async (req, res) => {
         console.log(`[Server] ${files.length} file(s) attached to question`);
     }
 
-    console.log(`[Server] Received question: ${question} (Timezone: ${timezone || 'UTC'})`);
+    console.log(`[Server] User: ${req.user.email}, Q: ${question} (Timezone: ${timezone || 'UTC'})`);
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-    const stream = streamWithSemanticRouting(fullQuestion, "user-1", timezone);
+    const stream = streamWithSemanticRouting(fullQuestion, req.user._id.toString(), timezone);
     
     let sentenceBuffer = "";
     
@@ -283,7 +302,7 @@ app.post('/api/ask', async (req, res) => {
 });
 
 // --- API: Voice Interaction (Streaming SSE) ---
-app.post('/api/voice', voiceUpload.single('audio'), async (req, res) => {
+app.post('/api/voice', extractUser, voiceUpload.single('audio'), async (req, res) => {
   try {
     if (!req.file) throw new Error("No audio file uploaded.");
 
@@ -297,10 +316,10 @@ app.post('/api/voice', voiceUpload.single('audio'), async (req, res) => {
     let userText = await transcribeAudio({ base64Audio, mimeType });
     if (typeof userText === 'string' && userText.startsWith("Error")) throw new Error(userText);
 
-    console.log(`[Voice] User said: "${userText}"`);
+    console.log(`[Voice] User ${req.user.email} said: "${userText}"`);
     res.write(`data: ${JSON.stringify({ type: 'user_text', content: userText })}\n\n`);
 
-    const stream = streamWithSemanticRouting(userText, "user-1");
+    const stream = streamWithSemanticRouting(userText, req.user._id.toString());
     let sentenceBuffer = "";
     
     // --- Audio Queue System (properly awaited) ---
@@ -384,24 +403,13 @@ app.post('/api/voice', voiceUpload.single('audio'), async (req, res) => {
 });
 
 // --- API: Chat History ---
-app.get('/api/history', async (req, res) => {
+app.get('/api/history', extractUser, async (req, res) => {
     try {
         const sessionId = req.query.sessionId || 'user-1';
         const offset = parseInt(req.query.offset) || 0;
         const limit = parseInt(req.query.limit) || 20;
 
-        // In a real web app, we would get userId from the session/JWT
-        // For now, we'll find or create a default user for testing
-        let user = await User.findOne({ email: 'default@edith.local' });
-        if (!user) {
-            user = await User.create({ 
-                email: 'default@edith.local', 
-                name: 'Default User',
-                authProvider: 'local'
-            });
-        }
-
-        const chat = await Chat.findOne({ userId: user._id, sessionId });
+        const chat = await Chat.findOne({ userId: req.user._id, sessionId });
         if (!chat) return res.json({ messages: [], total: 0, hasMore: false });
 
         const total = chat.messages.length;

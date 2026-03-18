@@ -18,7 +18,7 @@ const cardInfo = [
 const ConnectionPage = () => {
     const location = useLocation();
     const navigate = useNavigate();
-    const { refreshOauthStatus } = useApp();
+    const { userId, refreshOauthStatus, setOnboardingComplete } = useApp();
     const selectedTools = location.state?.selectedTools || [];
     const [connectionStatus, setConnectionStatus] = useState({});
 
@@ -35,7 +35,9 @@ const ConnectionPage = () => {
         setConnectionStatus(prev => ({ ...prev, [providerKey]: 'connecting' }));
 
         try {
-            const res = await fetch(`${API_URL}/api/oauth/connect/${providerKey}`);
+            const res = await fetch(`${API_URL}/api/oauth/connect/${providerKey}`, {
+                headers: { 'X-User-ID': userId }
+            });
             const { url } = await res.json();
             
             const authWindow = window.open(url, '_blank', 'width=600,height=800');
@@ -43,7 +45,9 @@ const ConnectionPage = () => {
             const checkInterval = setInterval(async () => {
                 try {
                     // Periodic poll regardless of window state
-                    const statusRes = await fetch(`${API_URL}/api/oauth/status`);
+                    const statusRes = await fetch(`${API_URL}/api/oauth/status`, {
+                        headers: { 'X-User-ID': userId }
+                    });
                     const statusData = await statusRes.json();
                     
                     if (statusData[providerKey]?.connected) {
@@ -73,6 +77,7 @@ const ConnectionPage = () => {
     const allConnected = toolsToShow.every(card => connectionStatus[card.oauth] === 'connected');
 
     const handleNext = async () => {
+        setOnboardingComplete(true);
         navigate('/home');
     };
 

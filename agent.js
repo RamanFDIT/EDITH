@@ -29,124 +29,67 @@ import { sendGmail, searchGmailContacts, getRecentEmails } from "./gmailTool.js"
 // the user has connected any accounts. The LLM is created on first use.
 // =============================================================================
 
-let llm;
-let classifierLlm;
-let llmInitialized = false;
-let llmProvider = null; // Track which provider is active ('github', 'apikey', 'ollama')
+// =============================================================================
+// LLM PROVIDER SELECTION
+// No global LLM state — each user request gets its own instance.
+// =============================================================================
 
-/**
- * Refresh LLM credentials if the provider uses OAuth tokens.
- * Called before each request to ensure the token is valid.
- */
-async function ensureFreshLLM() {
-  if (llmProvider === 'github') {
-    const freshToken = await getValidToken('github');
-    if (freshToken && freshToken !== process.env.GITHUB_TOKEN) {
-      process.env.GITHUB_TOKEN = freshToken;
-      const githubModel = process.env.GITHUB_MODEL || 'gpt-4o';
-      llm = new ChatOpenAI({
-        modelName: githubModel,
-        openAIApiKey: freshToken,
+async function getLLMForUser(userId) {
+  const provider = (process.env.LLM_PROVIDER || 'auto').toLowerCase();
+  
+  // 1. GITHUB (Priority)
+  if (provider === 'github' || provider === 'auto') {
+    const githubToken = await getValidToken(userId, 'github');
+    if (githubToken) {
+      console.log(`[LLM] Using GitHub Models for user ${userId}`);
+      const modelName = process.env.GITHUB_MODEL || 'gpt-4o';
+      const llm = new ChatOpenAI({
+        modelName: modelName,
+        openAIApiKey: githubToken,
         configuration: { baseURL: 'https://models.inference.ai.azure.com' },
       });
-      classifierLlm = new ChatOpenAI({
+      const classifier = new ChatOpenAI({
         modelName: 'gpt-4o-mini',
-        openAIApiKey: freshToken,
+        openAIApiKey: githubToken,
         temperature: 0,
         configuration: { baseURL: 'https://models.inference.ai.azure.com' },
       });
+      return { llm, classifier, provider: 'github' };
     }
+    if (provider === 'github') throw new Error("GitHub account not connected.");
   }
-  // For 'apikey' and 'ollama' providers, the LLM instances are stable — nothing to refresh.
-}
 
-function initLLM() {
-  if (llmInitialized) return;
+  // 2. GEMINI (via API Key or User Token)
+  if (provider === 'gemini' || provider === 'auto') {
+    // Try user's Google token first, then fallback to global API KEY
+    const googleToken = await getValidToken(userId, 'google');
+    const apiKey = googleToken || process.env.GOOGLE_API_KEY;
+    
+    if (apiKey) {
+      console.log(`[LLM] Using Gemini for user ${userId} (${googleToken ? 'User Token' : 'Global Key'})`);
+      const llm = new ChatGoogleGenerativeAI({ apiKey: apiKey, model: "gemini-2.5-flash" });
+      const classifier = new ChatGoogleGenerativeAI({ apiKey: apiKey, model: "gemini-2.0-flash-lite", temperature: 0 });
+      return { llm, classifier, provider: 'gemini' };
+    }
+    if (provider === 'gemini') throw new Error("Gemini API key or Google account not found.");
+  }
 
-  const provider = (process.env.LLM_PROVIDER || 'auto').toLowerCase();
-
-  const hasGithubToken = !!process.env.GITHUB_TOKEN;
-  const hasGoogleApiKey = !!process.env.GOOGLE_API_KEY;
-
+  // 3. OLLAMA (Local)
   if (provider === 'ollama') {
     const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
     const ollamaModel = process.env.OLLAMA_MODEL || 'llama3.2';
-
-    llm = new ChatOllama({ baseUrl: ollamaBaseUrl, model: ollamaModel });
-    classifierLlm = new ChatOllama({ baseUrl: ollamaBaseUrl, model: ollamaModel, temperature: 0 });
-    llmProvider = 'ollama';
-
-    console.log(` E.D.I.T.H. Online (Ollama: ${ollamaModel}) - LOCAL MODE, Zero API Keys.`);
-
-  } else if (provider === 'github' || (provider === 'auto' && hasGithubToken)) {
-    // GitHub Models — free cloud LLM via existing GitHub OAuth
-    const githubToken = process.env.GITHUB_TOKEN;
-    const githubModel = process.env.GITHUB_MODEL || 'gpt-4o';
-
-    if (!githubToken) {
-        throw new Error(
-            "GitHub Models selected but no connection found. " +
-            "Please connect your GitHub account in the app's Connections/Settings page."
-        );
-    }
-
-    llm = new ChatOpenAI({
-      modelName: githubModel,
-      openAIApiKey: githubToken,
-      configuration: { baseURL: 'https://models.inference.ai.azure.com' },
-    });
-    classifierLlm = new ChatOpenAI({
-      modelName: 'gpt-4o-mini',
-      openAIApiKey: githubToken,
-      temperature: 0,
-      configuration: { baseURL: 'https://models.inference.ai.azure.com' },
-    });
-    llmProvider = 'github';
-
-    console.log(` E.D.I.T.H. Online (GitHub Models: ${githubModel}) - Free cloud LLM via GitHub.`);
-
-  } else if (provider === 'gemini' || (provider === 'auto' && hasGoogleApiKey)) {
-    // Gemini API key mode
-    const googleApiKey = process.env.GOOGLE_API_KEY;
-
-    if (!googleApiKey) {
-        throw new Error(
-            "Gemini selected but no API key found. " +
-            "Please set GOOGLE_API_KEY in your .env or connect your Google account in Settings."
-        );
-    }
-
-    llm = new ChatGoogleGenerativeAI({ apiKey: googleApiKey, model: "gemini-2.5-flash" });
-    classifierLlm = new ChatGoogleGenerativeAI({ apiKey: googleApiKey, model: "gemini-2.0-flash-lite", temperature: 0 });
-    llmProvider = 'apikey';
-
-    console.log(" E.D.I.T.H. Online (Gemini 2.5 Flash via API Key) - Ready to chat.");
-
-  } else {
-    // If we're in 'auto' mode and no keys are found, we don't throw on launch.
-    // We only throw if this is called during an actual request (lazy-init).
-    const isStartup = !llmInitialized && !process.env.ACTIVE_REQUEST;
-    if (isStartup && provider === 'auto') {
-        console.log("[LLM] No credentials found. E.D.I.T.H. is in 'Waiting for Connection' mode.");
-        return; 
-    }
-
-    throw new Error(
-      "No LLM configured. Please connect your GitHub account in the app for free GPT-4o access, " +
-      "or connect your Google account in Settings."
-    );
+    console.log(`[LLM] Using Ollama for user ${userId}`);
+    const llm = new ChatOllama({ baseUrl: ollamaBaseUrl, model: ollamaModel });
+    const classifier = new ChatOllama({ baseUrl: ollamaBaseUrl, model: ollamaModel, temperature: 0 });
+    return { llm, classifier, provider: 'ollama' };
   }
 
-  llmInitialized = true;
+  throw new Error("No LLM provider available. Please connect an account or provide an API key.");
 }
 
-// Try to init now (works if tokens already exist, e.g. returning user).
-// If it fails, that's fine — we'll retry on first chat request after the user connects.
-try {
-  initLLM();
-} catch (e) {
-  console.log(`[LLM] Deferred initialization — waiting for connection. (${e.message})`);
-}
+// initLLM and ensureFreshLLM are removed in favor of getLLMForUser
+// to ensure multi-user isolation.
+
 
 
 
@@ -628,7 +571,7 @@ const FALLBACK_KEYWORD_MAP = {
     github: ['github', 'repo', 'pr', 'pull request', 'commit', 'branch', 'push', 'merge', 'clone', 'check', 'code'],
 };
 
-async function classifyIntent(userMessage, chatHistory = []) {
+async function classifyIntent(userMessage, chatHistory = [], classifier) {
     const lowerMsg = userMessage.toLowerCase();
     const detectedCategories = new Set();
 
@@ -710,7 +653,7 @@ async function classifyIntent(userMessage, chatHistory = []) {
         }
         const prompt = CLASSIFIER_PROMPT.replace('User message: ', contextBlock ? contextBlock : 'User message: ');
         
-        const response = await classifierLlm.invoke(prompt + userMessage);
+        const response = await classifier.invoke(prompt + userMessage);
         const categories = response.content.toLowerCase().trim().split(',').map(c => c.trim());
         const validCategories = categories.filter(c => toolsByCategory.hasOwnProperty(c));
         
@@ -834,25 +777,15 @@ import { connectDB, Chat, User } from './db.js';
 const historyCache = {}; 
 
 class MongoChatMessageHistory extends BaseListChatMessageHistory {
-    constructor(sessionId) {
+    constructor(sessionId, userId) {
         super();
         this.sessionId = sessionId;
-        this.userId = null;
+        this.userId = userId;
     }
 
     async ensureUser() {
         if (this.userId) return this.userId;
-        // For testing, find or create default user
-        let user = await User.findOne({ email: 'default@edith.local' });
-        if (!user) {
-            user = await User.create({ 
-                email: 'default@edith.local', 
-                name: 'Default User',
-                authProvider: 'local'
-            });
-        }
-        this.userId = user._id;
-        return this.userId;
+        throw new Error("History isolation requires a userId.");
     }
 
     async getMessages() {
@@ -898,8 +831,8 @@ class MongoChatMessageHistory extends BaseListChatMessageHistory {
     }
 }
 
-function getMessageHistory(sessionId) {
-  return new MongoChatMessageHistory(sessionId);
+function getMessageHistory(sessionId, userId) {
+  return new MongoChatMessageHistory(sessionId, userId);
 }
 
 // =============================================================================
@@ -907,16 +840,16 @@ function getMessageHistory(sessionId) {
 // =============================================================================
 
 // Create agent with fresh timestamp each time (don't cache system prompt)
-function getOrCreateAgent(tools, userTimezone) {
+function getOrCreateAgent(tools, userTimezone, userId, userLLM) {
     // Always get fresh system prompt with current time
     const systemPrompt = getSystemPrompt(userTimezone);
     
-    // Create a signature based on tool names
-    const toolSignature = tools.map(t => t.name).sort().join(',');
+    // Create a signature based on userId and tool names
+    const toolSignature = `${userId}:${tools.map(t => t.name).sort().join(',')}`;
     
     // Don't cache agents - always create fresh to ensure current timestamp
     const agent = createReactAgent({
-        llm,
+        llm: userLLM,
         tools,
         stateModifier: systemPrompt,
     });
@@ -992,16 +925,18 @@ async function processWithSemanticRouting(input) {
 }
 
 // Streaming version for the server to use
-export async function* streamWithSemanticRouting(userQuery, sessionId, timezone) {
+export async function* streamWithSemanticRouting(userQuery, userId, timezone) {
+    const sessionId = "user-1"; // Still using a single session per user for now
     process.env.ACTIVE_REQUEST = 'true';
-    initLLM(); // Lazy init — safe to call repeatedly, only runs once
-    await ensureFreshLLM(); // Refresh OAuth token if needed
-    const messageHistory = getMessageHistory(sessionId);
+    
+    const { llm, classifier } = await getLLMForUser(userId);
+    
+    const messageHistory = getMessageHistory(sessionId, userId);
     const fullHistory = await messageHistory.getMessages();
     const history = sanitizeHistoryForTools(trimHistory(fullHistory));
     
     // Step 1: Classify intent using the Traffic Cop (with conversation context)
-    const categories = await classifyIntent(userQuery, history);
+    const categories = await classifyIntent(userQuery, history, classifier);
 
     // Step 2: Get the appropriate tools for the classified categories
     const selectedTools = getToolsForCategories(categories);
@@ -1062,7 +997,7 @@ export async function* streamWithSemanticRouting(userQuery, sessionId, timezone)
     }
     
     // Step 4: Get or create an agent with these specific tools
-    const agent = getOrCreateAgent(selectedTools, timezone);
+    const agent = getOrCreateAgent(selectedTools, timezone, userId, llm);
 
     // Step 5: Stream events from the agent (inject fresh time reminder before user query)
     const agentNow = new Date();
