@@ -14,14 +14,12 @@ import "./envConfig.js";
 import { getValidToken } from "./oauthService.js";
 
 import { EDITH_SYSTEM_PROMPT, getSystemPrompt } from "./systemPrompt.js";
-import { getSystemStatus, executeSystemCommand, openApplication } from "./systemTool.js";
 import { generateImage } from "./imageTool.js";
 import { getJiraIssues, createJiraIssue, updateJiraIssue, deleteJiraIssue, createJiraProject, listJiraProjects } from "./jiraTool.js";
 import { getCalendarEvents, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent, findFreeTime } from "./calendarTool.js";
 import { sendSlackMessage, sendSlackAnnouncement, sendSlackLink } from "./slackTool.js";
 import { createRepository, getRepoIssues, createRepoIssue, listCommits, listPullRequests, getPullRequest, getCommit, getRepoChecks } from "./githubTool.js";
 import { getFigmaFileStructure, getFigmaComments, postFigmaComment } from "./figmaTool.js";
-import { readFile, listDirectory, getLatestFile } from "./fileTool.js";
 import { sendGmail, searchGmailContacts, getRecentEmails } from "./gmailTool.js";
 
 // =============================================================================
@@ -155,32 +153,6 @@ try {
 // =============================================================================
 // CUSTOM TOOL DEFINITIONS
 // =============================================================================
-
-const systemTools = [
-  new DynamicStructuredTool({
-    name: "system_status_report",
-    description: "Get current hardware and OS status.",
-    schema: z.object({}),
-    func: getSystemStatus,
-  }),
-  new DynamicStructuredTool({
-    name: "execute_terminal_command",
-    description: "EXECUTE SHELL COMMANDS. Use for file manipulation, running scripts, or system ops.",
-    schema: z.object({
-      command: z.string().describe("The shell command to run (e.g., 'ls -la', 'mkdir test')."),
-    }),
-    func: executeSystemCommand,
-  }),
-  new DynamicStructuredTool({
-    name: "launch_application",
-    description: "Launch any application on the user's computer. ARGUMENT is the app name.",
-    schema: z.object({
-      appName: z.string().describe("The name of the application (e.g., 'Google Chrome', 'Spotify')."),
-      target: z.string().optional().describe("Optional URL or file to open with the application (e.g., 'https://figma.com', 'mydoc.txt')."),
-    }),
-    func: openApplication,
-  }),
-];
 
 const imageTools = [
   new DynamicStructuredTool({
@@ -506,38 +478,6 @@ const gmailTools = [
   }),
 ];
 
-// --- FILE TOOLS (custom) ---
-const fileTools = [
-  new DynamicStructuredTool({
-    name: "read_file",
-    description: "Smart file reader — auto-detects type (.pdf, .docx, .txt, .md, .json, etc.) and reads content. Use for any file reading request.",
-    schema: z.object({
-      filePath: z.string().describe("Path to the file. Supports absolute paths, ~/shortcuts, or relative paths."),
-    }),
-    func: readFile,
-  }),
-  new DynamicStructuredTool({
-    name: "list_directory",
-    description: "List files in a directory. Defaults to Downloads folder. Supports filtering and sorting.",
-    schema: z.object({
-      directoryPath: z.string().optional().describe("Directory path. Defaults to user's Downloads folder."),
-      filter: z.string().optional().describe("Filter by filename or extension (e.g., 'pdf', 'report')."),
-      sortBy: z.enum(['modified', 'name', 'size']).optional().describe("Sort order. Default 'modified'."),
-      limit: z.number().optional().describe("Max files to return. Default 20."),
-    }),
-    func: listDirectory,
-  }),
-  new DynamicStructuredTool({
-    name: "get_latest_file",
-    description: "Get the most recently modified file in a directory. Defaults to Downloads. Optionally filter by extension.",
-    schema: z.object({
-      directoryPath: z.string().optional().describe("Directory path. Defaults to Downloads."),
-      extension: z.string().optional().describe("Filter by file extension (e.g., 'pdf', 'docx')."),
-    }),
-    func: getLatestFile,
-  }),
-];
-
 // =============================================================================
 // TOOL CATEGORY MAP
 // =============================================================================
@@ -547,10 +487,8 @@ const toolsByCategory = {
   jira_write:   jiraWriteTools,
   github_read:  githubReadTools,
   github_write: githubWriteTools,
-  system:       systemTools,
   figma:        figmaTools,
   calendar:     calendarTools,
-  files:        fileTools,
   slack:        slackCustomTools,
   gmail:        gmailTools,
   image:        imageTools,
@@ -558,7 +496,7 @@ const toolsByCategory = {
 };
 
 // All tools combined (for fallback or multi-category queries)
-const allTools = [...systemTools, ...imageTools, ...jiraReadTools, ...jiraWriteTools, ...githubReadTools, ...githubWriteTools, ...figmaTools, ...fileTools, ...calendarTools, ...slackCustomTools, ...gmailTools];
+const allTools = [...imageTools, ...jiraReadTools, ...jiraWriteTools, ...githubReadTools, ...githubWriteTools, ...figmaTools, ...calendarTools, ...slackCustomTools, ...gmailTools];
 
 // =============================================================================
 // SEMANTIC CLASSIFIER (The Traffic Cop)
@@ -573,9 +511,7 @@ CATEGORIES:
 - github_read: Reading GitHub data: commits, PRs, issues, checks, repo info (queries, lookups, listing)
 - github_write: Creating repos, issues, or any write operation on GitHub
 - figma: Anything about designs, mockups, UI/UX, wireframes, Figma files, design comments
-- system: Anything about opening apps, running commands, terminal, system status, launching programs
 - calendar: Anything about scheduling, meetings, appointments, events, calendar, free time, availability, reminders
-- files: Reading documents, files, PDFs, Word docs, downloads, listing files, latest download, file contents, summarizing documents
 - slack: Sending messages to Slack, posting announcements, notifying team, messaging channels, team notifications
 - gmail: Sending emails, reading inbox, checking mail, finding someone's email address, emailing a person
 - image: Generating images, pictures, illustrations, graphics, logos, artwork, drawings, visualisations
@@ -591,22 +527,16 @@ RULES:
 EXAMPLES:
 User: "How many epics do I have?" -> jira_read
 User: "Check my open PRs on the EDITH repo" -> github_read
-User: "Open Chrome and go to Figma" -> system,figma
 User: "Hello, how are you?" -> general
 User: "Create a ticket for the login bug" -> jira_write
 User: "Update ticket FDIT-123 to done" -> jira_write
 User: "List all my Jira tickets and mark the first one done" -> jira_read,jira_write
 User: "Read the comments on the dashboard design" -> figma
-User: "What's my CPU usage?" -> system
 User: "Create a new repo called test-app" -> github_write
 User: "What meetings do I have today?" -> calendar
 User: "Schedule a call with John next Tuesday at 2pm" -> calendar
 User: "Am I free tomorrow afternoon?" -> calendar
 User: "Cancel my 3pm meeting" -> calendar
-User: "What's my latest download?" -> files
-User: "Read that document for me" -> files
-User: "Summarize the PDF I just downloaded" -> files
-User: "List my recent downloads" -> files
 User: "Tell the dev-team I fixed the bug" -> slack
 User: "Post to #general that deployment is complete" -> slack
 User: "Notify the team about the new release" -> slack
@@ -898,95 +828,78 @@ function sanitizeHistoryForTools(messages) {
     });
 }
 
-// Store chat history in ~/.edith/ (cross-platform, writable for packaged apps)
-const EDITH_DATA_DIR = path.join(os.homedir(), '.edith');
-if (!fs.existsSync(EDITH_DATA_DIR)) fs.mkdirSync(EDITH_DATA_DIR, { recursive: true });
-const HISTORY_FILE_PATH = path.join(EDITH_DATA_DIR, 'chat_history.json');
+import { connectDB, Chat, User } from './db.js';
 
-// Global cache variable
+// Global cache variable (optional for performance, but database is the source of truth)
 const historyCache = {}; 
 
-class JSONFileChatMessageHistory extends BaseListChatMessageHistory {
+class MongoChatMessageHistory extends BaseListChatMessageHistory {
     constructor(sessionId) {
         super();
         this.sessionId = sessionId;
+        this.userId = null;
+    }
+
+    async ensureUser() {
+        if (this.userId) return this.userId;
+        // For testing, find or create default user
+        let user = await User.findOne({ email: 'default@edith.local' });
+        if (!user) {
+            user = await User.create({ 
+                email: 'default@edith.local', 
+                name: 'Default User',
+                authProvider: 'local'
+            });
+        }
+        this.userId = user._id;
+        return this.userId;
     }
 
     async getMessages() {
-        // 1. Check Memory (Instant)
-        if (historyCache[this.sessionId]) {
-            // Convert simple objects back to LangChain classes
-            return historyCache[this.sessionId].map(msg => {
-                switch (msg.type) {
-                     case 'human': return new HumanMessage(msg.content);
+        await this.ensureUser();
+        try {
+            const chat = await Chat.findOne({ userId: this.userId, sessionId: this.sessionId });
+            if (!chat) return [];
+            
+            return chat.messages.map(msg => {
+                switch (msg.role) {
+                     case 'user': return new HumanMessage(msg.content);
                      case 'ai': return new AIMessage(msg.content);
-                     case 'system': return new HumanMessage(`[SYSTEM] ${msg.content}`);
                      default: return new HumanMessage(msg.content);
                 }
             });
-        }
-        
-        // 2. Fallback to Disk (Async)
-        if (!fs.existsSync(HISTORY_FILE_PATH)) return [];
-        try {
-            const fileContent = await fs.promises.readFile(HISTORY_FILE_PATH, 'utf-8');
-            // Handle empty or whitespace-only files
-            if (!fileContent || !fileContent.trim()) {
-                historyCache[this.sessionId] = [];
-                return [];
-            }
-            const allHistory = JSON.parse(fileContent);
-            historyCache[this.sessionId] = allHistory[this.sessionId] || [];
-            return this.getMessages(); // Recursive call now hits memory
         } catch (e) {
-            console.error("Error reading history:", e);
-            historyCache[this.sessionId] = []; // Initialize cache to prevent repeated failures
+            console.error("[History] Error reading from DB:", e);
             return [];
         }
     }
 
     async addMessage(message) {
-        // Update Memory immediately
-        if (!historyCache[this.sessionId]) historyCache[this.sessionId] = [];
+        await this.ensureUser();
+        const role = (message.getType ? message.getType() : message._getType()) === 'human' ? 'user' : 'ai';
         
-        const simpleMsg = {
-            type: message.getType ? message.getType() : message._getType(),
-            content: message.content
-        };
-        historyCache[this.sessionId].push(simpleMsg);
-
-        // Save to Disk Asynchronously (Fire and forget - doesn't block response)
-        this.saveToDisk();
-    }
-
-    async saveToDisk() {
         try {
-            // We read first to ensure we don't overwrite other sessions
-            let allHistory = {};
-            if (fs.existsSync(HISTORY_FILE_PATH)) {
-                 const data = await fs.promises.readFile(HISTORY_FILE_PATH, 'utf-8');
-                 // Handle empty or malformed files
-                 if (data && data.trim()) {
-                     try {
-                         allHistory = JSON.parse(data);
-                     } catch (parseErr) {
-                         console.warn("[History] Corrupted history file, resetting.", parseErr.message);
-                         allHistory = {};
-                     }
-                 }
-            }
-            allHistory[this.sessionId] = historyCache[this.sessionId];
-            await fs.promises.writeFile(HISTORY_FILE_PATH, JSON.stringify(allHistory, null, 2));
-        } catch(e) {
-            console.error("[History] Failed to save to disk:", e.message);
+            await Chat.findOneAndUpdate(
+                { userId: this.userId, sessionId: this.sessionId },
+                { 
+                    $push: { messages: { role, content: message.content, timestamp: new Date() } },
+                    $set: { lastUpdatedAt: new Date() }
+                },
+                { upsert: true }
+            );
+        } catch (e) {
+            console.error("[History] Failed to save to DB:", e.message);
         }
     }
-    
-    // ... clear() method remains similar ...
+
+    async clear() {
+        await this.ensureUser();
+        await Chat.deleteOne({ userId: this.userId, sessionId: this.sessionId });
+    }
 }
 
 function getMessageHistory(sessionId) {
-  return new JSONFileChatMessageHistory(sessionId);
+  return new MongoChatMessageHistory(sessionId);
 }
 
 // =============================================================================
@@ -1086,27 +999,6 @@ export async function* streamWithSemanticRouting(userQuery, sessionId) {
     // Step 1: Classify intent using the Traffic Cop (with conversation context)
     const categories = await classifyIntent(userQuery, history);
 
-    const lowerQuery = userQuery.toLowerCase();
-
-    if (lowerQuery.includes('system status') || lowerQuery.includes('battery') || lowerQuery.includes('uptime')) {
-        console.log("⚡️ Reflex triggered: System Status");
-        
-        // Run the tool directly (ensure getSystemStatus is imported from ./systemTool.js)
-        const status = await getSystemStatus(); 
-        const reflexResponse = `**Reflex Response:**\n${status}`;
-        
-        // Fake the streaming event so the frontend handles it normally
-        yield { 
-            event: "on_chat_model_stream", 
-            data: { chunk: { content: reflexResponse } } 
-        };
-        
-        // Save reflex response to history
-        await messageHistory.addMessage(new HumanMessage(userQuery));
-        await messageHistory.addMessage(new AIMessage(reflexResponse));
-        return;
-    }
-    
     // Step 2: Get the appropriate tools for the classified categories
     const selectedTools = getToolsForCategories(categories);
     

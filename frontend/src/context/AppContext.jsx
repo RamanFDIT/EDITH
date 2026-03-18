@@ -7,9 +7,12 @@ export const AppProvider = ({ children }) => {
     const [oauthStatus, setOauthStatus] = useState({});
 
     const refreshOauthStatus = useCallback(async () => {
-        if (window.electronAPI) {
-            const status = await window.electronAPI.oauthStatus();
+        try {
+            const res = await fetch('http://localhost:3000/api/oauth/status');
+            const status = await res.json();
             setOauthStatus(status);
+        } catch (err) {
+            console.error('Failed to refresh OAuth status:', err);
         }
     }, []);
 

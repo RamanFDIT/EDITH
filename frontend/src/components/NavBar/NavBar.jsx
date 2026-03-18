@@ -76,11 +76,7 @@ const NavBar = () => {
           </NavLink>
           <button
             className={toggle ? styles.logoutButton : styles.logoutButtonCompact}
-            onClick={async () => {
-              if (window.electronAPI) {
-                await window.electronAPI.logout();
-                await window.electronAPI.setSetupComplete(false);
-              }
+            onClick={() => {
               navigate('/');
             }}
           >

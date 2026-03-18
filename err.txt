@@ -1,7 +1,0 @@
-C:\Dev\EDITH Core - Capstone\systemPrompt.js:58
-# UTC_ISO_TIMESTAMP: ${timeContext.isoTimestamp}
-
-SyntaxError: missing ) after argument list
-    at checkSyntax (node:internal/main/check_syntax:74:5)
-
-Node.js v22.20.0

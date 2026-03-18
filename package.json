@@ -2,16 +2,14 @@
   "name": "edith",
   "version": "1.0.0",
   "description": "Assistant",
-  "main": "electron-main.cjs",
+  "main": "server.js",
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "concurrently \"cd frontend && npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
-    "server": "node server.js",
-    "prebuild": "cd frontend && npm run build",
-    "pack": "electron-builder --dir",
-    "predist": "cd frontend && npm run build",
-    "dist": "electron-builder"
+    "start": "node server.js",
+    "dev:backend": "node --watch server.js",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "cd frontend && npm run build"
   },
   "keywords": [],
   "author": "Ramandeep Singh",
@@ -26,12 +24,13 @@
     "cors": "^2.8.5",
     "dotenv": "^17.3.1",
     "edge-tts-universal": "^1.4.0",
-    "electron-store": "^8.2.0",
     "elevenlabs": "^1.59.0",
     "express": "^5.1.0",
     "googleapis": "^170.1.0",
+    "jsonwebtoken": "^9.0.3",
     "langchain": "^1.2.7",
     "mammoth": "^1.11.0",
+    "mongoose": "^9.3.1",
     "multer": "^2.0.2",
     "node-edge-tts": "^1.2.10",
     "node-fetch": "^3.3.2",
@@ -40,44 +39,5 @@
     "pdf-parse": "^2.4.5",
     "ws": "^8.19.0",
     "zod": "^4.1.12"
-  },
-  "devDependencies": {
-    "concurrently": "^9.2.1",
-    "electron": "^39.2.7",
-    "electron-builder": "^24.9.1",
-    "wait-on": "^9.0.4"
-  },
-  "build": {
-    "appId": "com.raman.edith",
-    "productName": "E.D.I.T.H.",
-    "files": [
-      "electron-main.cjs",
-      "main.js",
-      "preload.js",
-      "server.js",
-      "agent.js",
-      "store.js",
-      "envConfig.js",
-      "bundledConfig.js",
-      "oauthService.js",
-      "systemPrompt.js",
-      "*Tool.js",
-      "*tool.js",
-      "frontend/dist/**/*",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "icon.png",
-        "to": "icon.png"
-      }
-    ],
-    "win": {
-      "target": "nsis"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
   }
 }

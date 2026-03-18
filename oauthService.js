@@ -1,30 +1,15 @@
+import crypto from 'crypto';
+import fetch from 'node-fetch';
+import { User } from './db.js';
+
 /**
- * oauthService.js — Centralized OAuth2.0 Service for E.D.I.T.H.
- *
- * Replaces all manual API key entry with "Sign in with X" OAuth flows.
- * Tokens are stored securely in electron-store and auto-refreshed.
- *
- * Supported providers:
- *   - Google (Calendar + Gemini API via Google Cloud OAuth)
- *   - GitHub
- *   - Slack
- *   - Figma
- *   - Atlassian/Jira (OAuth 2.0 3LO)
+ * oauthService.js — Refactored for Web (Server-Side)
  */
 
-import crypto from 'crypto';
-import http from 'http';
-import { URL } from 'url';
-import fetch from 'node-fetch';
-import store from './store.js';
-
-// =============================================================================
-// PROVIDER CONFIGURATIONS (lazy — reads process.env at call-time)
-// =============================================================================
-// In production, embed your own OAuth Client IDs here (or load from a bundled config).
-// Users never see these — they just click "Connect".
-
 function getOAuthProviders() {
+  const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+  const callbackUrl = `${baseUrl}/api/oauth/callback`;
+
   return {
     google: {
       authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
@@ -34,47 +19,42 @@ function getOAuthProviders() {
       scopes: [
         'https://www.googleapis.com/auth/calendar',
         'https://www.googleapis.com/auth/calendar.events',
-        'https://www.googleapis.com/auth/gmail.send',           // Gmail: send emails
-        'https://www.googleapis.com/auth/gmail.readonly',       // Gmail: read inbox
-        'https://www.googleapis.com/auth/gmail.compose',        // Gmail: compose/draft
+        'https://www.googleapis.com/auth/gmail.send',
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/gmail.compose',
         'https://www.googleapis.com/auth/generative-language.retriever',
         'https://www.googleapis.com/auth/generative-language.tuning',
       ],
-      redirectUri: 'http://localhost:18923/oauth/callback',
+      redirectUri: callbackUrl,
       extraParams: { access_type: 'offline', prompt: 'consent' },
     },
-
     github: {
       authUrl: 'https://github.com/login/oauth/authorize',
       tokenUrl: 'https://github.com/login/oauth/access_token',
       clientId: process.env.OAUTH_GITHUB_CLIENT_ID || '',
       clientSecret: process.env.OAUTH_GITHUB_CLIENT_SECRET || '',
       scopes: ['repo', 'read:user', 'read:org'],
-      redirectUri: 'http://localhost:18923/oauth/callback',
+      redirectUri: callbackUrl,
       extraParams: {},
     },
-
     slack: {
       authUrl: 'https://slack.com/oauth/v2/authorize',
       tokenUrl: 'https://slack.com/api/oauth.v2.access',
       clientId: process.env.OAUTH_SLACK_CLIENT_ID || '',
       clientSecret: process.env.OAUTH_SLACK_CLIENT_SECRET || '',
       scopes: ['chat:write', 'channels:read', 'channels:join', 'chat:write.customize'],
-      redirectUri: process.env.OAUTH_SLACK_REDIRECT_URI || 'http://localhost:18923/oauth/callback',
+      redirectUri: process.env.OAUTH_SLACK_REDIRECT_URI || callbackUrl,
       extraParams: {},
-      isBotScope: true,
     },
-
     figma: {
       authUrl: 'https://www.figma.com/oauth',
       tokenUrl: 'https://api.figma.com/v1/oauth/token',
       clientId: process.env.OAUTH_FIGMA_CLIENT_ID || '',
       clientSecret: process.env.OAUTH_FIGMA_CLIENT_SECRET || '',
       scopes: ['file_content:read', 'file_comments:read', 'file_comments:write'],
-      redirectUri: 'http://localhost:18923/oauth/callback',
+      redirectUri: callbackUrl,
       extraParams: { response_type: 'code' },
     },
-
     jira: {
       authUrl: 'https://auth.atlassian.com/authorize',
       tokenUrl: 'https://auth.atlassian.com/oauth/token',
@@ -85,123 +65,72 @@ function getOAuthProviders() {
         'manage:jira-project', 'manage:jira-configuration',
         'offline_access'
       ],
-      redirectUri: 'http://localhost:18923/oauth/callback',
+      redirectUri: callbackUrl,
       extraParams: { audience: 'api.atlassian.com', prompt: 'consent' },
     },
   };
 }
 
-// =============================================================================
-// TOKEN STORAGE HELPERS
-// =============================================================================
-
-function getTokenKey(provider) {
-  return `oauth_${provider}`;
+export async function getStoredTokens(userId, provider) {
+  const user = await User.findById(userId);
+  if (!user || !user.tokens || !user.tokens[provider]) return null;
+  return user.tokens[provider];
 }
 
-/**
- * Get stored OAuth tokens for a provider
- * @param {string} provider - Provider name (google, github, slack, figma, jira)
- * @returns {object|null} - { access_token, refresh_token, expires_at, ... } or null
- */
-export function getStoredTokens(provider) {
-  const data = store.get(getTokenKey(provider));
-  if (!data || !data.access_token) return null;
-  return data;
-}
-
-/**
- * Check if a provider's token is expired (with 5-min buffer)
- */
-export function isTokenExpired(provider) {
-  const tokens = getStoredTokens(provider);
+export function isTokenExpired(tokens) {
   if (!tokens || !tokens.expires_at) return true;
-  return Date.now() > (tokens.expires_at - 5 * 60 * 1000);
+  return Date.now() > (new Date(tokens.expires_at).getTime() - 5 * 60 * 1000);
 }
 
-/**
- * Store tokens for a provider
- */
-function storeTokens(provider, tokenData) {
-  const toStore = {
-    access_token: tokenData.access_token,
-    refresh_token: tokenData.refresh_token || getStoredTokens(provider)?.refresh_token || null,
-    token_type: tokenData.token_type || 'Bearer',
-    scope: tokenData.scope || '',
-    expires_at: tokenData.expires_in
-      ? Date.now() + tokenData.expires_in * 1000
-      : null,
+export async function storeTokens(userId, provider, tokenData) {
+  const expiresAt = tokenData.expires_in
+    ? new Date(Date.now() + tokenData.expires_in * 1000)
+    : (provider === 'slack' ? new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000) : null);
+
+  const update = {
+    [`tokens.${provider}.access_token`]: tokenData.access_token,
+    [`tokens.${provider}.token_type`]: tokenData.token_type || 'Bearer',
+    [`tokens.${provider}.scope`]: tokenData.scope || '',
+    [`tokens.${provider}.expires_at`]: expiresAt,
   };
 
-  // Slack bot tokens don't expire — set a far-future expiry so isTokenExpired() works
-  if (provider === 'slack' && !toStore.expires_at) {
-    toStore.expires_at = Date.now() + 10 * 365 * 24 * 60 * 60 * 1000; // 10 years
+  if (tokenData.refresh_token) {
+    update[`tokens.${provider}.refresh_token`] = tokenData.refresh_token;
   }
 
-  // Jira-specific: store cloud ID for API base URL
-  if (tokenData.cloud_id) {
-    toStore.cloud_id = tokenData.cloud_id;
-  }
-  if (tokenData.cloud_url) {
-    toStore.cloud_url = tokenData.cloud_url;
-  }
+  if (tokenData.cloud_id) update[`tokens.${provider}.cloud_id`] = tokenData.cloud_id;
+  if (tokenData.cloud_url) update[`tokens.${provider}.cloud_url`] = tokenData.cloud_url;
 
-  // Slack-specific: store team info
-  if (tokenData.team) {
-    toStore.team = tokenData.team;
-  }
-  if (tokenData.bot_user_id) {
-    toStore.bot_user_id = tokenData.bot_user_id;
-  }
-
-  store.set(getTokenKey(provider), toStore);
-  console.log(`[OAuth] Stored tokens for "${provider}"`);
-  return toStore;
+  await User.findByIdAndUpdate(userId, { $set: update }, { upsert: true });
+  console.log(`[OAuth] Stored tokens for user ${userId}, provider ${provider}`);
 }
 
-/**
- * Clear stored tokens for a provider (disconnect)
- */
-export function clearTokens(provider) {
-  store.delete(getTokenKey(provider));
-  console.log(`[OAuth] Cleared tokens for "${provider}"`);
+export async function clearTokens(userId, provider) {
+  await User.findByIdAndUpdate(userId, { $unset: { [`tokens.${provider}`]: "" } });
+  console.log(`[OAuth] Cleared tokens for user ${userId}, provider ${provider}`);
 }
 
-/**
- * Get the status of all OAuth connections
- * @returns {object} - { google: { connected: true, expired: false }, ... }
- */
-export function getConnectionStatus() {
+export async function getConnectionStatus(userId) {
+  const user = await User.findById(userId);
   const status = {};
-  for (const provider of Object.keys(getOAuthProviders())) {
-    const tokens = getStoredTokens(provider);
+  const providers = getOAuthProviders();
+  
+  for (const provider of Object.keys(providers)) {
+    const tokens = user?.tokens?.[provider];
     status[provider] = {
-      connected: !!tokens,
-      expired: tokens ? isTokenExpired(provider) : true,
+      connected: !!tokens?.access_token,
+      expired: tokens ? isTokenExpired(tokens) : true,
       hasRefreshToken: !!tokens?.refresh_token,
     };
   }
   return status;
 }
 
-// =============================================================================
-// TOKEN REFRESH
-// =============================================================================
-
-/**
- * Refresh an expired access token using the stored refresh token.
- * @param {string} provider 
- * @returns {string} Fresh access token
- */
-export async function refreshAccessToken(provider) {
+export async function refreshAccessToken(userId, provider) {
   const config = getOAuthProviders()[provider];
-  const tokens = getStoredTokens(provider);
+  const tokens = await getStoredTokens(userId, provider);
 
-  if (!tokens?.refresh_token) {
-    throw new Error(`No refresh token stored for "${provider}". User must re-authenticate.`);
-  }
-
-  console.log(`[OAuth] Refreshing token for "${provider}"...`);
+  if (!tokens?.refresh_token) throw new Error(`No refresh token for ${provider}`);
 
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
@@ -216,169 +145,30 @@ export async function refreshAccessToken(provider) {
     body: body.toString(),
   });
 
-  if (!response.ok) {
-    const err = await response.text();
-    console.error(`[OAuth] Refresh failed for "${provider}":`, err);
-    throw new Error(`Token refresh failed for ${provider}: ${err}`);
-  }
-
   const data = await response.json();
-  storeTokens(provider, data);
-  console.log(`[OAuth] Token refreshed for "${provider}"`);
+  if (!response.ok) throw new Error(`Refresh failed: ${JSON.stringify(data)}`);
+
+  await storeTokens(userId, provider, data);
   return data.access_token;
 }
 
-/**
- * Get a valid access token — refresh automatically if expired.
- * @param {string} provider 
- * @returns {string|null} Access token or null if not connected
- */
-export async function getValidToken(provider) {
-  const tokens = getStoredTokens(provider);
+export async function getValidToken(userId, provider) {
+  const tokens = await getStoredTokens(userId, provider);
   if (!tokens) return null;
 
-  if (isTokenExpired(provider) && tokens.refresh_token) {
+  if (isTokenExpired(tokens) && tokens.refresh_token) {
     try {
-      return await refreshAccessToken(provider);
+      return await refreshAccessToken(userId, provider);
     } catch (err) {
-      console.error(`[OAuth] Auto-refresh failed for "${provider}":`, err.message);
+      console.error(`[OAuth] Auto-refresh failed for ${provider}:`, err.message);
       return null;
     }
   }
-
   return tokens.access_token;
 }
 
-// =============================================================================
-// JIRA: DISCOVER CLOUD ID (needed for API calls)
-// =============================================================================
-
-async function discoverJiraCloudId(accessToken) {
-  const response = await fetch('https://api.atlassian.com/oauth/token/accessible-resources', {
-    headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' },
-  });
-
-  if (!response.ok) throw new Error('Failed to fetch Jira accessible resources');
-
-  const sites = await response.json();
-  if (sites.length === 0) throw new Error('No Jira sites found for this account');
-
-  // Single site — use it directly
-  if (sites.length === 1) {
-    console.log(`[Jira] Single site found: ${sites[0].name} (${sites[0].url})`);
-    return { cloud_id: sites[0].id, cloud_url: sites[0].url, site_name: sites[0].name };
-  }
-
-  // Multiple sites — show a picker so the user can choose
-  console.log(`[Jira] ${sites.length} sites found — showing picker...`);
-  const selected = await showJiraSitePicker(sites);
-  console.log(`[Jira] User selected: ${selected.name} (${selected.url})`);
-  return { cloud_id: selected.id, cloud_url: selected.url, site_name: selected.name };
-}
-
-/**
- * Show an Electron BrowserWindow with a list of Jira sites for the user to pick from.
- * Returns a Promise that resolves with the chosen site object.
- */
-function showJiraSitePicker(sites) {
-  const { BrowserWindow, ipcMain } = global.__electron;
-
-  return new Promise((resolve, reject) => {
-    const pickerWindow = new BrowserWindow({
-      width: 480,
-      height: Math.min(200 + sites.length * 80, 600),
-      title: 'Select Jira Site',
-      resizable: false,
-      minimizable: false,
-      maximizable: false,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: false,   // needed for inline script postMessage
-        preload: undefined,
-      },
-    });
-
-    pickerWindow.setMenuBarVisibility(false);
-
-    // Build the site list HTML
-    const siteItems = sites.map((site, index) => {
-      const domain = site.url.replace(/^https?:\/\//, '');
-      return `
-        <button class="site-btn" onclick="selectSite(${index})">
-          <div class="site-name">${site.name}</div>
-          <div class="site-url">${domain}</div>
-        </button>
-      `;
-    }).join('');
-
-    const html = `<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #0a0a0a; color: #e0e0e0;
-      display: flex; flex-direction: column; align-items: center;
-      padding: 28px 24px 20px;
-    }
-    h2 { font-size: 18px; color: #00ff88; margin-bottom: 6px; }
-    p  { font-size: 13px; color: #888; margin-bottom: 20px; }
-    .site-btn {
-      width: 100%; padding: 14px 18px; margin-bottom: 10px;
-      background: #1a1a2e; border: 1px solid #333; border-radius: 10px;
-      cursor: pointer; text-align: left; color: #e0e0e0;
-      transition: all 0.15s ease;
-    }
-    .site-btn:hover { background: #16213e; border-color: #00ff88; }
-    .site-name { font-size: 15px; font-weight: 600; }
-    .site-url  { font-size: 12px; color: #888; margin-top: 3px; }
-  </style>
-</head>
-<body>
-  <h2>Multiple Jira Sites Found</h2>
-  <p>Select which Jira instance to connect:</p>
-  ${siteItems}
-  <script>
-    function selectSite(index) {
-      document.title = 'SELECTED:' + index;
-    }
-  </script>
-</body>
-</html>`;
-
-    pickerWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
-
-    // Watch for title changes as a simple IPC mechanism
-    pickerWindow.on('page-title-updated', (event, title) => {
-      if (title.startsWith('SELECTED:')) {
-        const index = parseInt(title.replace('SELECTED:', ''), 10);
-        const chosen = sites[index];
-        if (chosen) {
-          pickerWindow.close();
-          resolve(chosen);
-        }
-      }
-    });
-
-    pickerWindow.on('closed', () => {
-      // If user closes without picking, default to first site
-      resolve(sites[0]);
-    });
-  });
-}
-
-// =============================================================================
-// OAUTH FLOW (Electron BrowserWindow + local callback server)
-// =============================================================================
-
-/**
- * Build the authorization URL for a provider
- */
-function buildAuthUrl(provider) {
+export function buildAuthUrl(provider, state) {
   const config = getOAuthProviders()[provider];
-  const state = crypto.randomBytes(16).toString('hex');
-
   const params = new URLSearchParams({
     client_id: config.clientId,
     redirect_uri: config.redirectUri,
@@ -387,31 +177,17 @@ function buildAuthUrl(provider) {
     ...config.extraParams,
   });
 
-  // Slack uses "scope" for bot scopes
   if (provider === 'slack') {
     params.set('scope', config.scopes.join(','));
-  } else if (provider === 'figma') {
-    // Figma: only add scope if scopes are specified; otherwise Figma uses app-configured scopes
-    if (config.scopes.length > 0) {
-      // Build scope manually to avoid URL-encoding colons in scope names
-      const scopeStr = config.scopes.join(',');
-      // We'll append scope to the URL directly to avoid double-encoding
-      const baseUrl = `${config.authUrl}?${params.toString()}&scope=${scopeStr}`;
-      return { url: baseUrl, state };
-    }
   } else {
     params.set('scope', config.scopes.join(' '));
   }
 
-  return { url: `${config.authUrl}?${params.toString()}`, state };
+  return `${config.authUrl}?${params.toString()}`;
 }
 
-/**
- * Exchange authorization code for tokens
- */
-async function exchangeCodeForTokens(provider, code) {
+export async function exchangeCodeForTokens(provider, code) {
   const config = getOAuthProviders()[provider];
-
   const body = new URLSearchParams({
     grant_type: 'authorization_code',
     code: code,
@@ -426,279 +202,19 @@ async function exchangeCodeForTokens(provider, code) {
     body: body.toString(),
   });
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Token exchange failed for ${provider}: ${errText}`);
-  }
-
   const data = await response.json();
-
-  // Slack returns HTTP 200 even on errors — check data.ok
-  if (provider === 'slack') {
-    if (!data.ok) {
-      throw new Error(`Slack token exchange failed: ${data.error || 'unknown error'}`);
-    }
-    return {
-      access_token: data.access_token,
-      token_type: 'Bearer',
-      scope: data.scope,
-      team: data.team,
-      bot_user_id: data.bot_user_id,
-    };
-  }
-
+  if (!response.ok) throw new Error(`Exchange failed: ${JSON.stringify(data)}`);
+  
+  if (provider === 'slack' && !data.ok) throw new Error(`Slack error: ${data.error}`);
+  
   return data;
 }
 
-/**
- * Launch OAuth flow for a provider.
- * Opens an Electron BrowserWindow, starts a temporary local server for the callback.
- *
- * @param {string} provider - One of: google, github, slack, figma, jira
- * @returns {Promise<object>} - The stored token data
- */
-export async function startOAuthFlow(provider) {
-  const { BrowserWindow } = global.__electron;
-
-  return new Promise((resolve, reject) => {
-    const config = getOAuthProviders()[provider];
-
-    if (!config.clientId || !config.clientSecret) {
-      reject(new Error(
-        `OAuth not configured for "${provider}". ` +
-        `Set OAUTH_${provider.toUpperCase()}_CLIENT_ID and OAUTH_${provider.toUpperCase()}_CLIENT_SECRET in your environment.`
-      ));
-      return;
-    }
-
-    const { url: authUrl, state: expectedState } = buildAuthUrl(provider);
-    let callbackServer;
-    let authWindow;
-    let resolved = false;
-
-    // --- Shared handler for the OAuth callback URL ---
-    async function handleCallback(callbackUrl) {
-      if (resolved) return;
-      resolved = true;
-      try {
-        const reqUrl = new URL(callbackUrl);
-        const code = reqUrl.searchParams.get('code');
-        const state = reqUrl.searchParams.get('state');
-        const error = reqUrl.searchParams.get('error');
-
-        if (error) {
-          cleanup();
-          reject(new Error(`OAuth denied: ${error}`));
-          return;
-        }
-
-        if (state !== expectedState) {
-          cleanup();
-          reject(new Error('OAuth state mismatch'));
-          return;
-        }
-
-        const tokenData = await exchangeCodeForTokens(provider, code);
-
-        if (provider === 'jira') {
-          const jiraInfo = await discoverJiraCloudId(tokenData.access_token);
-          tokenData.cloud_id = jiraInfo.cloud_id;
-          tokenData.cloud_url = jiraInfo.cloud_url;
-        }
-
-        const stored = storeTokens(provider, tokenData);
-        populateEnvFromOAuth(provider, stored);
-
-        cleanup();
-        resolve(stored);
-      } catch (err) {
-        cleanup();
-        reject(err);
-      }
-    }
-
-    function cleanup() {
-      if (callbackServer) {
-        try { callbackServer.close(); } catch (e) { /* ignore */ }
-        callbackServer = null;
-      }
-      if (authWindow && !authWindow.isDestroyed()) {
-        authWindow.close();
-        authWindow = null;
-      }
-    }
-
-    // --- For HTTPS redirect URIs (e.g. Slack): intercept in BrowserWindow ---
-    if (config.redirectUri.startsWith('https://localhost')) {
-      console.log(`[OAuth] Using BrowserWindow redirect interception for "${provider}"`);
-
-      authWindow = new BrowserWindow({
-        width: 600,
-        height: 800,
-        title: `Connect ${provider.charAt(0).toUpperCase() + provider.slice(1)}`,
-        webPreferences: { nodeIntegration: false, contextIsolation: true },
-      });
-
-      // Intercept navigation to the redirect URI before the browser tries to connect
-      authWindow.webContents.on('will-redirect', (event, url) => {
-        if (url.startsWith(config.redirectUri)) {
-          event.preventDefault();
-          handleCallback(url);
-        }
-      });
-
-      authWindow.webContents.on('will-navigate', (event, url) => {
-        if (url.startsWith(config.redirectUri)) {
-          event.preventDefault();
-          handleCallback(url);
-        }
-      });
-
-      authWindow.loadURL(authUrl);
-      authWindow.setMenuBarVisibility(false);
-
-      authWindow.on('closed', () => {
-        authWindow = null;
-        setTimeout(() => {
-          if (!resolved) cleanup();
-        }, 1000);
-      });
-
-    } else {
-      // --- For HTTP redirect URIs: use local callback server ---
-      callbackServer = http.createServer(async (req, res) => {
-        try {
-          const reqUrl = new URL(req.url, 'http://localhost:18923');
-
-          if (reqUrl.pathname === '/oauth/callback') {
-            const code = reqUrl.searchParams.get('code');
-            const state = reqUrl.searchParams.get('state');
-            const error = reqUrl.searchParams.get('error');
-
-            if (error) {
-              res.writeHead(200, { 'Content-Type': 'text/html' });
-              res.end('<html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#0a0a0a;color:#ff4444"><h2>Authorization Denied</h2><p>You can close this window.</p></body></html>');
-              cleanup();
-              reject(new Error(`OAuth denied: ${error}`));
-              return;
-            }
-
-            if (state !== expectedState) {
-              res.writeHead(400, { 'Content-Type': 'text/html' });
-              res.end('<html><body>State mismatch — potential CSRF. Close this window and try again.</body></html>');
-              cleanup();
-              reject(new Error('OAuth state mismatch'));
-              return;
-            }
-
-            const tokenData = await exchangeCodeForTokens(provider, code);
-
-            if (provider === 'jira') {
-              const jiraInfo = await discoverJiraCloudId(tokenData.access_token);
-              tokenData.cloud_id = jiraInfo.cloud_id;
-              tokenData.cloud_url = jiraInfo.cloud_url;
-            }
-
-            const stored = storeTokens(provider, tokenData);
-            populateEnvFromOAuth(provider, stored);
-
-            res.writeHead(200, { 'Content-Type': 'text/html' });
-            res.end(`<html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#0a0a0a;color:#00ff88"><h2>Connected to ${provider.charAt(0).toUpperCase() + provider.slice(1)}!</h2><p>You can close this window.</p></body></html>`);
-
-            cleanup();
-            resolve(stored);
-          }
-        } catch (err) {
-          res.writeHead(500, { 'Content-Type': 'text/html' });
-          res.end(`<html><body>Error: ${err.message}</body></html>`);
-          cleanup();
-          reject(err);
-        }
-      });
-
-      callbackServer.listen(18923, () => {
-        console.log(`[OAuth] Callback server listening for "${provider}" on port 18923`);
-
-        authWindow = new BrowserWindow({
-          width: 600,
-          height: 800,
-          title: `Connect ${provider.charAt(0).toUpperCase() + provider.slice(1)}`,
-          webPreferences: { nodeIntegration: false, contextIsolation: true },
-        });
-
-        authWindow.loadURL(authUrl);
-        authWindow.setMenuBarVisibility(false);
-
-        authWindow.on('closed', () => {
-          authWindow = null;
-          setTimeout(() => cleanup(), 1000);
-        });
-      });
-    }
+export async function discoverJiraCloudId(accessToken) {
+  const response = await fetch('https://api.atlassian.com/oauth/token/accessible-resources', {
+    headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' },
   });
-}
-
-// =============================================================================
-// ENV POPULATION (bridge OAuth tokens → process.env for tool compatibility)
-// =============================================================================
-
-/**
- * Populate process.env from stored OAuth tokens so existing tools work without changes.
- * Called on startup and after each OAuth flow completes.
- */
-export function populateEnvFromOAuth(provider, tokens) {
-  if (!tokens?.access_token) return;
-
-  switch (provider) {
-    case 'google': {
-      process.env.GOOGLE_REFRESH_TOKEN = tokens.refresh_token || '';
-      process.env.GOOGLE_OAUTH_ACCESS_TOKEN = tokens.access_token || '';
-      // Also ensure the calendar tool can find the client ID/secret used for this OAuth flow
-      const googleCfg = getOAuthProviders().google;
-      if (googleCfg.clientId) process.env.GOOGLE_CLIENT_ID = googleCfg.clientId;
-      if (googleCfg.clientSecret) process.env.GOOGLE_CLIENT_SECRET = googleCfg.clientSecret;
-      break;
-    }
-
-    case 'github':
-      process.env.GITHUB_TOKEN = tokens.access_token;
-      process.env.GITHUB_PAT = tokens.access_token;
-      process.env.GITHUB_PERSONAL_ACCESS_TOKEN = tokens.access_token;
-      break;
-
-    case 'slack':
-      process.env.SLACK_BOT_TOKEN = tokens.access_token;
-      break;
-
-    case 'figma':
-      process.env.FIGMA_TOKEN = tokens.access_token;
-      process.env.FIGMA_API_KEY = tokens.access_token;
-      break;
-
-    case 'jira':
-      process.env.JIRA_API_TOKEN = tokens.access_token;
-      process.env.JIRA_OAUTH_TOKEN = tokens.access_token;
-      if (tokens.cloud_url) {
-        // Extract domain from cloud_url (e.g., "https://your-site.atlassian.net" → "your-site.atlassian.net")
-        process.env.JIRA_DOMAIN = tokens.cloud_url.replace(/^https?:\/\//, '').replace(/\/$/, '');
-      }
-      if (tokens.cloud_id) {
-        process.env.JIRA_CLOUD_ID = tokens.cloud_id;
-      }
-      break;
-  }
-
-  console.log(`[OAuth] Populated process.env for "${provider}"`);
-}
-
-/**
- * On app startup, populate process.env from all stored OAuth tokens
- */
-export function populateAllEnvFromOAuth() {
-  for (const provider of Object.keys(getOAuthProviders())) {
-    const tokens = getStoredTokens(provider);
-    if (tokens) {
-      populateEnvFromOAuth(provider, tokens);
-    }
-  }
+  const sites = await response.json();
+  if (sites.length === 0) throw new Error('No Jira sites found');
+  return { cloud_id: sites[0].id, cloud_url: sites[0].url };
 }

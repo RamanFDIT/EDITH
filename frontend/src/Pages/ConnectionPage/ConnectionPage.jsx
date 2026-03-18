@@ -31,21 +31,28 @@ const ConnectionPage = () => {
             return;
         }
 
-        if (!window.electronAPI) {
-            console.error('Not running in Electron — OAuth unavailable');
-            return;
-        }
-
         setConnectionStatus(prev => ({ ...prev, [providerKey]: 'connecting' }));
 
         try {
-            const result = await window.electronAPI.oauthConnect(providerKey);
-            if (result.success){
-                setConnectionStatus(prev => ({ ...prev, [providerKey]: 'connected' }));
-                refreshOauthStatus();
-            } else {
-                setConnectionStatus(prev => ({ ...prev, [providerKey]: 'failed' }));
-            }
+            const res = await fetch(`http://localhost:3000/api/oauth/connect/${providerKey}`);
+            const { url } = await res.json();
+            
+            const authWindow = window.open(url, '_blank', 'width=600,height=800');
+            
+            const checkInterval = setInterval(async () => {
+                if (authWindow.closed) {
+                    clearInterval(checkInterval);
+                    const statusRes = await fetch('http://localhost:3000/api/oauth/status');
+                    const statusData = await statusRes.json();
+                    if (statusData[providerKey]?.connected) {
+                        setConnectionStatus(prev => ({ ...prev, [providerKey]: 'connected' }));
+                        refreshOauthStatus();
+                    } else {
+                        setConnectionStatus(prev => ({ ...prev, [providerKey]: 'failed' }));
+                    }
+                }
+            }, 1000);
+
         } catch (err) {
             console.error(`OAuth error for "${providerKey}":`, err);
             setConnectionStatus(prev => ({ ...prev, [providerKey]: 'failed' }));
@@ -55,9 +62,6 @@ const ConnectionPage = () => {
     const allConnected = toolsToShow.every(card => connectionStatus[card.oauth] === 'connected');
 
     const handleNext = async () => {
-        if (window.electronAPI) {
-            await window.electronAPI.setSetupComplete(true);
-        }
         navigate('/home');
     };
 

@@ -8,6 +8,10 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import os from 'os';
 import { transcribeAudio, generateSpeech } from './audioTool.js';
+import { connectDB, Chat, User } from './db.js';
+
+// Connect to Database
+connectDB();
 
 const execAsync = promisify(exec);
 
@@ -56,6 +60,93 @@ app.post('/api/upload', fileUpload.array('files', 10), (req, res) => {
     }));
     console.log(`[Server] Uploaded ${uploaded.length} file(s):`, uploaded.map(f => f.originalName));
     res.json({ files: uploaded });
+});
+
+import { 
+    buildAuthUrl, 
+    exchangeCodeForTokens, 
+    storeTokens, 
+    getConnectionStatus, 
+    clearTokens,
+    discoverJiraCloudId
+} from './oauthService.js';
+import crypto from 'crypto';
+
+// --- API: OAuth ---
+
+// 1. Get Auth URL
+app.get('/api/oauth/connect/:provider', async (req, res) => {
+    try {
+        const { provider } = req.params;
+        const state = crypto.randomBytes(16).toString('hex');
+        
+        // In a real app, store state in DB/Session associated with user
+        const authUrl = buildAuthUrl(provider, state);
+        res.json({ url: authUrl });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 2. OAuth Callback
+app.get('/api/oauth/callback', async (req, res) => {
+    try {
+        const { code, state, error } = req.query;
+        // In a multi-provider setup, we might need to know which provider this is for.
+        // TEMPORARY: Assume github for testing, or extract from session if implemented
+        const provider = 'github'; 
+
+        if (error) return res.status(400).send(`OAuth Error: ${error}`);
+
+        const tokenData = await exchangeCodeForTokens(provider, code);
+        
+        if (provider === 'jira') {
+            const jiraInfo = await discoverJiraCloudId(tokenData.access_token);
+            tokenData.cloud_id = jiraInfo.cloud_id;
+            tokenData.cloud_url = jiraInfo.cloud_url;
+        }
+
+        // Get default user for now
+        let user = await User.findOne({ email: 'default@edith.local' });
+        if (!user) {
+            user = await User.create({ 
+                email: 'default@edith.local', 
+                name: 'Default User',
+                authProvider: 'local'
+            });
+        }
+        await storeTokens(user._id, provider, tokenData);
+
+        res.send('<html><body style="font-family:sans-serif;text-align:center;padding:50px;background:#0a0a0a;color:#00ff88"><h2>Successfully Connected!</h2><p>You can close this tab and return to EDITH.</p><script>setTimeout(() => window.close(), 3000)</script></body></html>');
+    } catch (error) {
+        res.status(500).send(`Authentication failed: ${error.message}`);
+    }
+});
+
+// 3. Status
+app.get('/api/oauth/status', async (req, res) => {
+    try {
+        let user = await User.findOne({ email: 'default@edith.local' });
+        if (!user) return res.json({});
+        const status = await getConnectionStatus(user._id);
+        res.json(status);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 4. Disconnect
+app.post('/api/oauth/disconnect/:provider', async (req, res) => {
+    try {
+        const { provider } = req.params;
+        let user = await User.findOne({ email: 'default@edith.local' });
+        if (user) {
+            await clearTokens(user._id, provider);
+        }
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // --- API Endpoint ---
@@ -280,16 +371,26 @@ app.get('/api/history', async (req, res) => {
         const sessionId = req.query.sessionId || 'user-1';
         const offset = parseInt(req.query.offset) || 0;
         const limit = parseInt(req.query.limit) || 20;
-        const historyPath = path.join(os.homedir(), '.edith', 'chat_history.json');
-        if (!fs.existsSync(historyPath)) return res.json({ messages: [], total: 0, hasMore: false });
-        const fileContent = await fs.promises.readFile(historyPath, 'utf-8');
-        if (!fileContent || !fileContent.trim()) return res.json({ messages: [], total: 0, hasMore: false });
-        const allHistory = JSON.parse(fileContent);
-        const sessionHistory = allHistory[sessionId] || [];
-        const total = sessionHistory.length;
+
+        // In a real web app, we would get userId from the session/JWT
+        // For now, we'll find or create a default user for testing
+        let user = await User.findOne({ email: 'default@edith.local' });
+        if (!user) {
+            user = await User.create({ 
+                email: 'default@edith.local', 
+                name: 'Default User',
+                authProvider: 'local'
+            });
+        }
+
+        const chat = await Chat.findOne({ userId: user._id, sessionId });
+        if (!chat) return res.json({ messages: [], total: 0, hasMore: false });
+
+        const total = chat.messages.length;
         const start = Math.max(0, total - offset - limit);
         const end = Math.max(0, total - offset);
-        const slice = sessionHistory.slice(start, end);
+        const slice = chat.messages.slice(start, end);
+        
         res.json({ messages: slice, total, hasMore: start > 0 });
     } catch (error) {
         console.error('[History Error]', error);

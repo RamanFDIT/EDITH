@@ -8,18 +8,8 @@ const Intro = () => {
     const [checking, setChecking] = useState(true);
 
     useEffect(() => {
-        const checkSetup = async () => {
-            if (window.electronAPI) {
-                const isComplete = await window.electronAPI.getSetupComplete();
-                if (isComplete) {
-                    navigate('/home', { replace: true });
-                    return;
-                }
-            }
-            setChecking(false);
-        };
-        checkSetup();
-    }, [navigate]);
+        setChecking(false);
+    }, []);
 
     if (checking) return null;
 

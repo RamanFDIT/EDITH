@@ -28,43 +28,62 @@ const Settings = () => {
   const [connecting, setConnecting] = useState('');
 
   useEffect(() => {
-    if (window.electronAPI) {
-      window.electronAPI.oauthStatus().then(setOauthStatus);
-    }
+    const fetchStatus = async () => {
+      try {
+        const res = await fetch('http://localhost:3000/api/oauth/status');
+        const data = await res.json();
+        setOauthStatus(data);
+      } catch (err) {
+        console.error('Failed to fetch OAuth status:', err);
+      }
+    };
+    fetchStatus();
   }, []);
 
   const handleConnect = async (provider) => {
-    if (!window.electronAPI) return;
     setConnecting(provider);
     try {
-      const result = await window.electronAPI.oauthConnect(provider);
-      if (result.success) {
-        setOauthStatus(prev => ({
-          ...prev,
-          [provider]: { connected: true, expired: false, hasRefreshToken: true },
-        }));
-        setStatus({ type: 'success', message: `Connected to ${provider}!` });
-        refreshOauthStatus();
-      } else {
-        setStatus({ type: 'error', message: `Failed to connect ${provider}: ${result.error}` });
-      }
+      const res = await fetch(`http://localhost:3000/api/oauth/connect/${provider}`);
+      const { url } = await res.json();
+      
+      // Open auth in a new window
+      const authWindow = window.open(url, '_blank', 'width=600,height=800');
+      
+      // Poll for completion (simple way for this prototype)
+      const checkInterval = setInterval(async () => {
+        if (authWindow.closed) {
+          clearInterval(checkInterval);
+          const statusRes = await fetch('http://localhost:3000/api/oauth/status');
+          const statusData = await statusRes.json();
+          setOauthStatus(statusData);
+          if (statusData[provider]?.connected) {
+            setStatus({ type: 'success', message: `Connected to ${provider}!` });
+            refreshOauthStatus();
+          }
+          setConnecting('');
+        }
+      }, 1000);
+
     } catch (err) {
       setStatus({ type: 'error', message: `OAuth error: ${err.message}` });
-    } finally {
       setConnecting('');
+    } finally {
       setTimeout(() => setStatus({ type: '', message: '' }), 5000);
     }
   };
 
   const handleDisconnect = async (provider) => {
-    if (!window.electronAPI) return;
-    await window.electronAPI.oauthDisconnect(provider);
-    setOauthStatus(prev => ({
-      ...prev,
-      [provider]: { connected: false, expired: true, hasRefreshToken: false },
-    }));
-    setStatus({ type: 'info', message: `Disconnected from ${provider}.` });
-    refreshOauthStatus();
+    try {
+      await fetch(`http://localhost:3000/api/oauth/disconnect/${provider}`, { method: 'POST' });
+      setOauthStatus(prev => ({
+        ...prev,
+        [provider]: { connected: false, expired: true, hasRefreshToken: false },
+      }));
+      setStatus({ type: 'info', message: `Disconnected from ${provider}.` });
+      refreshOauthStatus();
+    } catch (err) {
+      console.error('Disconnect failed:', err);
+    }
     setTimeout(() => setStatus({ type: '', message: '' }), 3000);
   };
 
