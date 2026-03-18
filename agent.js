@@ -52,40 +52,41 @@ async function getLLMForUser(userId) {
   const provider = (process.env.LLM_PROVIDER || 'auto').toLowerCase();
   
   // 1. GITHUB (Priority)
+  // We MUST use the global Personal Access Token for the LLM backend (Azure Interface),
+  // because normal user OAuth tokens do NOT have access to GitHub Models.
   if (provider === 'github' || provider === 'auto') {
-    const githubToken = await getValidToken(userId, 'github');
-    if (validateCredential(githubToken, 'GitHub Token')) {
-      console.log(`[LLM] Using GitHub Models for user ${userId} (${githubToken.substring(0, 8)}...)`);
+    const githubKey = process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || process.env.GITHUB_PERSONAL_ACCESS_TOKEN;
+    if (validateCredential(githubKey, 'GitHub PAT Config')) {
+      console.log(`[LLM] Using GitHub Models for user ${userId} (${githubKey.substring(0, 8)}...)`);
       const modelName = process.env.GITHUB_MODEL || 'gpt-4o';
       const llm = new ChatOpenAI({
         modelName: modelName,
-        openAIApiKey: githubToken,
+        openAIApiKey: githubKey,
         configuration: { baseURL: 'https://models.inference.ai.azure.com' },
       });
       const classifier = new ChatOpenAI({
         modelName: 'gpt-4o-mini',
-        openAIApiKey: githubToken,
+        openAIApiKey: githubKey,
         temperature: 0,
         configuration: { baseURL: 'https://models.inference.ai.azure.com' },
       });
       return { llm, classifier, provider: 'github' };
     }
-    if (provider === 'github') throw new Error("GitHub account not connected or token invalid.");
+    if (provider === 'github') throw new Error("GitHub PAT not configured in environment variables.");
   }
 
-  // 2. GEMINI (via API Key or User Token)
+  // 2. GEMINI
+  // We MUST use the global Google API Key for the LLM backend, because ChatGoogleGenerativeAI
+  // expects a raw API key. User OAuth tokens will be rejected with a 401 Bad Credentials error.
   if (provider === 'gemini' || provider === 'auto') {
-    // Try user's Google token first, then fallback to global API KEY
-    const googleToken = await getValidToken(userId, 'google');
-    const apiKey = validateCredential(googleToken, 'Google User Token') ? googleToken : process.env.GOOGLE_API_KEY;
-    
-    if (validateCredential(apiKey, 'Gemini API Key')) {
-      console.log(`[LLM] Using Gemini for user ${userId} (${googleToken ? 'User Token' : 'Global Key'})`);
+    const apiKey = process.env.GOOGLE_API_KEY;
+    if (validateCredential(apiKey, 'Gemini API Key Config')) {
+      console.log(`[LLM] Using Gemini for user ${userId} (Global Key)`);
       const llm = new ChatGoogleGenerativeAI({ apiKey: apiKey, model: "gemini-2.5-flash" });
       const classifier = new ChatGoogleGenerativeAI({ apiKey: apiKey, model: "gemini-2.0-flash-lite", temperature: 0 });
       return { llm, classifier, provider: 'gemini' };
     }
-    if (provider === 'gemini') throw new Error("Gemini API key or Google account not found.");
+    if (provider === 'gemini') throw new Error("Gemini API key not configured in environment variables.");
   }
 
   // 3. OLLAMA (Local)
@@ -98,7 +99,7 @@ async function getLLMForUser(userId) {
     return { llm, classifier, provider: 'ollama' };
   }
 
-  throw new Error("No LLM provider available. Please connect an account or provide an API key.");
+  throw new Error("No LLM provider config available. Please configure GITHUB_PAT or GOOGLE_API_KEY.");
 }
 
 // initLLM and ensureFreshLLM are removed in favor of getLLMForUser
