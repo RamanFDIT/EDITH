@@ -78,9 +78,9 @@ import crypto from 'crypto';
 app.get('/api/oauth/connect/:provider', async (req, res) => {
     try {
         const { provider } = req.params;
-        const state = crypto.randomBytes(16).toString('hex');
+        // Encode provider in state so callback knows who sent it
+        const state = `${provider}_${crypto.randomBytes(16).toString('hex')}`;
         
-        // In a real app, store state in DB/Session associated with user
         const authUrl = buildAuthUrl(provider, state);
         res.json({ url: authUrl });
     } catch (error) {
@@ -92,9 +92,11 @@ app.get('/api/oauth/connect/:provider', async (req, res) => {
 app.get('/api/oauth/callback', async (req, res) => {
     try {
         const { code, state, error } = req.query;
-        // In a multi-provider setup, we might need to know which provider this is for.
-        // TEMPORARY: Assume github for testing, or extract from session if implemented
-        const provider = 'github'; 
+
+        if (!state) return res.status(400).send("Missing state parameter");
+
+        // Extract provider from state (e.g. "google_...")
+        const provider = state.split('_')[0]; 
 
         if (error) return res.status(400).send(`OAuth Error: ${error}`);
 
