@@ -34,14 +34,28 @@ import { sendGmail, searchGmailContacts, getRecentEmails } from "./gmailTool.js"
 // No global LLM state — each user request gets its own instance.
 // =============================================================================
 
+function validateCredential(key, name) {
+  if (!key) return false;
+  const trimmed = key.trim();
+  if (trimmed === '' || 
+      trimmed.toLowerCase() === 'undefined' || 
+      trimmed.toLowerCase() === 'null' || 
+      trimmed.toLowerCase().includes('your_api_key') ||
+      trimmed.length < 8) {
+    console.warn(`[LLM] Ignoring invalid ${name}: "${trimmed.substring(0, 4)}..."`);
+    return false;
+  }
+  return true;
+}
+
 async function getLLMForUser(userId) {
   const provider = (process.env.LLM_PROVIDER || 'auto').toLowerCase();
   
   // 1. GITHUB (Priority)
   if (provider === 'github' || provider === 'auto') {
     const githubToken = await getValidToken(userId, 'github');
-    if (githubToken) {
-      console.log(`[LLM] Using GitHub Models for user ${userId}`);
+    if (validateCredential(githubToken, 'GitHub Token')) {
+      console.log(`[LLM] Using GitHub Models for user ${userId} (${githubToken.substring(0, 8)}...)`);
       const modelName = process.env.GITHUB_MODEL || 'gpt-4o';
       const llm = new ChatOpenAI({
         modelName: modelName,
@@ -56,16 +70,16 @@ async function getLLMForUser(userId) {
       });
       return { llm, classifier, provider: 'github' };
     }
-    if (provider === 'github') throw new Error("GitHub account not connected.");
+    if (provider === 'github') throw new Error("GitHub account not connected or token invalid.");
   }
 
   // 2. GEMINI (via API Key or User Token)
   if (provider === 'gemini' || provider === 'auto') {
     // Try user's Google token first, then fallback to global API KEY
     const googleToken = await getValidToken(userId, 'google');
-    const apiKey = googleToken || process.env.GOOGLE_API_KEY;
+    const apiKey = validateCredential(googleToken, 'Google User Token') ? googleToken : process.env.GOOGLE_API_KEY;
     
-    if (apiKey) {
+    if (validateCredential(apiKey, 'Gemini API Key')) {
       console.log(`[LLM] Using Gemini for user ${userId} (${googleToken ? 'User Token' : 'Global Key'})`);
       const llm = new ChatGoogleGenerativeAI({ apiKey: apiKey, model: "gemini-2.5-flash" });
       const classifier = new ChatGoogleGenerativeAI({ apiKey: apiKey, model: "gemini-2.0-flash-lite", temperature: 0 });
@@ -861,8 +875,6 @@ function getOrCreateAgent(tools, userTimezone, userId, userLLM) {
 // The main processing function that classifies intent and routes to appropriate agent
 async function processWithSemanticRouting(input) {
     process.env.ACTIVE_REQUEST = 'true';
-    initLLM(); // Lazy init — safe to call repeatedly, only runs once
-    await ensureFreshLLM(); // Refresh OAuth token if needed
     const { input: userQuery, chat_history } = input;
     const history = sanitizeHistoryForTools(trimHistory(Array.isArray(chat_history) ? chat_history : []));
     

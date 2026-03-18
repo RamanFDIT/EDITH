@@ -42,7 +42,7 @@ export async function transcribeAudio(args) {
             let genai;
             if (process.env.GOOGLE_REFRESH_TOKEN) {
               // OAuth mode — preferred
-              const accessToken = await getValidToken('google');
+              const accessToken = await getValidToken('default-user', 'google');
               if (accessToken) {
                 genai = new GoogleGenAI({
                   auth: {

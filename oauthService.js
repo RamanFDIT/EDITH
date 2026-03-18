@@ -8,6 +8,9 @@ import { User } from './db.js';
 
 function getOAuthProviders() {
   const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+  if (!process.env.APP_URL) {
+    console.warn(`[OAuth] APP_URL not set. Defaulting to ${baseUrl}. Redirects may fail in production.`);
+  }
   const callbackUrl = `${baseUrl}/api/oauth/callback`;
 
   return {
