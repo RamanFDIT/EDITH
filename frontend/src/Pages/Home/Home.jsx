@@ -7,6 +7,7 @@ import Input from '../../components/Input/Input.jsx';
 
 import { useNavBar } from '../../components/NavBar/NavBarContext.jsx';
 import { useApp } from '../../context/AppContext.jsx';
+import { API_URL } from '../../apiConfig.js';
 
 const MESSAGES_PER_PAGE = 20;
 
