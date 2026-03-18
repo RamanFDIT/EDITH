@@ -197,7 +197,11 @@ const Home = () => {
       const res = await fetch(`${API_URL}/api/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, files: uploadedFiles }),
+        body: JSON.stringify({ 
+          question, 
+          files: uploadedFiles,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone 
+        }),
       });
 
       const reader = res.body.getReader();

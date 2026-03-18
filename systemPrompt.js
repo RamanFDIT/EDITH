@@ -2,16 +2,17 @@ import { SystemMessage } from "@langchain/core/messages";
 import os from 'os';
 
 // Function to generate accurate current time context
-function getCurrentTimeContext() {
+function getCurrentTimeContext(userTimezone) {
     const now = new Date();
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const timezone = userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
     
     // Get formatted date
     const dateFormatted = now.toLocaleDateString('en-US', { 
         weekday: 'long', 
         year: 'numeric', 
         month: 'long', 
-        day: 'numeric' 
+        day: 'numeric',
+        timeZone: timezone
     });
     
     // Get formatted time
@@ -19,19 +20,22 @@ function getCurrentTimeContext() {
         hour: '2-digit', 
         minute: '2-digit', 
         second: '2-digit',
-        hour12: true 
+        hour12: true,
+        timeZone: timezone
     });
     
     // Get ISO timestamp
     const isoTimestamp = now.toISOString();
     
-    // Get local ISO (without timezone conversion)
-    const localISO = now.getFullYear() + '-' + 
-        String(now.getMonth() + 1).padStart(2, '0') + '-' + 
-        String(now.getDate()).padStart(2, '0') + 'T' + 
-        String(now.getHours()).padStart(2, '0') + ':' + 
-        String(now.getMinutes()).padStart(2, '0') + ':' + 
-        String(now.getSeconds()).padStart(2, '0');
+    // Get local ISO (relative to specified timezone)
+    const options = {
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false, timeZone: timezone
+    };
+    const parts = new Intl.DateTimeFormat('en-US', options).formatToParts(now);
+    const getPart = (type) => parts.find(p => p.type === type).value;
+    const localISO = `${getPart('year')}-${getPart('month')}-${getPart('day')}T${getPart('hour')}:${getPart('minute')}:${getPart('second')}`;
     
     return {
         date: dateFormatted,
@@ -43,8 +47,8 @@ function getCurrentTimeContext() {
 }
 
 // Function to build the system prompt with current time (called fresh each time)
-function buildSystemPrompt() {
-    const timeContext = getCurrentTimeContext();
+function buildSystemPrompt(userTimezone) {
+    const timeContext = getCurrentTimeContext(userTimezone);
     
     return new SystemMessage(`
 # SYSTEM KERNEL INITIALIZATION
@@ -311,8 +315,8 @@ Your first response should be a brief greeting acknowledging the User's return t
 }
 
 // Function to get the system prompt (generates fresh timestamp each time)
-export function getSystemPrompt() {
-    return buildSystemPrompt();
+export function getSystemPrompt(userTimezone) {
+    return buildSystemPrompt(userTimezone);
 }
 
 // For backward compatibility - but this will have stale time if cached

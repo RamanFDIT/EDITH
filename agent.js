@@ -907,9 +907,9 @@ function getMessageHistory(sessionId) {
 // =============================================================================
 
 // Create agent with fresh timestamp each time (don't cache system prompt)
-function getOrCreateAgent(tools) {
+function getOrCreateAgent(tools, userTimezone) {
     // Always get fresh system prompt with current time
-    const systemPrompt = getSystemPrompt();
+    const systemPrompt = getSystemPrompt(userTimezone);
     
     // Create a signature based on tool names
     const toolSignature = tools.map(t => t.name).sort().join(',');
@@ -946,7 +946,7 @@ async function processWithSemanticRouting(input) {
         console.log("[Traffic Cop] General conversation - using direct LLM call");
         
         // getSystemPrompt() already returns a SystemMessage — don't double-wrap
-        const systemPrompt = getSystemPrompt();
+        const systemPrompt = getSystemPrompt(timezone);
         const noToolsGuard = new HumanMessage(
             "[SYSTEM NOTICE] IMPORTANT: You have NO tools available in this response. " +
             "You CANNOT perform any actions such as sending emails, creating tickets, " +
@@ -957,8 +957,10 @@ async function processWithSemanticRouting(input) {
             "and ask them to rephrase or be more specific."
         );
         const now = new Date();
+        const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: timezone };
+        const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: timezone };
         const freshTimeReminder = new HumanMessage(
-            `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })} on ${now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}. Any times mentioned in previous messages are outdated — use ONLY this time.`
+            `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', timeOptions)} on ${now.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
         );
         const messages = [
             systemPrompt,
@@ -973,12 +975,14 @@ async function processWithSemanticRouting(input) {
     }
     
     // Step 4: Get or create an agent with these specific tools
-    const agent = getOrCreateAgent(selectedTools);
+    const agent = getOrCreateAgent(selectedTools, timezone);
 
     // Step 5: Execute the agent (inject fresh time reminder before user query)
     const now = new Date();
+    const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: timezone };
+    const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: timezone };
     const freshTimeReminder = new HumanMessage(
-        `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })} on ${now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}. Any times mentioned in previous messages are outdated — use ONLY this time.`
+        `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', timeOptions)} on ${now.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
     );
     const result = await agent.invoke({
         messages: [...history, freshTimeReminder, new HumanMessage(userQuery)]
@@ -988,7 +992,7 @@ async function processWithSemanticRouting(input) {
 }
 
 // Streaming version for the server to use
-export async function* streamWithSemanticRouting(userQuery, sessionId) {
+export async function* streamWithSemanticRouting(userQuery, sessionId, timezone) {
     process.env.ACTIVE_REQUEST = 'true';
     initLLM(); // Lazy init — safe to call repeatedly, only runs once
     await ensureFreshLLM(); // Refresh OAuth token if needed
@@ -1009,7 +1013,7 @@ export async function* streamWithSemanticRouting(userQuery, sessionId) {
         console.log("[Traffic Cop] General conversation - using direct LLM call");
         
         // getSystemPrompt() already returns a SystemMessage — don't double-wrap
-        const systemPrompt = getSystemPrompt();
+        const systemPrompt = getSystemPrompt(timezone);
         const noToolsGuard = new HumanMessage(
             "[SYSTEM NOTICE] IMPORTANT: You have NO tools available in this response. " +
             "You CANNOT perform any actions such as sending emails, creating tickets, " +
@@ -1022,8 +1026,10 @@ export async function* streamWithSemanticRouting(userQuery, sessionId) {
         // Inject a fresh time reminder right before the user query so the LLM
         // doesn't rely on stale timestamps from earlier in the conversation history.
         const now = new Date();
+        const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: timezone };
+        const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: timezone };
         const freshTimeReminder = new HumanMessage(
-            `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })} on ${now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}. Any times mentioned in previous messages are outdated — use ONLY this time.`
+            `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', timeOptions)} on ${now.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
         );
         const messages = [
             systemPrompt,
@@ -1056,12 +1062,14 @@ export async function* streamWithSemanticRouting(userQuery, sessionId) {
     }
     
     // Step 4: Get or create an agent with these specific tools
-    const agent = getOrCreateAgent(selectedTools);
+    const agent = getOrCreateAgent(selectedTools, timezone);
 
     // Step 5: Stream events from the agent (inject fresh time reminder before user query)
     const agentNow = new Date();
+    const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: timezone };
+    const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: timezone };
     const agentTimeReminder = new HumanMessage(
-        `[TIME UPDATE] Current time is now: ${agentNow.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })} on ${agentNow.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}. Any times mentioned in previous messages are outdated — use ONLY this time.`
+        `[TIME UPDATE] Current time is now: ${agentNow.toLocaleTimeString('en-US', timeOptions)} on ${agentNow.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
     );
     // Force tool execution — combats LLM refusing to retry after past failures
     // FRESHNESS GUARD: Explicitly state that past actions do not fulfill current requests.

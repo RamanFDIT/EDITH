@@ -170,7 +170,7 @@ app.post('/api/oauth/disconnect/:provider', async (req, res) => {
 // --- API Endpoint ---
 app.post('/api/ask', async (req, res) => {
   try {
-    const { question, files } = req.body;
+    const { question, files, timezone } = req.body;
 
     if (!question) {
       return res.status(400).json({ error: 'Question is required' });
@@ -183,13 +183,13 @@ app.post('/api/ask', async (req, res) => {
         console.log(`[Server] ${files.length} file(s) attached to question`);
     }
 
-    console.log(`[Server] Received question: ${question}`);
+    console.log(`[Server] Received question: ${question} (Timezone: ${timezone || 'UTC'})`);
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-    const stream = streamWithSemanticRouting(fullQuestion, "user-1");
+    const stream = streamWithSemanticRouting(fullQuestion, "user-1", timezone);
     
     let sentenceBuffer = "";
     
