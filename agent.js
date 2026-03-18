@@ -52,27 +52,26 @@ async function getLLMForUser(userId) {
   const provider = (process.env.LLM_PROVIDER || 'auto').toLowerCase();
   
   // 1. GITHUB (Priority)
-  // We MUST use the global Personal Access Token for the LLM backend (Azure Interface),
-  // because normal user OAuth tokens do NOT have access to GitHub Models.
+  // Uses GitHub OAuth token to provide users with 150 free requests/day on Azure Inference.
   if (provider === 'github' || provider === 'auto') {
-    const githubKey = process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || process.env.GITHUB_PERSONAL_ACCESS_TOKEN;
-    if (validateCredential(githubKey, 'GitHub PAT Config')) {
-      console.log(`[LLM] Using GitHub Models for user ${userId} (${githubKey.substring(0, 8)}...)`);
+    const githubToken = await getValidToken(userId, 'github');
+    if (validateCredential(githubToken, 'GitHub Token')) {
+      console.log(`[LLM] Using GitHub Models for user ${userId} (${githubToken.substring(0, 8)}...)`);
       const modelName = process.env.GITHUB_MODEL || 'gpt-4o';
       const llm = new ChatOpenAI({
         modelName: modelName,
-        openAIApiKey: githubKey,
+        openAIApiKey: githubToken,
         configuration: { baseURL: 'https://models.inference.ai.azure.com' },
       });
       const classifier = new ChatOpenAI({
         modelName: 'gpt-4o-mini',
-        openAIApiKey: githubKey,
+        openAIApiKey: githubToken,
         temperature: 0,
         configuration: { baseURL: 'https://models.inference.ai.azure.com' },
       });
       return { llm, classifier, provider: 'github' };
     }
-    if (provider === 'github') throw new Error("GitHub PAT not configured in environment variables.");
+    if (provider === 'github') throw new Error("GitHub account not connected or token invalid.");
   }
 
   // 2. GEMINI
