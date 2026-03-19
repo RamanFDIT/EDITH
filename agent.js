@@ -65,13 +65,13 @@ async function getLLMForUser(userId) {
       const llm = new ChatOpenAI({
         modelName: modelName,
         openAIApiKey: githubToken,
-        configuration: { baseURL: 'https://models.github.ai/inference' },
+        configuration: { baseURL: 'https://models.inference.ai.azure.com' },
       });
       const classifier = new ChatOpenAI({
         modelName: 'gpt-4o-mini',
         openAIApiKey: githubToken,
         temperature: 0,
-        configuration: { baseURL: 'https://models.github.ai/inference' },
+        configuration: { baseURL: 'https://models.inference.ai.azure.com' },
       });
       return { llm, classifier, provider: 'github' };
     }
