@@ -83,7 +83,7 @@ function getOAuthProviders() {
       tokenUrl: 'https://github.com/login/oauth/access_token',
       clientId: process.env.OAUTH_GITHUB_CLIENT_ID || '',
       clientSecret: process.env.OAUTH_GITHUB_CLIENT_SECRET || '',
-      scopes: ['repo', 'read:user', 'read:org'],
+      scopes: ['repo', 'read:user', 'read:org', 'models:read'],
       redirectUri: callbackUrl,
       extraParams: {},
     },
