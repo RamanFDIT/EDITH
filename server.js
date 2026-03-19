@@ -186,6 +186,51 @@ app.post('/api/oauth/disconnect/:provider', extractUser, async (req, res) => {
     }
 });
 
+// --- API: User Preferences ---
+app.put('/api/user/preferences', extractUser, async (req, res) => {
+    try {
+        const { preferredName, titlePreference } = req.body;
+
+        // Validation
+        if (!preferredName || typeof preferredName !== 'string') {
+            return res.status(400).json({ error: 'preferredName is required' });
+        }
+        const trimmedName = preferredName.trim();
+        if (trimmedName.length < 2 || trimmedName.length > 20) {
+            return res.status(400).json({ error: 'Name must be between 2 and 20 characters' });
+        }
+        if (!/^[a-zA-Z\s\-']+$/.test(trimmedName)) {
+            return res.status(400).json({ error: 'Name can only contain letters, spaces, hyphens, and apostrophes' });
+        }
+        const validTitles = ['Sir', "Ma'am", 'name'];
+        if (!validTitles.includes(titlePreference)) {
+            return res.status(400).json({ error: 'Invalid title preference' });
+        }
+
+        await User.findByIdAndUpdate(req.user._id, {
+            preferredName: trimmedName,
+            titlePreference
+        });
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[Preferences] Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/user/preferences', extractUser, async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id).select('preferredName titlePreference');
+        res.json({
+            preferredName: user?.preferredName || '',
+            titlePreference: user?.titlePreference || 'Sir'
+        });
+    } catch (error) {
+        console.error('[Preferences] Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // --- API Endpoint ---
 app.post('/api/ask', extractUser, async (req, res) => {
   try {
@@ -208,7 +253,8 @@ app.post('/api/ask', extractUser, async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-    const stream = streamWithSemanticRouting(fullQuestion, req.user._id.toString(), timezone);
+    const userPrefs = { preferredName: req.user.preferredName || '', titlePreference: req.user.titlePreference || 'Sir' };
+    const stream = streamWithSemanticRouting(fullQuestion, req.user._id.toString(), timezone, userPrefs);
     
     let sentenceBuffer = "";
     
@@ -319,7 +365,8 @@ app.post('/api/voice', extractUser, voiceUpload.single('audio'), async (req, res
     console.log(`[Voice] User ${req.user.email} said: "${userText}"`);
     res.write(`data: ${JSON.stringify({ type: 'user_text', content: userText })}\n\n`);
 
-    const stream = streamWithSemanticRouting(userText, req.user._id.toString());
+    const voiceUserPrefs = { preferredName: req.user.preferredName || '', titlePreference: req.user.titlePreference || 'Sir' };
+    const stream = streamWithSemanticRouting(userText, req.user._id.toString(), undefined, voiceUserPrefs);
     let sentenceBuffer = "";
     
     // --- Audio Queue System (properly awaited) ---

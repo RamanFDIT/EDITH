@@ -46,6 +46,14 @@ LLM instances are cached per user+provider with a 5-minute TTL to avoid re-creat
 
 **Solution**: Removed the health-check entirely. If the token is invalid, the actual LLM call will fail with a clear error — no need to pre-check.
 
+### OAuth status fetch on mount (2026-03-19)
+
+**Problem**: Connected OAuth tools (Google, GitHub) appeared disconnected in the NavBar after page reload. `oauthStatus` in `AppContext` initialized as `{}` with no auto-fetch on mount — the only fetch was in NavBar's `useEffect`, which ran after the first render with empty status.
+
+**Solution**: Added a `useEffect` in `AppContext.jsx` that calls `refreshOauthStatus()` on mount (keyed on the memoized callback). This pre-populates OAuth status for all consumers before they render. Removed the now-redundant `useEffect` and `useEffect` import from `NavBar.jsx` to avoid a duplicate API call.
+
+**Files changed**: `frontend/src/context/AppContext.jsx`, `frontend/src/components/NavBar/NavBar.jsx`
+
 ### Intent classification threshold (2026-03-19)
 
 The short-query threshold for skipping LLM-based intent classification was bumped from 5 words to 8 words. Queries under 8 words now default to `general` intent without calling the classifier, reducing unnecessary API calls.

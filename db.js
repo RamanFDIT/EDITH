@@ -23,6 +23,8 @@ const userSchema = new mongoose.Schema({
       cloud_url: String
     }
   },
+  preferredName: { type: String, default: '' },
+  titlePreference: { type: String, enum: ['Sir', "Ma'am", 'name'], default: 'Sir' },
   settings: {
     llmProvider: { type: String, default: 'auto' },
     githubModel: { type: String, default: 'gpt-4o' },

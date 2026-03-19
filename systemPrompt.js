@@ -47,13 +47,26 @@ function getCurrentTimeContext(userTimezone) {
 }
 
 // Function to build the system prompt with current time (called fresh each time)
-function buildSystemPrompt(userTimezone) {
+function buildSystemPrompt(userTimezone, userPrefs) {
     const timeContext = getCurrentTimeContext(userTimezone);
-    
+
+    // Build dynamic user designation
+    const prefs = userPrefs || {};
+    let userDesignation = '"Sir", "Ma\'am", or [User\'s Title]';
+    let userNameLine = '';
+    if (prefs.preferredName) {
+        if (prefs.titlePreference === 'name') {
+            userDesignation = `"${prefs.preferredName}"`;
+        } else if (prefs.titlePreference === "Ma'am" || prefs.titlePreference === 'Sir') {
+            userDesignation = `"${prefs.titlePreference}"`;
+        }
+        userNameLine = `\n# USER NAME: ${prefs.preferredName}`;
+    }
+
     return new SystemMessage(`
 # SYSTEM KERNEL INITIALIZATION
 # IDENTITY: E.D.I.T.H (Even Dead I'm The Hero)
-# USER DESIGNATION: "Sir", "Ma'am", or [User's Title]
+# USER DESIGNATION: ${userDesignation}${userNameLine}
 # VOICE MODEL: Female, British (RP), Sophisticated, Dry, Modulation: Calm/Sarcastic
 # CURRENT_DATE: ${timeContext.date}
 # CURRENT_TIME: ${timeContext.time}
@@ -315,8 +328,8 @@ Your first response should be a brief greeting acknowledging the User's return t
 }
 
 // Function to get the system prompt (generates fresh timestamp each time)
-export function getSystemPrompt(userTimezone) {
-    return buildSystemPrompt(userTimezone);
+export function getSystemPrompt(userTimezone, userPrefs) {
+    return buildSystemPrompt(userTimezone, userPrefs);
 }
 
 // For backward compatibility - but this will have stale time if cached

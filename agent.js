@@ -885,9 +885,9 @@ function getMessageHistory(sessionId, userId) {
 // =============================================================================
 
 // Create agent with fresh timestamp each time (don't cache system prompt)
-function getOrCreateAgent(tools, userTimezone, userId, userLLM) {
+function getOrCreateAgent(tools, userTimezone, userId, userLLM, userPrefs) {
     // Always get fresh system prompt with current time
-    const systemPrompt = getSystemPrompt(userTimezone);
+    const systemPrompt = getSystemPrompt(userTimezone, userPrefs);
     
     // Create a signature based on userId and tool names
     const toolSignature = `${userId}:${tools.map(t => t.name).sort().join(',')}`;
@@ -927,7 +927,7 @@ async function processWithSemanticRouting(input) {
     if (selectedTools.length === 0) {
         console.log("[Traffic Cop] General conversation - using direct LLM call");
         
-        const systemPrompt = getSystemPrompt(timezone);
+        const systemPrompt = getSystemPrompt(timezone, input.userPrefs);
         const noToolsGuard = new HumanMessage(
             "[SYSTEM NOTICE] IMPORTANT: You have NO tools available in this response. " +
             "You CANNOT perform any actions such as sending emails, creating tickets, " +
@@ -955,9 +955,9 @@ async function processWithSemanticRouting(input) {
         const response = await llm.invoke(messages);
         return { messages: [...history, new HumanMessage(userQuery), response] };
     }
-    
+
     // Step 4: Get or create an agent with these specific tools
-    const agent = getOrCreateAgent(selectedTools, timezone, userId, llm);
+    const agent = getOrCreateAgent(selectedTools, timezone, userId, llm, input.userPrefs);
 
     // Step 5: Execute the agent (inject fresh time reminder before user query)
     const now = new Date();
@@ -975,7 +975,7 @@ async function processWithSemanticRouting(input) {
 }
 
 // Streaming version for the server to use
-export async function* streamWithSemanticRouting(userQuery, userId, timezone) {
+export async function* streamWithSemanticRouting(userQuery, userId, timezone, userPrefs) {
     const sessionId = "user-1"; // Still using a single session per user for now
     process.env.ACTIVE_REQUEST = 'true';
     
@@ -998,7 +998,7 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone) {
         console.log("[Traffic Cop] General conversation - using direct LLM call");
         
         // getSystemPrompt() already returns a SystemMessage — don't double-wrap
-        const systemPrompt = getSystemPrompt(timezone);
+        const systemPrompt = getSystemPrompt(timezone, userPrefs);
         const noToolsGuard = new HumanMessage(
             "[SYSTEM NOTICE] IMPORTANT: You have NO tools available in this response. " +
             "You CANNOT perform any actions such as sending emails, creating tickets, " +
@@ -1025,19 +1025,19 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone) {
         ];
 
         const stream = await llm.stream(messages);
-        
+
         let completeResponse = "";
         for await (const chunk of stream) {
             const content = chunk.content;
             if (content) {
                 completeResponse += content;
-                yield { 
-                    event: "on_chat_model_stream", 
-                    data: { chunk: { content } } 
+                yield {
+                    event: "on_chat_model_stream",
+                    data: { chunk: { content } }
                 };
             }
         }
-        
+
         // Save to history after streaming completes
         await messageHistory.addMessage(new HumanMessage(userQuery));
         if (completeResponse) {
@@ -1045,9 +1045,9 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone) {
         }
         return;
     }
-    
+
     // Step 4: Get or create an agent with these specific tools
-    const agent = getOrCreateAgent(selectedTools, timezone, userId, llm);
+    const agent = getOrCreateAgent(selectedTools, timezone, userId, llm, userPrefs);
 
     // Step 5: Stream events from the agent (inject fresh time reminder before user query)
     const agentNow = new Date();

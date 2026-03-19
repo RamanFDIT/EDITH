@@ -18,7 +18,7 @@ const Intro = () => {
             <div className = {styles.container}>
                 <h1 className = {styles.header}>E.D.I.T.H.</h1>
                 <p className = {styles.description}>Engineered as an intelligent AI agent, EDITH automates complex project management tasks across Jira, GitHub, Slack, and Google Calendar. It streamlines developer workflows, transforming fragmented toolchains into a unified system.</p>
-                <Button label = "Next" onClick={() => navigate('/onboarding')} />
+                <Button label = "Next" onClick={() => navigate('/user-setup')} />
             </div>
         </section>
     );

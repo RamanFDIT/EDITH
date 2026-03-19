@@ -44,6 +44,33 @@ export const AppProvider = ({ children }) => {
         refreshOauthStatus();
     }, [refreshOauthStatus]);
 
+    // --- User Preferences (Persistence) ---
+    const [preferredName, setPreferredName] = useState(() => {
+        return localStorage.getItem('edith_preferred_name') || '';
+    });
+    const [titlePreference, setTitlePreference] = useState(() => {
+        return localStorage.getItem('edith_title_preference') || 'Sir';
+    });
+
+    const updateUserPreferences = useCallback(async (name, title) => {
+        setPreferredName(name);
+        setTitlePreference(title);
+        localStorage.setItem('edith_preferred_name', name);
+        localStorage.setItem('edith_title_preference', title);
+        try {
+            await fetch(`${API_URL}/api/user/preferences`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-User-ID': userId,
+                },
+                body: JSON.stringify({ preferredName: name, titlePreference: title }),
+            });
+        } catch (err) {
+            console.error('Failed to save user preferences:', err);
+        }
+    }, [userId]);
+
     // --- Chat Messages (persists across navigation) ---
     const [messages, setMessages] = useState([]);
     const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -55,6 +82,9 @@ export const AppProvider = ({ children }) => {
         oauthStatus,
         setOauthStatus,
         refreshOauthStatus,
+        preferredName,
+        titlePreference,
+        updateUserPreferences,
         messages,
         setMessages,
         historyLoaded,

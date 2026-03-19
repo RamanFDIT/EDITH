@@ -6,13 +6,14 @@ import { AppProvider } from './context/AppContext.jsx';
 import Settings from './Pages/Settings/Settings.jsx';
 import Intro from './Pages/Intro/Intro.jsx';
 import Onboarding from './Pages/Onboarding/Onboarding.jsx';
+import UserSetup from './Pages/UserSetup/UserSetup.jsx';
 import ConnectionPage from './Pages/ConnectionPage/ConnectionPage.jsx';
 import Home from './Pages/Home/Home.jsx';
 import NotFound from './Pages/NotFound/NotFound.jsx';
 import { ProtectedRoute } from './components/Navigation/ProtectedRoute.jsx';
 import { PublicOnlyRoute } from './components/Navigation/PublicOnlyRoute.jsx';
 
-const hideNavBarRoutes = ['/', '/onboarding', '/connectionPage'];
+const hideNavBarRoutes = ['/', '/user-setup', '/onboarding', '/connectionPage'];
 
 function AppContent() {
   const location = useLocation();
@@ -25,6 +26,7 @@ function AppContent() {
           {showNavBar && <NavBar />}
           <Routes>
             <Route path="/" element={<PublicOnlyRoute><Intro /></PublicOnlyRoute>} />
+            <Route path="/user-setup" element={<PublicOnlyRoute><UserSetup /></PublicOnlyRoute>} />
             <Route path="/onboarding" element={<PublicOnlyRoute><Onboarding /></PublicOnlyRoute>} />
             <Route path="/connectionPage" element={<PublicOnlyRoute><ConnectionPage /></PublicOnlyRoute>} />
             
