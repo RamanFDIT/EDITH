@@ -51,71 +51,36 @@ function validateCredential(key, name) {
 async function getLLMForUser(userId) {
   const provider = (process.env.LLM_PROVIDER || 'auto').toLowerCase();
   
-  // 1. GEMINI (User OAuth — Priority)
-  // We can use the user's Google OAuth token to authenticate with Gemini
-  // via a custom fetch interceptor. This avoids the need for personal API keys.
-  if (provider === 'gemini' || provider === 'auto') {
-    const googleToken = await getValidToken(userId, 'google');
-    if (validateCredential(googleToken, 'Google OAuth Token')) {
-      console.log(`[LLM] Using Gemini via User OAuth for ${userId}`);
-      const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-      
-      // The standard @langchain/google-genai forces the use of '?key=API_KEY' in the URL.
-      // We provide a dummy key to bypass validation, then use a custom fetch client
-      // to strip the dummy key from the URL and inject the actual OAuth token via a Bearer header.
-      const customFetch = async (url, options) => {
-        const urlObj = new URL(url);
-        urlObj.searchParams.delete('key'); // Remove the dummy API key
-        
-        const headers = new Headers(options.headers || {});
-        headers.set('Authorization', `Bearer ${googleToken}`);
-        
-        return fetch(urlObj.toString(), {
-          ...options,
-          headers: headers
-        });
-      };
-
-      const llm = new ChatGoogleGenerativeAI(model, {
-        apiKey: "dummy-key",
-        customClient: customFetch
-      });
-      const classifier = new ChatGoogleGenerativeAI('gemini-2.0-flash-lite', {
-        temperature: 0,
-        apiKey: "dummy-key",
-        customClient: customFetch
-      });
-      return { llm, classifier, provider: 'gemini_oauth' };
-    }
-  }
-
-  // 2. GITHUB (Azure Inference)
-  // REQUIRES a Personal Access Token (PAT). Standard OAuth tokens fail with 401.
+  // 1. GITHUB (GitHub Models via standard OAuth - PRIORITY)
+  // We can use standard GitHub OAuth App tokens with the official GitHub Models endpoint.
+  // This provides users with free gpt-4o requests without needing personal API keys.
   if (provider === 'github' || provider === 'auto') {
     const githubToken = await getValidToken(userId, 'github');
-    // Only use if it's clearly a PAT (ghp_ or github_pat_) to avoid 401 Bad Credentials
-    const isPAT = githubToken && (githubToken.startsWith('ghp_') || githubToken.startsWith('github_pat_'));
     
-    if (isPAT && validateCredential(githubToken, 'GitHub PAT')) {
+    // We removed the strict 'ghp_' check because standard OAuth tokens ('gho_') 
+    // are officially supported by the models.github.ai endpoint.
+    if (validateCredential(githubToken, 'GitHub Token')) {
       console.log(`[LLM] Using GitHub Models for user ${userId} (${githubToken.substring(0, 8)}...)`);
       const modelName = process.env.GITHUB_MODEL || 'gpt-4o';
       const llm = new ChatOpenAI({
         modelName: modelName,
         openAIApiKey: githubToken,
-        configuration: { baseURL: 'https://models.inference.ai.azure.com' },
+        configuration: { baseURL: 'https://models.github.ai/inference' },
       });
       const classifier = new ChatOpenAI({
         modelName: 'gpt-4o-mini',
         openAIApiKey: githubToken,
         temperature: 0,
-        configuration: { baseURL: 'https://models.inference.ai.azure.com' },
+        configuration: { baseURL: 'https://models.github.ai/inference' },
       });
       return { llm, classifier, provider: 'github' };
     }
-    if (provider === 'github') throw new Error("GitHub account not connected or PAT invalid.");
+    if (provider === 'github') throw new Error("GitHub account not connected or Token invalid.");
   }
 
-  // 3. GEMINI (Global Key)
+  // 2. GEMINI (Global Key - Fallback)
+  // Note: We removed the user OAuth token approach for Gemini because the 
+  // 'generative-language' scope requires strict Google Cloud App Verification.
   if (provider === 'gemini' || provider === 'auto') {
     const apiKey = process.env.GOOGLE_API_KEY;
     if (validateCredential(apiKey, 'Gemini API Key Config')) {

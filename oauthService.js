@@ -25,7 +25,6 @@ function getOAuthProviders() {
         'https://www.googleapis.com/auth/gmail.send',
         'https://www.googleapis.com/auth/gmail.readonly',
         'https://www.googleapis.com/auth/gmail.compose',
-        'https://www.googleapis.com/auth/generative-language',
       ],
       redirectUri: callbackUrl,
       extraParams: { access_type: 'offline', prompt: 'consent' },
