@@ -707,8 +707,16 @@ async function classifyIntent(userMessage, chatHistory = [], classifier) {
                 return `${role}: ${m.content}`;
             }).join('\n') + "\n\nUser message: ";
         }
-        const prompt = CLASSIFIER_PROMPT.replace('User message: ', contextBlock ? contextBlock : 'User message: ');
         
+        // Safety check for CLASSIFIER_PROMPT
+        const promptBase = (typeof CLASSIFIER_PROMPT !== 'undefined') ? CLASSIFIER_PROMPT : "Classify user intent: ";
+        const prompt = promptBase.replace('User message: ', contextBlock ? contextBlock : 'User message: ');
+        
+        if (!classifier) {
+            console.warn("[Traffic Cop] Classifier LLM missing, defaulting to General.");
+            return ['general'];
+        }
+
         const response = await classifier.invoke(prompt + userMessage);
         const categories = response.content.toLowerCase().trim().split(',').map(c => c.trim());
         const validCategories = categories.filter(c => toolsByCategory.hasOwnProperty(c));
@@ -917,11 +925,17 @@ function getOrCreateAgent(tools, userTimezone, userId, userLLM) {
 // The main processing function that classifies intent and routes to appropriate agent
 async function processWithSemanticRouting(input) {
     process.env.ACTIVE_REQUEST = 'true';
-    const { input: userQuery, chat_history } = input;
+    // input usually contains { input, chat_history, userId, timezone } 
+    // when coming from agentExecutor.invoke
+    const { input: userQuery, chat_history, userId, timezone } = input;
+    
+    // We MUST initialize the LLM for this specific user
+    const { llm, classifier } = await getLLMForUser(userId);
+    
     const history = sanitizeHistoryForTools(trimHistory(Array.isArray(chat_history) ? chat_history : []));
     
     // Step 1: Classify intent using the Traffic Cop (now with context)
-    const categories = await classifyIntent(userQuery, history);
+    const categories = await classifyIntent(userQuery, history, classifier);
     
     // Step 2: Get the appropriate tools for the classified categories
     const selectedTools = getToolsForCategories(categories);
@@ -932,7 +946,6 @@ async function processWithSemanticRouting(input) {
     if (selectedTools.length === 0) {
         console.log("[Traffic Cop] General conversation - using direct LLM call");
         
-        // getSystemPrompt() already returns a SystemMessage — don't double-wrap
         const systemPrompt = getSystemPrompt(timezone);
         const noToolsGuard = new HumanMessage(
             "[SYSTEM NOTICE] IMPORTANT: You have NO tools available in this response. " +
@@ -944,8 +957,9 @@ async function processWithSemanticRouting(input) {
             "and ask them to rephrase or be more specific."
         );
         const now = new Date();
-        const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: timezone };
-        const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: timezone };
+        const effectiveTimezone = timezone || 'UTC';
+        const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: effectiveTimezone };
+        const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: effectiveTimezone };
         const freshTimeReminder = new HumanMessage(
             `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', timeOptions)} on ${now.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
         );
@@ -962,12 +976,13 @@ async function processWithSemanticRouting(input) {
     }
     
     // Step 4: Get or create an agent with these specific tools
-    const agent = getOrCreateAgent(selectedTools, timezone);
+    const agent = getOrCreateAgent(selectedTools, timezone, userId, llm);
 
     // Step 5: Execute the agent (inject fresh time reminder before user query)
     const now = new Date();
-    const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: timezone };
-    const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: timezone };
+    const effectiveTimezone = timezone || 'UTC';
+    const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: effectiveTimezone };
+    const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: effectiveTimezone };
     const freshTimeReminder = new HumanMessage(
         `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', timeOptions)} on ${now.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
     );
