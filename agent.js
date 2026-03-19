@@ -53,22 +53,40 @@ async function getLLMForUser(userId) {
   
   // 1. GEMINI (User OAuth — Priority)
   // We can use the user's Google OAuth token to authenticate with Gemini
-  // via the OpenAI-compatible endpoint. This avoids the need for personal API keys.
+  // via a custom fetch interceptor. This avoids the need for personal API keys.
   if (provider === 'gemini' || provider === 'auto') {
     const googleToken = await getValidToken(userId, 'google');
     if (validateCredential(googleToken, 'Google OAuth Token')) {
       console.log(`[LLM] Using Gemini via User OAuth for ${userId}`);
-      const model = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
-      const llm = new ChatOpenAI({
+      const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+      
+      // The standard @langchain/google-genai forces the use of '?key=API_KEY' in the URL.
+      // We provide a dummy key to bypass validation, then use a custom fetch client
+      // to strip the dummy key from the URL and inject the actual OAuth token via a Bearer header.
+      const customFetch = async (url, options) => {
+        const urlObj = new URL(url);
+        urlObj.searchParams.delete('key'); // Remove the dummy API key
+        
+        const modifiedOptions = {
+          ...options,
+          headers: {
+            ...options?.headers,
+            'Authorization': `Bearer ${googleToken}`
+          }
+        };
+        return fetch(urlObj.toString(), modifiedOptions);
+      };
+
+      const llm = new ChatGoogleGenerativeAI({
         modelName: model,
-        openAIApiKey: googleToken,
-        configuration: { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/' },
+        apiKey: "dummy-key-required-by-lib",
+        customClient: customFetch
       });
-      const classifier = new ChatOpenAI({
-        modelName: 'gemini-1.5-flash',
-        openAIApiKey: googleToken,
+      const classifier = new ChatGoogleGenerativeAI({
+        modelName: 'gemini-2.0-flash-lite',
         temperature: 0,
-        configuration: { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/' },
+        apiKey: "dummy-key-required-by-lib",
+        customClient: customFetch
       });
       return { llm, classifier, provider: 'gemini_oauth' };
     }
