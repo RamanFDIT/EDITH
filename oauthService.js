@@ -6,6 +6,55 @@ import { User } from './db.js';
  * oauthService.js — Refactored for Web (Server-Side)
  */
 
+// --- ENCRYPTION HELPERS ---
+const ALGORITHM = 'aes-256-cbc';
+
+function getValidKey() {
+  const key = process.env.ENCRYPTION_KEY || 'default_insecure_dev_key_do_not_use_in_prod';
+  if (!process.env.ENCRYPTION_KEY) {
+    console.warn('[SECURITY WARNING] ENCRYPTION_KEY environment variable is missing. Using insecure fallback key.');
+  }
+  // Hash the key to ensure it's exactly 32 bytes (256 bits)
+  return crypto.createHash('sha256').update(String(key)).digest('base64').substring(0, 32);
+}
+
+function encryptToken(text) {
+  if (!text) return text;
+  try {
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv(ALGORITHM, getValidKey(), iv);
+    let encrypted = cipher.update(text, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    return iv.toString('hex') + ':' + encrypted;
+  } catch (err) {
+    console.error('[Encryption] Failed to encrypt token');
+    return text; // Fallback, though ideally it should throw in a strict system
+  }
+}
+
+function decryptToken(text) {
+  if (!text) return text;
+  // Check if it looks like our encrypted format (iv:data)
+  if (!text.includes(':')) {
+    // Legacy plain-text token
+    return text; 
+  }
+  
+  try {
+    const textParts = text.split(':');
+    const iv = Buffer.from(textParts.shift(), 'hex');
+    const encryptedText = Buffer.from(textParts.join(':'), 'hex');
+    const decipher = crypto.createDecipheriv(ALGORITHM, getValidKey(), iv);
+    let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (err) {
+    console.error('[Encryption] Failed to decrypt token - it may be corrupted or from an old key.');
+    return null; // Return null if decryption fails (forces user to re-auth)
+  }
+}
+// --------------------------
+
 function getOAuthProviders() {
   const baseUrl = process.env.APP_URL || 'http://localhost:3000';
   if (!process.env.APP_URL) {
@@ -75,7 +124,15 @@ function getOAuthProviders() {
 export async function getStoredTokens(userId, provider) {
   const user = await User.findById(userId);
   if (!user || !user.tokens || !user.tokens[provider]) return null;
-  return user.tokens[provider];
+  
+  const tokens = user.tokens[provider];
+  
+  // Decrypt tokens before returning to the application
+  return {
+    ...tokens.toObject(),
+    access_token: decryptToken(tokens.access_token),
+    refresh_token: tokens.refresh_token ? decryptToken(tokens.refresh_token) : undefined
+  };
 }
 
 export function isTokenExpired(tokens) {
@@ -89,21 +146,21 @@ export async function storeTokens(userId, provider, tokenData) {
     : (provider === 'slack' ? new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000) : null);
 
   const update = {
-    [`tokens.${provider}.access_token`]: tokenData.access_token,
+    [`tokens.${provider}.access_token`]: encryptToken(tokenData.access_token),
     [`tokens.${provider}.token_type`]: tokenData.token_type || 'Bearer',
     [`tokens.${provider}.scope`]: tokenData.scope || '',
     [`tokens.${provider}.expires_at`]: expiresAt,
   };
 
   if (tokenData.refresh_token) {
-    update[`tokens.${provider}.refresh_token`] = tokenData.refresh_token;
+    update[`tokens.${provider}.refresh_token`] = encryptToken(tokenData.refresh_token);
   }
 
   if (tokenData.cloud_id) update[`tokens.${provider}.cloud_id`] = tokenData.cloud_id;
   if (tokenData.cloud_url) update[`tokens.${provider}.cloud_url`] = tokenData.cloud_url;
 
   await User.findByIdAndUpdate(userId, { $set: update }, { upsert: true });
-  console.log(`[OAuth] Stored tokens for user ${userId}, provider ${provider}`);
+  console.log(`[OAuth] Stored encrypted tokens for user ${userId}, provider ${provider}`);
 }
 
 export async function clearTokens(userId, provider) {
@@ -118,8 +175,16 @@ export async function getConnectionStatus(userId) {
   
   for (const provider of Object.keys(providers)) {
     const tokens = user?.tokens?.[provider];
+    
+    // Test decryption to ensure key matches
+    let isValid = false;
+    if (tokens?.access_token) {
+       const decrypted = decryptToken(tokens.access_token);
+       isValid = decrypted !== null;
+    }
+
     status[provider] = {
-      connected: !!tokens?.access_token,
+      connected: isValid,
       expired: tokens ? isTokenExpired(tokens) : true,
       hasRefreshToken: !!tokens?.refresh_token,
     };

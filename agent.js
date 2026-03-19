@@ -57,7 +57,7 @@ async function getLLMForUser(userId) {
   if (provider === 'github' || provider === 'auto') {
     const githubToken = await getValidToken(userId, 'github');
     
-    // We removed the strict 'ghp_' check because standard OAuth tokens ('gho_') 
+    // We removed the strict 'ghp_' check because standard OAuth tokens ('ghu_' or 'gho_') 
     // are officially supported by the models.github.ai endpoint.
     if (validateCredential(githubToken, 'GitHub Token')) {
       console.log(`[LLM] Using GitHub Models for user ${userId} (${githubToken.substring(0, 8)}...)`);
@@ -65,13 +65,13 @@ async function getLLMForUser(userId) {
       const llm = new ChatOpenAI({
         modelName: modelName,
         openAIApiKey: githubToken,
-        configuration: { baseURL: 'https://models.inference.ai.azure.com' },
+        configuration: { baseURL: 'https://models.github.ai/inference' },
       });
       const classifier = new ChatOpenAI({
         modelName: 'gpt-4o-mini',
         openAIApiKey: githubToken,
         temperature: 0,
-        configuration: { baseURL: 'https://models.inference.ai.azure.com' },
+        configuration: { baseURL: 'https://models.github.ai/inference' },
       });
       return { llm, classifier, provider: 'github' };
     }
