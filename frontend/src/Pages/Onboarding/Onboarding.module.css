@@ -1,22 +1,22 @@
 @reference "../../index.css";
 
 .logo {
-    @apply text-bgCTA w-43 h-auto;
+    @apply text-bgCTA w-32 md:w-43 h-auto;
 }
 .logoRow {
     @apply flex items-center gap-4;
 }
 .container {
-    @apply w-full max-w-200 h-screen flex items-center justify-center flex-col gap-10;
+    @apply w-full max-w-200 h-screen flex items-center justify-center flex-col gap-8 md:gap-10 px-6 md:px-4;
 }
-.mainSection{
+.mainSection {
     @apply w-screen h-screen bg-bgPrimary flex items-center justify-center;
 }
 .questionContainer {
-    @apply w-full flex flex-col justify-center items-center gap-20;
+    @apply w-full flex flex-col justify-center items-center gap-12 md:gap-20;
 }
 .question {
-    @apply text-2xl font-fontBody w-full text-textPrimary font-semibold text-center;
+    @apply text-xl md:text-2xl font-fontBody w-full text-textPrimary font-semibold text-center;
 }
 .optionContainer {
     @apply flex flex-col gap-5;

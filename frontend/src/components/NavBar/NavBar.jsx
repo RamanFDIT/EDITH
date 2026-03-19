@@ -4,7 +4,7 @@ import Logo from '../../assets/EDITH.svg?react';
 import settings from '../../assets/settings.svg';
 import hamburger from '../../assets/hamburger.svg';
 import { useEffect } from 'react';
-import { Github, Figma, Calendar, MessageSquare, Plus, LogOut } from 'lucide-react';
+import { Github, Figma, Calendar, MessageSquare, Plus, LogOut, Menu, X } from 'lucide-react';
 import { useNavBar } from './NavBarContext.jsx';
 import { useApp } from '../../context/AppContext.jsx';
 
@@ -25,7 +25,7 @@ const toolIcons = {
 };
 
 const NavBar = () => {
-  const { expanded: toggle, setExpanded } = useNavBar();
+  const { expanded: toggle, setExpanded, mobileOpen, setMobileOpen } = useNavBar();
   const { oauthStatus, refreshOauthStatus } = useApp();
   const navigate = useNavigate();
 
@@ -37,55 +37,104 @@ const NavBar = () => {
     setExpanded(!toggle);
   };
 
+  const closeMobile = () => setMobileOpen(false);
+
   useEffect(() => {
     refreshOauthStatus();
   }, [refreshOauthStatus]);
 
-  return (
-    <nav className={toggle ? styles.navBar : styles.navBarCompact}>
-      <div className = {toggle ? styles.logoContainer : styles.logoContainerCompact}>
-        <Logo
-          className = {toggle ? styles.logo : styles.displayNone}
-          alt = "EDITH Logo"
-          onClick={() => navigate('/home')}
-          style={{ cursor: 'pointer' }}
-        />
-        <img onClick = {handleClick} src = {hamburger} className = {styles.hamburger} alt = "arrow"></img>
-      </div>
-      <div className = {styles.activeToolContainer}>
-        <div className= {toggle ? styles.toolsContainer : styles.toolsContainerCompact}>
+  /* Shared nav content used by both desktop and mobile */
+  const navContent = (isMobile = false) => (
+    <>
+      <div className={styles.activeToolContainer}>
+        <div className={toggle || isMobile ? styles.toolsContainer : styles.toolsContainerCompact}>
           {connectedTools.map((provider) => {
             const Icon = toolIcons[provider];
             return (
               <div key={provider} className={styles.tools}>
                 <div className={styles.activeTools}></div>
                 {Icon && <Icon size={18} className={styles.toolIcon} />}
-                <p className={toggle ? styles.toolName : styles.displayNone}>
+                <p className={(toggle || isMobile) ? styles.toolName : styles.displayNone}>
                   {toolDisplayNames[provider]}
                 </p>
               </div>
             );
           })}
         </div>
-        <div className = {styles.settingContainer}>
+        <div className={styles.settingContainer}>
           <NavLink
-          className = {toggle ? styles.profile : styles.profileCompact}
-          to = "/settings">
-            <img src = {settings} className = {styles.settings} alt = "settings"></img>
-            <p className = {!toggle && styles.displayNone }>Settings</p>
+            className={(toggle || isMobile) ? styles.profile : styles.profileCompact}
+            to="/settings"
+            onClick={isMobile ? closeMobile : undefined}
+          >
+            <img src={settings} className={styles.settings} alt="settings" />
+            <p className={(!toggle && !isMobile) ? styles.displayNone : undefined}>Settings</p>
           </NavLink>
           <button
-            className={toggle ? styles.logoutButton : styles.logoutButtonCompact}
+            className={(toggle || isMobile) ? styles.logoutButton : styles.logoutButtonCompact}
             onClick={() => {
+              if (isMobile) closeMobile();
               navigate('/');
             }}
           >
             <LogOut size={20} className={styles.logoutIcon} />
-            <p className={!toggle ? styles.displayNone : undefined}>Log Out</p>
+            <p className={(!toggle && !isMobile) ? styles.displayNone : undefined}>Log Out</p>
           </button>
-       </div>
+        </div>
       </div>
-    </nav>
+    </>
+  );
+
+  return (
+    <>
+      {/* ── Mobile Top Bar (< md) ── */}
+      <div className={styles.mobileTopBar}>
+        <Logo
+          className={styles.mobilelogo}
+          alt="EDITH Logo"
+          onClick={() => navigate('/home')}
+          style={{ cursor: 'pointer' }}
+        />
+        <button onClick={() => setMobileOpen(true)} className={styles.mobileMenuBtn}>
+          <Menu size={24} />
+        </button>
+      </div>
+
+      {/* ── Mobile Overlay Nav (< md) ── */}
+      {mobileOpen && (
+        <div className={styles.mobileOverlay}>
+          <div className={styles.mobileBackdrop} onClick={closeMobile} />
+          <div className={styles.mobileNav}>
+            <div className={styles.mobileNavHeader}>
+              <Logo
+                className={styles.logo}
+                alt="EDITH Logo"
+                onClick={() => { closeMobile(); navigate('/home'); }}
+                style={{ cursor: 'pointer' }}
+              />
+              <button onClick={closeMobile} className={styles.mobileCloseBtn}>
+                <X size={24} />
+              </button>
+            </div>
+            {navContent(true)}
+          </div>
+        </div>
+      )}
+
+      {/* ── Desktop Sidebar (>= md) ── */}
+      <nav className={toggle ? styles.navBar : styles.navBarCompact}>
+        <div className={toggle ? styles.logoContainer : styles.logoContainerCompact}>
+          <Logo
+            className={toggle ? styles.logo : styles.displayNone}
+            alt="EDITH Logo"
+            onClick={() => navigate('/home')}
+            style={{ cursor: 'pointer' }}
+          />
+          <img onClick={handleClick} src={hamburger} className={styles.hamburger} alt="arrow" />
+        </div>
+        {navContent(false)}
+      </nav>
+    </>
   );
 };
 

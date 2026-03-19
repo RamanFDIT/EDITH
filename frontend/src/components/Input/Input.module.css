@@ -14,7 +14,7 @@
     @apply text-textPrimary/50 hover:text-textPrimary cursor-pointer;
 }
 .inputContainer {
-    @apply w-full flex items-end gap-3;
+    @apply w-full flex items-end gap-2 md:gap-3;
 }
 .attachButton {
     @apply bg-bgComponents text-textPrimary/60 font-fontDisplay
@@ -49,10 +49,13 @@
 }
 .sendButton {
     @apply bg-bgCTA text-textCTA font-fontDisplay font-semibold text-sm
-           px-5 py-3 rounded-sm
+           px-4 md:px-5 py-3 rounded-sm
            hover:bg-bgHover hover:text-bgCTA hover:cursor-pointer
            transition-all ease-out active:scale-95
            disabled:opacity-30 disabled:cursor-default disabled:hover:bg-bgCTA disabled:hover:text-textCTA disabled:active:scale-100;
+}
+.sendButton:not(:disabled) {
+    animation: glow-cta 3s ease-in-out infinite alternate;
 }
 
 /* Live transcription banner — shown while mic is active */

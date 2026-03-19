@@ -4,10 +4,12 @@
     @apply w-screen h-screen bg-bgPrimary flex;
 }
 .container {
-    @apply ml-65 w-full h-full flex flex-col py-12 px-16 overflow-y-auto transition-all duration-300 ease-in-out;
+    @apply ml-0 md:ml-65 w-full h-full flex flex-col py-8 md:py-12 px-4 md:px-16
+           overflow-y-auto transition-all duration-300 ease-in-out pt-20 md:pt-12;
 }
 .containerCompact {
-    @apply ml-15 w-full h-full flex flex-col py-12 px-16 overflow-y-auto transition-all duration-300 ease-in-out;
+    @apply ml-0 md:ml-15 w-full h-full flex flex-col py-8 md:py-12 px-4 md:px-16
+           overflow-y-auto transition-all duration-300 ease-in-out pt-20 md:pt-12;
 }
 .header {
     @apply text-bgCTA font-fontDisplay text-4xl font-semibold;
@@ -40,10 +42,14 @@
     @apply flex flex-col gap-4;
 }
 .oauthCard {
-    @apply bg-bgComponents rounded-sm px-6 py-5 flex items-center justify-between;
+    @apply bg-bgComponents rounded-sm px-4 md:px-6 py-4 md:py-5
+           flex flex-col sm:flex-row items-start sm:items-center
+           gap-3 sm:justify-between;
 }
 .oauthCardConnected {
-    @apply bg-bgComponents rounded-sm px-6 py-5 flex items-center justify-between border border-colorSuccess/20;
+    @apply bg-bgComponents rounded-sm px-4 md:px-6 py-4 md:py-5
+           flex flex-col sm:flex-row items-start sm:items-center
+           gap-3 sm:justify-between border border-colorSuccess/20;
 }
 .cardInfo {
     @apply flex items-center gap-4;

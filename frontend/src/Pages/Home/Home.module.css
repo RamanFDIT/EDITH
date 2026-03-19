@@ -4,16 +4,18 @@
     @apply w-screen h-screen bg-bgPrimary flex;
 }
 .container {
-    @apply ml-65 w-full h-screen flex flex-col transition-all duration-300 ease-in-out;
+    @apply ml-0 md:ml-65 w-full h-screen flex flex-col transition-all duration-300 ease-in-out
+           pt-14 md:pt-0;
 }
 .containerCompact {
-    @apply ml-15 w-full h-screen flex flex-col transition-all duration-300 ease-in-out;
+    @apply ml-0 md:ml-15 w-full h-screen flex flex-col transition-all duration-300 ease-in-out
+           pt-14 md:pt-0;
 }
 .messageArea {
-    @apply flex-1 overflow-y-auto px-12 py-8 flex flex-col gap-6;
+    @apply flex-1 overflow-y-auto px-4 md:px-12 py-6 md:py-8 flex flex-col gap-4 md:gap-6;
 }
 .inputArea {
-    @apply px-12 py-6 border-t border-bgComponents;
+    @apply px-4 md:px-12 py-4 md:py-6 border-t border-bgComponents;
 }
 .inputRow {
     @apply flex items-end gap-3;
@@ -37,4 +39,3 @@
 .loadingText {
     @apply text-textPrimary/40 font-fontBody text-sm text-center py-2;
 }
-
