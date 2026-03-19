@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import fetch from 'node-fetch';
 import { User } from './db.js';
 
@@ -10,12 +12,16 @@ import { User } from './db.js';
 const ALGORITHM = 'aes-256-cbc';
 
 function getValidKey() {
-  const key = process.env.ENCRYPTION_KEY || 'default_insecure_dev_key_do_not_use_in_prod';
   if (!process.env.ENCRYPTION_KEY) {
-    console.warn('[SECURITY WARNING] ENCRYPTION_KEY environment variable is missing. Using insecure fallback key.');
+    const generated = crypto.randomBytes(32).toString('hex');
+    // Persist to .env so it survives restarts
+    const envPath = path.resolve(process.cwd(), '.env');
+    fs.appendFileSync(envPath, `\nENCRYPTION_KEY=${generated}\n`);
+    process.env.ENCRYPTION_KEY = generated;
+    console.log('[Security] Auto-generated ENCRYPTION_KEY and saved to .env');
   }
   // Hash the key to ensure it's exactly 32 bytes (256 bits)
-  return crypto.createHash('sha256').update(String(key)).digest('base64').substring(0, 32);
+  return crypto.createHash('sha256').update(String(process.env.ENCRYPTION_KEY)).digest('base64').substring(0, 32);
 }
 
 function encryptToken(text) {

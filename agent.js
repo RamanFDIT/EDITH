@@ -48,8 +48,19 @@ function validateCredential(key, name) {
   return true;
 }
 
+// Cache LLM instances per user+provider to avoid re-creating on every message
+const llmCache = new Map();
+const LLM_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 async function getLLMForUser(userId) {
   const provider = (process.env.LLM_PROVIDER || 'auto').toLowerCase();
+
+  const cacheKey = `${userId}:${provider}`;
+  const cached = llmCache.get(cacheKey);
+  if (cached && (Date.now() - cached.createdAt < LLM_CACHE_TTL)) {
+    console.log(`[LLM] Cache hit for user ${userId} (${cached.provider})`);
+    return { llm: cached.llm, classifier: cached.classifier, provider: cached.provider };
+  }
   
   // 1. GITHUB (GitHub Models via standard OAuth - PRIORITY)
   // We can use standard GitHub OAuth App tokens with the official GitHub Models endpoint.
@@ -61,23 +72,6 @@ async function getLLMForUser(userId) {
     // are officially supported by the models.github.ai endpoint.
     if (validateCredential(githubToken, 'GitHub Token')) {
       console.log(`[LLM] Using GitHub Models for user ${userId} (token prefix: ${githubToken.substring(0, 4)}, length: ${githubToken.length})`);
-
-      // Quick health-check against the endpoint so we get a clear error
-      try {
-        const testRes = await fetch('https://models.github.ai/inference/chat/completions', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${githubToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 }),
-        });
-        if (!testRes.ok) {
-          const errBody = await testRes.text();
-          console.error(`[LLM] GitHub Models health-check FAILED: ${testRes.status} ${testRes.statusText} — ${errBody}`);
-        } else {
-          console.log(`[LLM] GitHub Models health-check OK (${testRes.status})`);
-        }
-      } catch (e) {
-        console.error(`[LLM] GitHub Models health-check error:`, e.message);
-      }
 
       const modelName = process.env.GITHUB_MODEL || 'gpt-4o';
       const ghBaseURL = 'https://models.github.ai/inference';
@@ -92,7 +86,9 @@ async function getLLMForUser(userId) {
         temperature: 0,
         configuration: { baseURL: ghBaseURL, apiKey: githubToken },
       });
-      return { llm, classifier, provider: 'github' };
+      const result = { llm, classifier, provider: 'github' };
+      llmCache.set(cacheKey, { ...result, createdAt: Date.now() });
+      return result;
     }
     if (provider === 'github') throw new Error("GitHub account not connected or Token invalid.");
   }
@@ -106,7 +102,9 @@ async function getLLMForUser(userId) {
       console.log(`[LLM] Using Gemini for user ${userId} (Global Key)`);
       const llm = new ChatGoogleGenerativeAI("gemini-2.5-flash", { apiKey: apiKey });
       const classifier = new ChatGoogleGenerativeAI("gemini-2.0-flash-lite", { apiKey: apiKey, temperature: 0 });
-      return { llm, classifier, provider: 'gemini' };
+      const result = { llm, classifier, provider: 'gemini' };
+      llmCache.set(cacheKey, { ...result, createdAt: Date.now() });
+      return result;
     }
     if (provider === 'gemini') throw new Error("Gemini API key not configured in environment variables.");
   }
@@ -118,7 +116,9 @@ async function getLLMForUser(userId) {
     console.log(`[LLM] Using Ollama for user ${userId}`);
     const llm = new ChatOllama({ baseUrl: ollamaBaseUrl, model: ollamaModel });
     const classifier = new ChatOllama({ baseUrl: ollamaBaseUrl, model: ollamaModel, temperature: 0 });
-    return { llm, classifier, provider: 'ollama' };
+    const result = { llm, classifier, provider: 'ollama' };
+    llmCache.set(cacheKey, { ...result, createdAt: Date.now() });
+    return result;
   }
 
   throw new Error("No LLM provider config available. Please connect Google/GitHub or run Ollama.");
@@ -674,9 +674,9 @@ async function classifyIntent(userMessage, chatHistory = [], classifier) {
         }
     }
 
-    if (wordCount < 5) {
+    if (wordCount < 8) {
         console.log("[Traffic Cop] Short query with no context. Defaulting to General.");
-        return ['general']; 
+        return ['general'];
     }
 
     // 4. SLOW PASS: Fallback to LLM for ambiguous queries
