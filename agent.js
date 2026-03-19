@@ -67,14 +67,13 @@ async function getLLMForUser(userId) {
         const urlObj = new URL(url);
         urlObj.searchParams.delete('key'); // Remove the dummy API key
         
-        const modifiedOptions = {
+        const headers = new Headers(options.headers || {});
+        headers.set('Authorization', `Bearer ${googleToken}`);
+        
+        return fetch(urlObj.toString(), {
           ...options,
-          headers: {
-            ...options?.headers,
-            'Authorization': `Bearer ${googleToken}`
-          }
-        };
-        return fetch(urlObj.toString(), modifiedOptions);
+          headers: headers
+        });
       };
 
       const llm = new ChatGoogleGenerativeAI(model, {
