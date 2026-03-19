@@ -77,15 +77,13 @@ async function getLLMForUser(userId) {
         return fetch(urlObj.toString(), modifiedOptions);
       };
 
-      const llm = new ChatGoogleGenerativeAI({
-        modelName: model,
-        apiKey: "dummy-key-required-by-lib",
+      const llm = new ChatGoogleGenerativeAI(model, {
+        apiKey: "dummy-key",
         customClient: customFetch
       });
-      const classifier = new ChatGoogleGenerativeAI({
-        modelName: 'gemini-2.0-flash-lite',
+      const classifier = new ChatGoogleGenerativeAI('gemini-2.0-flash-lite', {
         temperature: 0,
-        apiKey: "dummy-key-required-by-lib",
+        apiKey: "dummy-key",
         customClient: customFetch
       });
       return { llm, classifier, provider: 'gemini_oauth' };
@@ -123,8 +121,8 @@ async function getLLMForUser(userId) {
     const apiKey = process.env.GOOGLE_API_KEY;
     if (validateCredential(apiKey, 'Gemini API Key Config')) {
       console.log(`[LLM] Using Gemini for user ${userId} (Global Key)`);
-      const llm = new ChatGoogleGenerativeAI({ apiKey: apiKey, model: "gemini-2.5-flash" });
-      const classifier = new ChatGoogleGenerativeAI({ apiKey: apiKey, model: "gemini-2.0-flash-lite", temperature: 0 });
+      const llm = new ChatGoogleGenerativeAI("gemini-2.5-flash", { apiKey: apiKey });
+      const classifier = new ChatGoogleGenerativeAI("gemini-2.0-flash-lite", { apiKey: apiKey, temperature: 0 });
       return { llm, classifier, provider: 'gemini' };
     }
     if (provider === 'gemini') throw new Error("Gemini API key not configured in environment variables.");
