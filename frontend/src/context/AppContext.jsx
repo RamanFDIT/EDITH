@@ -25,7 +25,10 @@ export const AppProvider = ({ children }) => {
     };
 
     // --- OAuth Status (shared across NavBar, Settings, ConnectionPage) ---
-    const [oauthStatus, setOauthStatus] = useState({});
+    const [oauthStatus, setOauthStatus] = useState(() => {
+        const saved = localStorage.getItem('edith_oauth_status');
+        return saved ? JSON.parse(saved) : {};
+    });
 
     const refreshOauthStatus = useCallback(async () => {
         try {
@@ -34,6 +37,7 @@ export const AppProvider = ({ children }) => {
             });
             const status = await res.json();
             setOauthStatus(status);
+            localStorage.setItem('edith_oauth_status', JSON.stringify(status));
         } catch (err) {
             console.error('Failed to refresh OAuth status:', err);
         }

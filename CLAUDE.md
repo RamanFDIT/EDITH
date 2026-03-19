@@ -11,7 +11,8 @@ EDITH (Enhanced Digital Intelligence & Task Handler) is an Electron-based AI ass
 - **Entry point**: `electron-main.cjs` (CJS bootstrap) → `main.js` (Electron main process)
 - **Agent**: `agent.js` — LangGraph-based agent with intent classification and multi-tool support
 - **OAuth**: `oauthService.js` — Token encryption/decryption, OAuth flows for Google & GitHub
-- **Database**: `db.js` — User model for storing credentials
+- **Database**: `db.js` — User model for storing credentials and user preferences
+- **System Prompt**: `systemPrompt.js` — Builds the EDITH persona system prompt with dynamic user designation
 - **Config**: `store.js` (electron-store defaults), `bundledConfig.js` (OAuth client IDs)
 
 ## LLM Provider Setup
@@ -54,9 +55,41 @@ LLM instances are cached per user+provider with a 5-minute TTL to avoid re-creat
 
 **Files changed**: `frontend/src/context/AppContext.jsx`, `frontend/src/components/NavBar/NavBar.jsx`
 
+### OAuth status persistence in localStorage (2026-03-19)
+
+**Problem**: After page reload, NavBar and Settings showed all services as disconnected even though tokens were valid in the database. `oauthStatus` in `AppContext` initialized as `{}` on every mount and the async fetch took time, causing a flash of empty state. Additionally, `Settings.jsx` declared its own local `oauthStatus` state that shadowed AppContext's value, so even after AppContext fetched the data, Settings never saw it.
+
+**Solution**: Three-part fix:
+
+1. **AppContext** (`frontend/src/context/AppContext.jsx`): `oauthStatus` now initializes from `localStorage('edith_oauth_status')` and `refreshOauthStatus()` writes to localStorage after each successful fetch. This provides an instant cached snapshot on reload while the fresh API call is in-flight.
+2. **Settings** (`frontend/src/Pages/Settings/Settings.jsx`): Removed the local `oauthStatus` shadow state and its duplicate `useEffect` fetch. Now reads `oauthStatus` directly from `useApp()`. Connect/disconnect actions call `refreshOauthStatus()` which updates shared AppContext state + localStorage.
+3. **ConnectionPage** (`frontend/src/Pages/ConnectionPage/ConnectionPage.jsx`): Seeds local `connectionStatus` from AppContext's `oauthStatus` on mount, so already-connected tools show correctly if the user navigates back.
+
+**Files changed**: `frontend/src/context/AppContext.jsx`, `frontend/src/Pages/Settings/Settings.jsx`, `frontend/src/Pages/ConnectionPage/ConnectionPage.jsx`
+
 ### Intent classification threshold (2026-03-19)
 
 The short-query threshold for skipping LLM-based intent classification was bumped from 5 words to 8 words. Queries under 8 words now default to `general` intent without calling the classifier, reducing unnecessary API calls.
+
+### User preferences & personalized addressing (2026-03-19)
+
+**Problem**: The system prompt hardcoded `USER DESIGNATION: "Sir", "Ma'am", or [User's Title]` — EDITH never actually personalized how it addressed the user.
+
+**Solution**: Added a new onboarding step (`/user-setup`) where the user sets their preferred name and title preference (Sir, Ma'am, or just their name). This data flows end-to-end:
+
+1. **User model** (`db.js`): Added `preferredName` (String) and `titlePreference` (enum: `'Sir'`, `'Ma'am'`, `'name'`, default `'Sir'`).
+2. **API** (`server.js`): New `PUT /api/user/preferences` (with server-side validation: length 2-20, alpha/space/hyphen/apostrophe regex, valid enum) and `GET /api/user/preferences`. Both `/api/ask` and `/api/voice` extract `userPrefs` from `req.user` and pass them downstream.
+3. **System prompt** (`systemPrompt.js`): `buildSystemPrompt(userTimezone, userPrefs)` and `getSystemPrompt(userTimezone, userPrefs)` now accept a second `userPrefs` parameter. The `USER DESIGNATION` line is dynamic — shows the title or the name depending on preference. A `USER NAME` line is injected so EDITH always knows the user's name regardless of title choice.
+4. **Agent** (`agent.js`): `streamWithSemanticRouting(query, userId, timezone, userPrefs)` accepts a 4th parameter. `getOrCreateAgent(tools, tz, userId, llm, userPrefs)` accepts a 5th. Both `getSystemPrompt()` call sites (general path and agent path) pass `userPrefs` through.
+5. **Frontend context** (`AppContext.jsx`): Added `preferredName` and `titlePreference` state (persisted to localStorage). Added `updateUserPreferences(name, title)` — updates state, localStorage, and calls `PUT /api/user/preferences`.
+6. **Frontend page** (`frontend/src/Pages/UserSetup/UserSetup.jsx`): New onboarding page with name input (inline validation), three title radio cards, and a Next button. Uses `profanityFilter.js` for client-side validation.
+7. **Profanity filter** (`frontend/src/utils/profanityFilter.js`): `validateName(text)` checks empty, length 2-20, character regex, and a ~70-word profanity blocklist. `containsProfanity(text)` does case-insensitive word-boundary matching.
+
+**Onboarding flow**: `/` (Intro) → `/user-setup` (NEW) → `/onboarding` → `/connectionPage` → `/home`
+
+**Files changed**: `db.js`, `server.js`, `systemPrompt.js`, `agent.js`, `frontend/src/context/AppContext.jsx`, `frontend/src/App.jsx`, `frontend/src/Pages/Intro/Intro.jsx`
+
+**Files created**: `frontend/src/Pages/UserSetup/UserSetup.jsx`, `frontend/src/Pages/UserSetup/UserSetup.module.css`, `frontend/src/utils/profanityFilter.js`
 
 ## Build & Run
 
@@ -93,3 +126,5 @@ npm run dist
 - **BrowserWindow import in oauthService**: Must be lazily imported inside functions, not at module level — packaged Electron apps crash otherwise (Electron not ready at import time).
 - **Token encryption is key-dependent**: Changing or losing `ENCRYPTION_KEY` invalidates all stored OAuth tokens. Users must re-authenticate.
 - **`--legacy-peer-deps`**: Always use this flag with `npm install` due to dependency conflicts.
+- **User preferences are dual-stored**: `preferredName` and `titlePreference` live in both localStorage (for instant frontend access) and MongoDB (for backend system prompt injection). If one gets out of sync (e.g., clearing browser data), the frontend will show defaults but the backend will still use the DB values. A future Settings page should re-fetch from `GET /api/user/preferences` on mount to reconcile.
+- **OAuth status is cached in localStorage**: `edith_oauth_status` in localStorage provides instant UI on reload. The cache is refreshed from the API on every mount and after every connect/disconnect action. Clearing localStorage will cause a brief flash of "disconnected" until the API fetch completes — this is cosmetic only, tokens remain valid in the DB.

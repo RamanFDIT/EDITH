@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Github, Figma, Calendar, MessageSquare, CheckCircle2, Plug, Unplug, Wifi } from 'lucide-react';
 import styles from './Settings.module.css';
 import { useNavBar } from '../../components/NavBar/NavBarContext.jsx';
@@ -16,32 +16,10 @@ const providers = [
 
 const Settings = () => {
   const { expanded } = useNavBar();
-  const { userId, refreshOauthStatus } = useApp();
-  const [oauthStatus, setOauthStatus] = useState({
-    google: { connected: false },
-    github: { connected: false },
-    slack: { connected: false },
-    figma: { connected: false },
-    jira: { connected: false },
-  });
+  const { userId, oauthStatus, refreshOauthStatus } = useApp();
 
   const [status, setStatus] = useState({ type: '', message: '' });
   const [connecting, setConnecting] = useState('');
-
-  useEffect(() => {
-    const fetchStatus = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/oauth/status`, {
-          headers: { 'X-User-ID': userId }
-        });
-        const data = await res.json();
-        setOauthStatus(data);
-      } catch (err) {
-        console.error('Failed to fetch OAuth status:', err);
-      }
-    };
-    fetchStatus();
-  }, [userId]);
 
   const handleConnect = async (provider) => {
     setConnecting(provider);
@@ -58,15 +36,16 @@ const Settings = () => {
       const checkInterval = setInterval(async () => {
         if (authWindow.closed) {
           clearInterval(checkInterval);
+          // Fetch fresh status and check directly (can't rely on stale closure)
           const statusRes = await fetch(`${API_URL}/api/oauth/status`, {
             headers: { 'X-User-ID': userId }
           });
           const statusData = await statusRes.json();
-          setOauthStatus(statusData);
           if (statusData[provider]?.connected) {
             setStatus({ type: 'success', message: `Connected to ${provider}!` });
-            refreshOauthStatus();
           }
+          // Update shared state + localStorage cache
+          await refreshOauthStatus();
           setConnecting('');
         }
       }, 1000);
@@ -85,12 +64,8 @@ const Settings = () => {
         method: 'POST',
         headers: { 'X-User-ID': userId }
       });
-      setOauthStatus(prev => ({
-        ...prev,
-        [provider]: { connected: false, expired: true, hasRefreshToken: false },
-      }));
       setStatus({ type: 'info', message: `Disconnected from ${provider}.` });
-      refreshOauthStatus();
+      await refreshOauthStatus();
     } catch (err) {
       console.error('Disconnect failed:', err);
     }

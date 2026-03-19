@@ -18,9 +18,15 @@ const cardInfo = [
 const ConnectionPage = () => {
     const location = useLocation();
     const navigate = useNavigate();
-    const { userId, refreshOauthStatus, setOnboardingComplete } = useApp();
+    const { userId, oauthStatus, refreshOauthStatus, setOnboardingComplete } = useApp();
     const selectedTools = location.state?.selectedTools || [];
-    const [connectionStatus, setConnectionStatus] = useState({});
+    const [connectionStatus, setConnectionStatus] = useState(() => {
+        const seeded = {};
+        for (const [provider, info] of Object.entries(oauthStatus)) {
+            if (info.connected) seeded[provider] = 'connected';
+        }
+        return seeded;
+    });
 
     const toolsToShow = cardInfo.filter(card =>
         card.cardHead === 'GitHub' || selectedTools.includes(card.cardHead)
