@@ -145,7 +145,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     
                     if (data.type === "token") {
                         // Check for [IMAGE:url] markers and render as <img>
-                        let content = data.content.replace(/\n/g, '<br>');
+                        let content = (data.content || '').replace(/\n/g, '<br>');
                         content = content.replace(/\[IMAGE:(\/temp\/[^\]]+)\]/g, 
                             '<br><img src="$1" alt="Generated Image" style="max-width:100%;border-radius:8px;margin:8px 0;cursor:pointer;" onclick="window.open(this.src,\'_blank\')"><br>');
                         messageContent.innerHTML += content;
@@ -177,7 +177,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const messageElement = document.createElement("div");
     messageElement.classList.add("message", sender);
     const p = document.createElement("p");
-    p.innerHTML = text.replace(/\n/g, '<br>');
+    p.innerHTML = (text || '').replace(/\n/g, '<br>');
     messageElement.appendChild(p); // Use a <p> tag for content
     chatBox.appendChild(messageElement);
     chatBox.scrollTop = chatBox.scrollHeight;

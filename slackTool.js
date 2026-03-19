@@ -158,7 +158,7 @@ async function listAllChannels() {
  */
 async function resolveChannelId(channelNameOrId) {
     // Strip leading #
-    const cleaned = channelNameOrId.replace(/^#/, '');
+    const cleaned = (channelNameOrId || '').replace(/^#/, '');
 
     // Already an ID? (Slack channel IDs start with C, G, or D followed by alphanumerics)
     if (/^[CGD][A-Z0-9]{8,}$/i.test(cleaned)) {

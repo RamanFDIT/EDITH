@@ -57,7 +57,7 @@ function parseEmailHeader(value) {
     if (!value) return null;
     const match = value.match(/^(.*?)\s*<(.+?)>$/);
     if (match) {
-        return { name: match[1].trim().replace(/^"|"$/g, ''), email: match[2].trim() };
+        return { name: (match[1] || '').trim().replace(/^"|"$/g, ''), email: match[2].trim() };
     }
     // Bare email address
     return { name: '', email: value.trim() };

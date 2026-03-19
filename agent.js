@@ -709,7 +709,7 @@ async function classifyIntent(userMessage, chatHistory = [], classifier) {
         }
         
         // Safety check for CLASSIFIER_PROMPT
-        const promptBase = (typeof CLASSIFIER_PROMPT !== 'undefined') ? CLASSIFIER_PROMPT : "Classify user intent: ";
+        const promptBase = (typeof CLASSIFIER_PROMPT === 'string') ? CLASSIFIER_PROMPT : "Classify user intent: ";
         const prompt = promptBase.replace('User message: ', contextBlock ? contextBlock : 'User message: ');
         
         if (!classifier) {

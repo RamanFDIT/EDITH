@@ -5,7 +5,7 @@ import styles from './ChatAI.module.css';
 
 const ChatAI = ({ message, images }) => {
   // Strip [IMAGE:...] markers from the text since we render images separately
-  const cleanMessage = message.replace(/\[IMAGE:[^\]]+\]/g, '').trim();
+  const cleanMessage = (message || '').replace(/\[IMAGE:[^\]]+\]/g, '').trim();
 
   return (
     <div className={styles.messageContainer}>
