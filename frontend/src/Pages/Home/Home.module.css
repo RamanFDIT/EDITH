@@ -15,17 +15,7 @@
     @apply flex-1 overflow-y-auto px-4 md:px-12 py-6 md:py-8 flex flex-col gap-4 md:gap-6;
 }
 .inputArea {
-    @apply px-4 md:px-12 py-4 md:py-6 border-t border-bgComponents;
-}
-.inputRow {
-    @apply flex items-end gap-3;
-}
-.voiceToggle {
-    @apply bg-bgComponents text-textPrimary/40 px-3 py-3 rounded-sm
-           hover:text-textPrimary hover:cursor-pointer transition-all ease-out;
-}
-.voiceOn {
-    @apply text-bgCTA;
+    @apply px-3 md:px-12 py-2 md:py-6;
 }
 .emptyState {
     @apply flex-1 flex flex-col items-center justify-center gap-4;

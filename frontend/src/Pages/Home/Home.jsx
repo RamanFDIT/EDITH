@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Volume2, VolumeX } from 'lucide-react';
 import styles from './Home.module.css';
 import ChatAI from '../../components/ChatAI/ChatAI.jsx';
 import ChatHuman from '../../components/ChatHuman/ChatHuman.jsx';
@@ -365,32 +364,24 @@ const Home = () => {
           </div>
         )}
         <div className={styles.inputArea}>
-          <div className={styles.inputRow}>
-            <Input
-              value={input}
-              onChange={setInput}
-              onSubmit={handleSubmit}
-              disabled={isStreaming}
-              files={files}
-              onFilesChange={setFiles}
-              onVoiceStream={handleVoiceStream}
-            />
-            <button
-              className={`${styles.voiceToggle} ${voiceEnabled ? styles.voiceOn : ''}`}
-              onClick={() => {
-                setVoiceEnabled(v => !v);
-                if (voiceEnabled) {
-                  // Turning off — stop any current speech
-                  window.speechSynthesis?.cancel();
-                  audioQueueRef.current = [];
-                  isPlayingRef.current = false;
-                }
-              }}
-              title={voiceEnabled ? "Mute voice responses" : "Enable voice responses"}
-            >
-              {voiceEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
-            </button>
-          </div>
+          <Input
+            value={input}
+            onChange={setInput}
+            onSubmit={handleSubmit}
+            disabled={isStreaming}
+            files={files}
+            onFilesChange={setFiles}
+            onVoiceStream={handleVoiceStream}
+            voiceEnabled={voiceEnabled}
+            onVoiceToggle={() => {
+              setVoiceEnabled(v => !v);
+              if (voiceEnabled) {
+                window.speechSynthesis?.cancel();
+                audioQueueRef.current = [];
+                isPlayingRef.current = false;
+              }
+            }}
+          />
         </div>
       </div>
     </section>

@@ -1,8 +1,8 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
-import { Send, Paperclip, Mic, X } from 'lucide-react';
+import { Send, Paperclip, Mic, X, Volume2, VolumeX } from 'lucide-react';
 import styles from './Input.module.css';
 
-const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVoiceStream }) => {
+const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVoiceStream, voiceEnabled, onVoiceToggle }) => {
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -244,22 +244,16 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVo
           ))}
         </div>
       )}
-      <div className={styles.inputContainer}>
-        <button
-          className={styles.attachButton}
-          onClick={() => fileInputRef.current?.click()}
-          disabled={disabled || isRecording || !isModelReady}
-          title="Attach files"
-        >
-          <Paperclip size={18} />
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          className={styles.hiddenFileInput}
-          onChange={handleFileSelect}
-        />
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className={styles.hiddenFileInput}
+        onChange={handleFileSelect}
+      />
+
+      <div className={styles.inputCard}>
         <textarea
           ref={textareaRef}
           rows={1}
@@ -270,21 +264,44 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVo
           placeholder={isModelReady ? "Ask E.D.I.T.H. anything..." : "Loading STT model..."}
           disabled={disabled || isRecording || !isModelReady}
         />
-        <button
-          className={`${styles.micButton} ${isRecording ? styles.micRecording : ''}`}
-          onClick={toggleRecording}
-          disabled={disabled || !isModelReady}
-          title={isRecording ? 'Stop recording' : 'Voice input'}
-        >
-          <Mic size={18} />
-        </button>
-        <button
-          className={styles.sendButton}
-          onClick={onSubmit}
-          disabled={disabled || isRecording || !value.trim() || !isModelReady}
-        >
-          <Send size={18} />
-        </button>
+        <div className={styles.inputActions}>
+          <div className={styles.actionsLeft}>
+            <button
+              className={styles.attachButton}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={disabled || isRecording || !isModelReady}
+              title="Attach files"
+            >
+              <Paperclip size={18} />
+            </button>
+            {onVoiceToggle && (
+              <button
+                className={`${styles.voiceToggle} ${voiceEnabled ? styles.voiceOn : ''}`}
+                onClick={onVoiceToggle}
+                title={voiceEnabled ? "Mute voice responses" : "Enable voice responses"}
+              >
+                {voiceEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
+              </button>
+            )}
+          </div>
+          <div className={styles.actionsRight}>
+            <button
+              className={`${styles.micButton} ${isRecording ? styles.micRecording : ''}`}
+              onClick={toggleRecording}
+              disabled={disabled || !isModelReady}
+              title={isRecording ? 'Stop recording' : 'Voice input'}
+            >
+              <Mic size={18} />
+            </button>
+            <button
+              className={styles.sendButton}
+              onClick={onSubmit}
+              disabled={disabled || isRecording || !value.trim() || !isModelReady}
+            >
+              <Send size={18} />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -13,29 +13,54 @@
 .fileChipRemove {
     @apply text-textPrimary/50 hover:text-textPrimary cursor-pointer;
 }
-.inputContainer {
-    @apply w-full flex items-end gap-2 md:gap-3;
+
+/* Card container wrapping textarea + action buttons */
+.inputCard {
+    @apply w-full bg-bgComponents rounded-xl p-3 flex flex-col gap-2;
 }
-.attachButton {
-    @apply bg-bgComponents text-textPrimary/60 font-fontDisplay
-           px-3 py-3 rounded-sm
-           hover:text-textPrimary hover:cursor-pointer
-           transition-all ease-out
-           disabled:opacity-30 disabled:cursor-default;
-}
+
 .hiddenFileInput {
     @apply hidden;
 }
+
+/* Textarea — transparent since card provides the background */
 .input {
-    @apply flex-1 bg-bgComponents text-textPrimary font-fontBody text-base
-           px-5 py-3 rounded-sm outline-none resize-none overflow-y-auto max-h-[150px]
-           placeholder:text-textPrimary/40
-           focus:ring-1 focus:ring-bgHover;
+    @apply w-full bg-transparent text-textPrimary font-fontBody text-base
+           px-2 py-1 outline-none resize-none overflow-y-auto max-h-[150px]
+           placeholder:text-textPrimary/40;
+}
+
+/* Bottom action row inside the card */
+.inputActions {
+    @apply flex items-center justify-between;
+}
+.actionsLeft {
+    @apply flex items-center gap-1;
+}
+.actionsRight {
+    @apply flex items-center gap-1;
+}
+
+/* Action buttons — transparent bg inside card, icon-only */
+.attachButton {
+    @apply bg-transparent text-textPrimary/50 font-fontDisplay
+           p-2.5 rounded-lg
+           hover:text-textPrimary hover:bg-bgHover hover:cursor-pointer
+           transition-all ease-out
+           disabled:opacity-30 disabled:cursor-default;
+}
+.voiceToggle {
+    @apply bg-transparent text-textPrimary/40 p-2.5 rounded-lg
+           hover:text-textPrimary hover:bg-bgHover hover:cursor-pointer
+           transition-all ease-out;
+}
+.voiceOn {
+    @apply text-bgCTA;
 }
 .micButton {
-    @apply bg-bgComponents text-textPrimary/60 font-fontDisplay
-           px-3 py-3 rounded-sm
-           hover:text-textPrimary hover:cursor-pointer
+    @apply bg-transparent text-textPrimary/50 font-fontDisplay
+           p-2.5 rounded-lg
+           hover:text-textPrimary hover:bg-bgHover hover:cursor-pointer
            transition-all ease-out
            disabled:opacity-30 disabled:cursor-default;
 }
@@ -47,9 +72,11 @@
     0%, 100% { opacity: 1; transform: scale(1); }
     50% { opacity: 0.7; transform: scale(1.08); }
 }
+
+/* Send button — accent circle */
 .sendButton {
-    @apply bg-bgCTA text-textCTA font-fontDisplay font-semibold text-sm
-           px-4 md:px-5 py-3 rounded-sm
+    @apply bg-bgCTA text-textCTA font-fontDisplay
+           p-2.5 rounded-lg
            hover:bg-bgHover hover:text-bgCTA hover:cursor-pointer
            transition-all ease-out active:scale-95
            disabled:opacity-30 disabled:cursor-default disabled:hover:bg-bgCTA disabled:hover:text-textCTA disabled:active:scale-100;
@@ -60,7 +87,7 @@
 
 /* Live transcription banner — shown while mic is active */
 .liveTranscriptBanner {
-    @apply flex items-center gap-2 px-4 py-2 rounded-sm bg-bgComponents border border-blue-500/30;
+    @apply flex items-center gap-2 px-4 py-2 rounded-lg bg-bgComponents border border-blue-500/30;
     animation: bannerFadeIn 0.2s ease-out;
 }
 @keyframes bannerFadeIn {
@@ -79,4 +106,3 @@
     @apply text-sm text-textPrimary/80 font-fontBody truncate;
     font-style: italic;
 }
-
