@@ -51,11 +51,37 @@ function validateCredential(key, name) {
 async function getLLMForUser(userId) {
   const provider = (process.env.LLM_PROVIDER || 'auto').toLowerCase();
   
-  // 1. GITHUB (Priority)
-  // Uses GitHub OAuth token to provide users with 150 free requests/day on Azure Inference.
+  // 1. GEMINI (User OAuth — Priority)
+  // We can use the user's Google OAuth token to authenticate with Gemini
+  // via the OpenAI-compatible endpoint. This avoids the need for personal API keys.
+  if (provider === 'gemini' || provider === 'auto') {
+    const googleToken = await getValidToken(userId, 'google');
+    if (validateCredential(googleToken, 'Google OAuth Token')) {
+      console.log(`[LLM] Using Gemini via User OAuth for ${userId}`);
+      const model = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+      const llm = new ChatOpenAI({
+        modelName: model,
+        openAIApiKey: googleToken,
+        configuration: { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/' },
+      });
+      const classifier = new ChatOpenAI({
+        modelName: 'gemini-1.5-flash',
+        openAIApiKey: googleToken,
+        temperature: 0,
+        configuration: { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/' },
+      });
+      return { llm, classifier, provider: 'gemini_oauth' };
+    }
+  }
+
+  // 2. GITHUB (Azure Inference)
+  // REQUIRES a Personal Access Token (PAT). Standard OAuth tokens fail with 401.
   if (provider === 'github' || provider === 'auto') {
     const githubToken = await getValidToken(userId, 'github');
-    if (validateCredential(githubToken, 'GitHub Token')) {
+    // Only use if it's clearly a PAT (ghp_ or github_pat_) to avoid 401 Bad Credentials
+    const isPAT = githubToken && (githubToken.startsWith('ghp_') || githubToken.startsWith('github_pat_'));
+    
+    if (isPAT && validateCredential(githubToken, 'GitHub PAT')) {
       console.log(`[LLM] Using GitHub Models for user ${userId} (${githubToken.substring(0, 8)}...)`);
       const modelName = process.env.GITHUB_MODEL || 'gpt-4o';
       const llm = new ChatOpenAI({
@@ -71,12 +97,10 @@ async function getLLMForUser(userId) {
       });
       return { llm, classifier, provider: 'github' };
     }
-    if (provider === 'github') throw new Error("GitHub account not connected or token invalid.");
+    if (provider === 'github') throw new Error("GitHub account not connected or PAT invalid.");
   }
 
-  // 2. GEMINI
-  // We MUST use the global Google API Key for the LLM backend, because ChatGoogleGenerativeAI
-  // expects a raw API key. User OAuth tokens will be rejected with a 401 Bad Credentials error.
+  // 3. GEMINI (Global Key)
   if (provider === 'gemini' || provider === 'auto') {
     const apiKey = process.env.GOOGLE_API_KEY;
     if (validateCredential(apiKey, 'Gemini API Key Config')) {
@@ -88,7 +112,7 @@ async function getLLMForUser(userId) {
     if (provider === 'gemini') throw new Error("Gemini API key not configured in environment variables.");
   }
 
-  // 3. OLLAMA (Local)
+  // 4. OLLAMA (Local)
   if (provider === 'ollama') {
     const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
     const ollamaModel = process.env.OLLAMA_MODEL || 'llama3.2';
@@ -98,7 +122,7 @@ async function getLLMForUser(userId) {
     return { llm, classifier, provider: 'ollama' };
   }
 
-  throw new Error("No LLM provider config available. Please configure GITHUB_PAT or GOOGLE_API_KEY.");
+  throw new Error("No LLM provider config available. Please connect Google/GitHub or run Ollama.");
 }
 
 // initLLM and ensureFreshLLM are removed in favor of getLLMForUser

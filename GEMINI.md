@@ -46,3 +46,11 @@ EDITH (Even Dead I'm The Hero) is a sophisticated local AI assistant designed fo
 ## 📦 Deployment
 - **Packager**: `electron-builder`
 - **Portability**: Supports "Safe Mode" where users can provide their own `.edith.env` for API keys.
+
+## 🔒 Authentication Constraint
+**Constraint:** Implement ONLY those changes that do not require the end user to go fetch their personal API keys. Only make changes where the OAuth connection can be used to make LLM API calls. Any new features or LLM integrations must rely entirely on the end-user's OAuth token (e.g., using the Google OAuth token to authenticate with the Gemini API).
+
+## 🔍 Codebase Analysis: 401 Bad Credentials Error
+**Issue:** Users experience a `401 Bad Credentials` error when chatting with the Agent in the live version.
+**Root Cause:** The `agent.js` file defaults to the `auto` (or `github`) provider. When a user connects their GitHub account, the system retrieves their standard GitHub **OAuth Application Token**. The code then attempts to use this token as the `openAIApiKey` for the Azure Inference API (`https://models.inference.ai.azure.com`) to access GitHub Models. However, Azure Inference strictly requires a **GitHub Personal Access Token (PAT)** and rejects standard OAuth App tokens, resulting in the 401 error.
+**Resolution Strategy:** To align with the constraint above, GitHub Models should be disabled for standard OAuth users, and the system should instead pass the user's Google OAuth token to the standard Gemini API (`generativelanguage.googleapis.com`), which natively supports Bearer token authentication without requiring users to manually fetch API keys.
