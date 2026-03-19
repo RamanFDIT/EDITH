@@ -60,7 +60,25 @@ async function getLLMForUser(userId) {
     // We removed the strict 'ghp_' check because standard OAuth tokens ('ghu_' or 'gho_') 
     // are officially supported by the models.github.ai endpoint.
     if (validateCredential(githubToken, 'GitHub Token')) {
-      console.log(`[LLM] Using GitHub Models for user ${userId} (${githubToken.substring(0, 8)}...)`);
+      console.log(`[LLM] Using GitHub Models for user ${userId} (token prefix: ${githubToken.substring(0, 4)}, length: ${githubToken.length})`);
+
+      // Quick health-check against the endpoint so we get a clear error
+      try {
+        const testRes = await fetch('https://models.github.ai/inference/chat/completions', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${githubToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 }),
+        });
+        if (!testRes.ok) {
+          const errBody = await testRes.text();
+          console.error(`[LLM] GitHub Models health-check FAILED: ${testRes.status} ${testRes.statusText} — ${errBody}`);
+        } else {
+          console.log(`[LLM] GitHub Models health-check OK (${testRes.status})`);
+        }
+      } catch (e) {
+        console.error(`[LLM] GitHub Models health-check error:`, e.message);
+      }
+
       const modelName = process.env.GITHUB_MODEL || 'gpt-4o';
       const llm = new ChatOpenAI({
         modelName: modelName,
