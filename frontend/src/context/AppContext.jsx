@@ -39,6 +39,11 @@ export const AppProvider = ({ children }) => {
         }
     }, [userId]);
 
+    // Fetch OAuth status on mount so all consumers start with real data
+    useEffect(() => {
+        refreshOauthStatus();
+    }, [refreshOauthStatus]);
+
     // --- Chat Messages (persists across navigation) ---
     const [messages, setMessages] = useState([]);
     const [historyLoaded, setHistoryLoaded] = useState(false);

@@ -3,7 +3,6 @@ import styles from "./NavBar.module.css";
 import Logo from '../../assets/EDITH.svg?react';
 import settings from '../../assets/settings.svg';
 import hamburger from '../../assets/hamburger.svg';
-import { useEffect } from 'react';
 import { Github, Figma, Calendar, MessageSquare, Plus, LogOut, Menu, X } from 'lucide-react';
 import { useNavBar } from './NavBarContext.jsx';
 import { useApp } from '../../context/AppContext.jsx';
@@ -38,10 +37,6 @@ const NavBar = () => {
   };
 
   const closeMobile = () => setMobileOpen(false);
-
-  useEffect(() => {
-    refreshOauthStatus();
-  }, [refreshOauthStatus]);
 
   /* Shared nav content used by both desktop and mobile */
   const navContent = (isMobile = false) => (
