@@ -2,7 +2,7 @@ import Logo from '../../assets/EDITH.svg?react';
 import Button from '../../components/Button/Button.jsx';
 import BackButton from '../../components/BackButton/BackButton.jsx';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Github, Calendar, MessageSquare, CheckCircle2, Plug, Wifi, AlertCircle } from 'lucide-react';
 import styles from './ConnectionPage.module.css';
 import { useApp } from '../../context/AppContext.jsx';
@@ -40,6 +40,16 @@ const ConnectionPage = () => {
         });
     }, [oauthStatus]);
 
+    const pollIntervalRef = useRef(null);
+    const pollTimeoutRef = useRef(null);
+
+    useEffect(() => {
+        return () => {
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+            if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
+        };
+    }, []);
+
     const toolsToShow = cardInfo.filter(card =>
         card.cardHead === 'GitHub' || selectedTools.includes(card.cardHead)
     );
@@ -50,6 +60,10 @@ const ConnectionPage = () => {
             return;
         }
 
+        // Clear any existing polling to prevent stacking
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+        if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
+
         setConnectionStatus(prev => ({ ...prev, [providerKey]: 'connecting' }));
 
         try {
@@ -57,31 +71,58 @@ const ConnectionPage = () => {
                 headers: { 'X-User-Email': userEmail }
             });
             const { url } = await res.json();
-            
+
             const authWindow = window.open(url, '_blank', 'width=600,height=800');
-            
-            const checkInterval = setInterval(async () => {
+
+            // 2-minute timeout to stop polling if OAuth never completes
+            pollTimeoutRef.current = setTimeout(() => {
+                if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+                pollIntervalRef.current = null;
+                pollTimeoutRef.current = null;
+                setConnectionStatus(prev => ({ ...prev, [providerKey]: 'failed' }));
+                try { authWindow.close(); } catch (e) {}
+            }, 120000);
+
+            let pollCount = 0;
+            const MAX_POLLS = 60; // safety net: 60 polls × 2s = 2 min
+
+            pollIntervalRef.current = setInterval(async () => {
+                pollCount++;
+                if (pollCount > MAX_POLLS) {
+                    clearInterval(pollIntervalRef.current);
+                    clearTimeout(pollTimeoutRef.current);
+                    pollIntervalRef.current = null;
+                    pollTimeoutRef.current = null;
+                    setConnectionStatus(prev => ({ ...prev, [providerKey]: 'failed' }));
+                    try { authWindow.close(); } catch (e) {}
+                    return;
+                }
+
                 try {
-                    // Periodic poll regardless of window state
                     const statusRes = await fetch(`${API_URL}/api/oauth/status`, {
                         headers: { 'X-User-Email': userEmail }
                     });
                     const statusData = await statusRes.json();
-                    
+
                     if (statusData[providerKey]?.connected) {
-                        clearInterval(checkInterval);
+                        clearInterval(pollIntervalRef.current);
+                        clearTimeout(pollTimeoutRef.current);
+                        pollIntervalRef.current = null;
+                        pollTimeoutRef.current = null;
                         setConnectionStatus(prev => ({ ...prev, [providerKey]: 'connected' }));
                         refreshOauthStatus();
-                        authWindow.close();
+                        try { authWindow.close(); } catch (e) {}
                         return;
                     }
 
                     if (authWindow.closed) {
-                        clearInterval(checkInterval);
+                        clearInterval(pollIntervalRef.current);
+                        clearTimeout(pollTimeoutRef.current);
+                        pollIntervalRef.current = null;
+                        pollTimeoutRef.current = null;
                         setConnectionStatus(prev => ({ ...prev, [providerKey]: 'failed' }));
                     }
                 } catch (err) {
-                    // If COOP blocks authWindow.closed, we just keep polling the status
                     console.log("Window check blocked or fetch failed, continuing poll...");
                 }
             }, 2000);

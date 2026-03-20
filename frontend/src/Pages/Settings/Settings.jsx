@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Github, Figma, Calendar, MessageSquare, CheckCircle2, Plug, Unplug, Wifi, LogOut, Shield } from 'lucide-react';
 import styles from './Settings.module.css';
@@ -22,8 +22,21 @@ const Settings = () => {
 
   const [status, setStatus] = useState({ type: '', message: '' });
   const [connecting, setConnecting] = useState('');
+  const pollIntervalRef = useRef(null);
+  const pollTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
+    };
+  }, []);
 
   const handleConnect = async (provider) => {
+    // Clear any existing polling to prevent stacking
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
+
     setConnecting(provider);
     try {
       const res = await fetch(`${API_URL}/api/oauth/connect/${provider}`, {
@@ -33,18 +46,61 @@ const Settings = () => {
 
       const authWindow = window.open(url, '_blank', 'width=600,height=800');
 
-      const checkInterval = setInterval(async () => {
-        if (authWindow.closed) {
-          clearInterval(checkInterval);
+      // 2-minute timeout to stop polling if OAuth never completes
+      pollTimeoutRef.current = setTimeout(() => {
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+        pollTimeoutRef.current = null;
+        setConnecting('');
+        setStatus({ type: 'error', message: `Connection to ${provider} timed out.` });
+        try { authWindow.close(); } catch (e) {}
+      }, 120000);
+
+      let pollCount = 0;
+      const MAX_POLLS = 120; // safety net: 120 polls × 1s = 2 min
+
+      pollIntervalRef.current = setInterval(async () => {
+        pollCount++;
+        if (pollCount > MAX_POLLS) {
+          clearInterval(pollIntervalRef.current);
+          clearTimeout(pollTimeoutRef.current);
+          pollIntervalRef.current = null;
+          pollTimeoutRef.current = null;
+          setConnecting('');
+          setStatus({ type: 'error', message: `Connection to ${provider} timed out.` });
+          try { authWindow.close(); } catch (e) {}
+          return;
+        }
+
+        try {
+          // Poll status on every tick (not just on window close)
           const statusRes = await fetch(`${API_URL}/api/oauth/status`, {
             headers: { 'X-User-Email': userEmail }
           });
           const statusData = await statusRes.json();
+
           if (statusData[provider]?.connected) {
+            clearInterval(pollIntervalRef.current);
+            clearTimeout(pollTimeoutRef.current);
+            pollIntervalRef.current = null;
+            pollTimeoutRef.current = null;
             setStatus({ type: 'success', message: `Connected to ${provider}!` });
+            await refreshOauthStatus();
+            setConnecting('');
+            try { authWindow.close(); } catch (e) {}
+            return;
           }
-          await refreshOauthStatus();
-          setConnecting('');
+
+          if (authWindow.closed) {
+            clearInterval(pollIntervalRef.current);
+            clearTimeout(pollTimeoutRef.current);
+            pollIntervalRef.current = null;
+            pollTimeoutRef.current = null;
+            await refreshOauthStatus();
+            setConnecting('');
+          }
+        } catch (err) {
+          console.log("Window check blocked or fetch failed, continuing poll...");
         }
       }, 1000);
 
