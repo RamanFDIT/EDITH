@@ -52,20 +52,30 @@ function validateCredential(key, name) {
 const llmCache = new Map();
 const LLM_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-async function getLLMForUser(userId) {
+// Track providers that returned 403 per user — avoids retrying a dead provider on every message
+const blockedProviders = new Map(); // userId → { providers: Set, createdAt: number }
+const BLOCKED_TTL = 30 * 60 * 1000; // 30 minutes — re-check occasionally in case user enrolls
+
+async function getLLMForUser(userId, excludeProviders = new Set()) {
+  // Merge caller exclusions with any providers blocked due to prior 403s
+  const blocked = blockedProviders.get(userId);
+  if (blocked && (Date.now() - blocked.createdAt < BLOCKED_TTL)) {
+    for (const p of blocked.providers) excludeProviders.add(p);
+  }
+
   const provider = (process.env.LLM_PROVIDER || 'auto').toLowerCase();
 
-  const cacheKey = `${userId}:${provider}`;
+  const cacheKey = `${userId}:${provider}:${[...excludeProviders].sort().join(',')}`;
   const cached = llmCache.get(cacheKey);
   if (cached && (Date.now() - cached.createdAt < LLM_CACHE_TTL)) {
     console.log(`[LLM] Cache hit for user ${userId} (${cached.provider})`);
     return { llm: cached.llm, classifier: cached.classifier, provider: cached.provider };
   }
-  
+
   // 1. GITHUB (GitHub Models via standard OAuth - PRIORITY)
   // We can use standard GitHub OAuth App tokens with the official GitHub Models endpoint.
   // This provides users with free gpt-4o requests without needing personal API keys.
-  if (provider === 'github' || provider === 'auto') {
+  if ((provider === 'github' || provider === 'auto') && !excludeProviders.has('github')) {
     const githubToken = await getValidToken(userId, 'github');
     
     // We removed the strict 'ghp_' check because standard OAuth tokens ('ghu_' or 'gho_') 
@@ -96,7 +106,7 @@ async function getLLMForUser(userId) {
   // 2. GEMINI (Global Key - Fallback)
   // Note: We removed the user OAuth token approach for Gemini because the 
   // 'generative-language' scope requires strict Google Cloud App Verification.
-  if (provider === 'gemini' || provider === 'auto') {
+  if ((provider === 'gemini' || provider === 'auto') && !excludeProviders.has('gemini')) {
     const apiKey = process.env.GOOGLE_API_KEY;
     if (validateCredential(apiKey, 'Gemini API Key Config')) {
       console.log(`[LLM] Using Gemini for user ${userId} (Global Key)`);
@@ -1081,78 +1091,146 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
     const sessionId = "user-1"; // Still using a single session per user for now
     process.env.ACTIVE_REQUEST = 'true';
 
-    let llm, classifier;
-    try {
+    let excludeProviders = new Set();
+    let lastError = null;
+    const MAX_ATTEMPTS = 2;
 
-    ({ llm, classifier } = await getLLMForUser(userId));
-    
-    const messageHistory = getMessageHistory(sessionId, userId);
-    const fullHistory = await messageHistory.getMessages();
-    const history = sanitizeHistoryForTools(trimHistory(fullHistory));
-    
-    // Step 1: Classify intent using the Traffic Cop (with conversation context)
-    const { categories, isConfirmation } = await classifyIntent(userQuery, history, classifier);
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        try {
 
-    // Step 2: Get the appropriate tools for the classified categories
-    const selectedTools = getToolsForCategories(categories);
+        const { llm, classifier, provider: activeProvider } = await getLLMForUser(userId, excludeProviders);
 
-    console.log(`[Traffic Cop] Selected ${selectedTools.length} tools for categories: ${categories.join(', ')}${isConfirmation ? ' (confirmation)' : ''}`);
+        const messageHistory = getMessageHistory(sessionId, userId);
+        const fullHistory = await messageHistory.getMessages();
+        const history = sanitizeHistoryForTools(trimHistory(fullHistory));
 
-    // Step 3: Handle "general" conversation directly with LLM (no agent needed)
-    if (selectedTools.length === 0) {
-        console.log("[Traffic Cop] General conversation - using direct LLM call");
+        // Step 1: Classify intent using the Traffic Cop (with conversation context)
+        const { categories, isConfirmation } = await classifyIntent(userQuery, history, classifier);
 
-        // getSystemPrompt() already returns a SystemMessage — don't double-wrap
-        const systemPrompt = getSystemPrompt(timezone, userPrefs);
-        let guardMessage;
-        if (isConfirmation) {
-            guardMessage = new SystemMessage(
-                "[CONTINUATION] The user is confirming something you previously said. " +
-                "Review your recent conversation and respond appropriately. " +
-                "If the user is confirming an action plan but you don't have the right tools available, " +
-                "let them know and ask them to rephrase the specific action request."
+        // Step 2: Get the appropriate tools for the classified categories
+        const selectedTools = getToolsForCategories(categories);
+
+        console.log(`[Traffic Cop] Selected ${selectedTools.length} tools for categories: ${categories.join(', ')}${isConfirmation ? ' (confirmation)' : ''}`);
+
+        // Step 3: Handle "general" conversation directly with LLM (no agent needed)
+        if (selectedTools.length === 0) {
+            console.log("[Traffic Cop] General conversation - using direct LLM call");
+
+            // getSystemPrompt() already returns a SystemMessage — don't double-wrap
+            const systemPrompt = getSystemPrompt(timezone, userPrefs);
+            let guardMessage;
+            if (isConfirmation) {
+                guardMessage = new SystemMessage(
+                    "[CONTINUATION] The user is confirming something you previously said. " +
+                    "Review your recent conversation and respond appropriately. " +
+                    "If the user is confirming an action plan but you don't have the right tools available, " +
+                    "let them know and ask them to rephrase the specific action request."
+                );
+            } else {
+                guardMessage = new SystemMessage(
+                    "[SYSTEM NOTICE] IMPORTANT: You have NO tools available in this response. " +
+                    "You CANNOT perform any actions such as sending emails, creating tickets, " +
+                    "posting messages, reading files, scheduling events, or querying APIs. " +
+                    "Do NOT pretend to execute actions or fabricate results. " +
+                    "If the user asks you to perform an action, tell them clearly and honestly " +
+                    "that you were unable to route their request to the appropriate tool, " +
+                    "and ask them to rephrase or be more specific."
+                );
+            }
+            // Inject a fresh time reminder right before the user query so the LLM
+            // doesn't rely on stale timestamps from earlier in the conversation history.
+            const now = new Date();
+            const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: timezone };
+            const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: timezone };
+            const freshTimeReminder = new SystemMessage(
+                `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', timeOptions)} on ${now.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
             );
-        } else {
-            guardMessage = new SystemMessage(
-                "[SYSTEM NOTICE] IMPORTANT: You have NO tools available in this response. " +
-                "You CANNOT perform any actions such as sending emails, creating tickets, " +
-                "posting messages, reading files, scheduling events, or querying APIs. " +
-                "Do NOT pretend to execute actions or fabricate results. " +
-                "If the user asks you to perform an action, tell them clearly and honestly " +
-                "that you were unable to route their request to the appropriate tool, " +
-                "and ask them to rephrase or be more specific."
-            );
+            // Merge all system-level content into a single SystemMessage so that
+            // Gemini doesn't crash with "System message should be the first one".
+            const combinedSystemContent = systemPrompt.content
+                + '\n\n' + guardMessage.content
+                + '\n\n' + freshTimeReminder.content;
+            const messages = [
+                new SystemMessage(combinedSystemContent),
+                ...history,
+                new HumanMessage(userQuery)
+            ];
+
+            const stream = await llm.stream(messages);
+
+            let completeResponse = "";
+            for await (const chunk of stream) {
+                const content = chunk.content;
+                if (content) {
+                    completeResponse += content;
+                    yield {
+                        event: "on_chat_model_stream",
+                        data: { chunk: { content } }
+                    };
+                }
+            }
+
+            // Save to history after streaming completes
+            await messageHistory.addMessage(new HumanMessage(userQuery));
+            if (completeResponse) {
+                await messageHistory.addMessage(new AIMessage(completeResponse));
+            }
+            process.env.ACTIVE_REQUEST = 'false';
+            return;
         }
-        // Inject a fresh time reminder right before the user query so the LLM
-        // doesn't rely on stale timestamps from earlier in the conversation history.
-        const now = new Date();
+
+        // Step 4: Get or create an agent with these specific tools
+        const agent = getOrCreateAgent(selectedTools, timezone, userId, llm, userPrefs);
+
+        // Step 5: Stream events from the agent (inject fresh time reminder before user query)
+        const agentNow = new Date();
         const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: timezone };
         const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: timezone };
-        const freshTimeReminder = new SystemMessage(
-            `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', timeOptions)} on ${now.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
+        const agentTimeReminder = new HumanMessage(
+            `[TIME UPDATE] Current time is now: ${agentNow.toLocaleTimeString('en-US', timeOptions)} on ${agentNow.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
         );
-        // Merge all system-level content into a single SystemMessage so that
-        // Gemini doesn't crash with "System message should be the first one".
-        const combinedSystemContent = systemPrompt.content
-            + '\n\n' + guardMessage.content
-            + '\n\n' + freshTimeReminder.content;
-        const messages = [
-            new SystemMessage(combinedSystemContent),
-            ...history,
-            new HumanMessage(userQuery)
-        ];
-
-        const stream = await llm.stream(messages);
+        // Conditional guard: CONTINUATION for confirmations, FRESHNESS GUARD for new requests
+        let toolNudge;
+        if (isConfirmation) {
+            toolNudge = new HumanMessage(
+                `[CONTINUATION] The user is confirming/approving a plan you previously proposed. ` +
+                `Review your most recent message in the conversation history and EXECUTE the action(s) you described. ` +
+                `Do NOT ask for further confirmation. Do NOT re-propose the plan. Proceed to call the tools now. ` +
+                `You have ${selectedTools.length} tools available. Use them to carry out the plan. ` +
+                `You MUST cite the Receipt (ID/Link) in your confirmation.`
+            );
+        } else {
+            toolNudge = new HumanMessage(
+                `[FRESHNESS GUARD] You have ${selectedTools.length} tools available. ` +
+                `The following request from the user is NEW and INDEPENDENT. ` +
+                `Even if you see a similar request or tool result in the conversation history, ` +
+                `you MUST invoke the appropriate tool again to fulfill this specific request. ` +
+                `Past successes or failures do NOT apply here. ALWAYS call the tool fresh. ` +
+                `Execute the action directly. Do NOT ask the user to confirm information you can discover with your tools. ` +
+                `Do NOT say you cannot do something unless a tool actually returned an error. ` +
+                `You MUST cite the new Receipt (ID/Link) in your confirmation.`
+            );
+        }
+        const stream = agent.streamEvents(
+            { messages: [...history, agentTimeReminder, toolNudge, new HumanMessage(userQuery)] },
+            { version: "v2" }
+        );
 
         let completeResponse = "";
-        for await (const chunk of stream) {
-            const content = chunk.content;
-            if (content) {
-                completeResponse += content;
-                yield {
-                    event: "on_chat_model_stream",
-                    data: { chunk: { content } }
-                };
+        const STREAM_TIMEOUT_MS = 30000;
+        let lastEventTime = Date.now();
+
+        for await (const event of stream) {
+            lastEventTime = Date.now();
+            // Forward the event
+            yield event;
+
+            // Capture final response for history
+            if (event.event === "on_chat_model_stream") {
+                const content = event.data?.chunk?.content;
+                if (content) {
+                    completeResponse += content;
+                }
             }
         }
 
@@ -1161,79 +1239,41 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         if (completeResponse) {
             await messageHistory.addMessage(new AIMessage(completeResponse));
         }
-        return;
-    }
 
-    // Step 4: Get or create an agent with these specific tools
-    const agent = getOrCreateAgent(selectedTools, timezone, userId, llm, userPrefs);
+        process.env.ACTIVE_REQUEST = 'false';
+        return; // success — exit the retry loop
 
-    // Step 5: Stream events from the agent (inject fresh time reminder before user query)
-    const agentNow = new Date();
-    const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: timezone };
-    const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: timezone };
-    const agentTimeReminder = new HumanMessage(
-        `[TIME UPDATE] Current time is now: ${agentNow.toLocaleTimeString('en-US', timeOptions)} on ${agentNow.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
-    );
-    // Conditional guard: CONTINUATION for confirmations, FRESHNESS GUARD for new requests
-    let toolNudge;
-    if (isConfirmation) {
-        toolNudge = new HumanMessage(
-            `[CONTINUATION] The user is confirming/approving a plan you previously proposed. ` +
-            `Review your most recent message in the conversation history and EXECUTE the action(s) you described. ` +
-            `Do NOT ask for further confirmation. Do NOT re-propose the plan. Proceed to call the tools now. ` +
-            `You have ${selectedTools.length} tools available. Use them to carry out the plan. ` +
-            `You MUST cite the Receipt (ID/Link) in your confirmation.`
-        );
-    } else {
-        toolNudge = new HumanMessage(
-            `[FRESHNESS GUARD] You have ${selectedTools.length} tools available. ` +
-            `The following request from the user is NEW and INDEPENDENT. ` +
-            `Even if you see a similar request or tool result in the conversation history, ` +
-            `you MUST invoke the appropriate tool again to fulfill this specific request. ` +
-            `Past successes or failures do NOT apply here. ALWAYS call the tool fresh. ` +
-            `Execute the action directly. Do NOT ask the user to confirm information you can discover with your tools. ` +
-            `Do NOT say you cannot do something unless a tool actually returned an error. ` +
-            `You MUST cite the new Receipt (ID/Link) in your confirmation.`
-        );
-    }
-    const stream = agent.streamEvents(
-        { messages: [...history, agentTimeReminder, toolNudge, new HumanMessage(userQuery)] },
-        { version: "v2" }
-    );
+        } catch (error) {
+            lastError = error;
+            const is403 = error.message?.includes('403') || error.status === 403;
+            const isGitHubProvider = !excludeProviders.has('github');
 
-    let completeResponse = "";
-    const STREAM_TIMEOUT_MS = 30000;
-    let lastEventTime = Date.now();
+            if (is403 && isGitHubProvider && attempt === 0) {
+                console.warn(`[LLM] GitHub Models returned 403 for user ${userId}. User's GitHub account may not be enrolled in GitHub Models. Falling back to next provider...`);
+                // Evict cached GitHub LLM so subsequent requests don't retry it
+                const providerKey = (process.env.LLM_PROVIDER || 'auto').toLowerCase();
+                llmCache.delete(`${userId}:${providerKey}:`);
+                excludeProviders.add('github');
 
-    for await (const event of stream) {
-        lastEventTime = Date.now();
-        // Forward the event
-        yield event;
+                // Remember this so subsequent messages skip GitHub immediately
+                blockedProviders.set(userId, {
+                    providers: new Set(['github']),
+                    createdAt: Date.now()
+                });
 
-        // Capture final response for history
-        if (event.event === "on_chat_model_stream") {
-            const content = event.data?.chunk?.content;
-            if (content) {
-                completeResponse += content;
+                continue; // retry with next provider
             }
+            break; // non-retryable error
         }
     }
 
-    // Save to history after streaming completes
-    await messageHistory.addMessage(new HumanMessage(userQuery));
-    if (completeResponse) {
-        await messageHistory.addMessage(new AIMessage(completeResponse));
-    }
-
-    } catch (error) {
-        console.error("[Agent] Stream error:", error);
-        yield {
-            event: "on_chat_model_stream",
-            data: { chunk: { content: `\n\nI encountered an error processing your request: ${error.message}` } }
-        };
-    } finally {
-        process.env.ACTIVE_REQUEST = 'false';
-    }
+    // If we get here, all attempts failed
+    console.error("[Agent] Stream error:", lastError);
+    yield {
+        event: "on_chat_model_stream",
+        data: { chunk: { content: `\n\nI encountered an error processing your request: ${lastError.message}` } }
+    };
+    process.env.ACTIVE_REQUEST = 'false';
 }
 
 const outputAdapter = (state) => {
