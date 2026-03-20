@@ -150,9 +150,9 @@ const imageTools = [
 const jiraReadTools = [
   new DynamicStructuredTool({
     name: "search_jira_issues",
-    description: "Search Jira issues using JQL. For FASTER searches, include the project key in the JQL (e.g., 'project = FDIT'). If user doesn't specify a project/space, ASK them which project to search in - do NOT search all projects blindly. Example JQL: 'project = FDIT AND status = Open'.",
+    description: "Search Jira issues using JQL. For FASTER searches, include the project key in the JQL (e.g., 'project = FDIT'). If user doesn't specify a project, call list_jira_projects first to discover available projects, then construct the JQL with the correct project key. Do NOT ask the user for the project key. Example JQL: 'project = FDIT AND status = Open'.",
     schema: z.object({
-      jql: z.string().describe("REQUIRED: The JQL query string. Should include 'project = KEY' for faster results. ASK user for project key if not provided."),
+      jql: z.string().describe("REQUIRED: The JQL query string. Should include 'project = KEY' for faster results. Use list_jira_projects to discover the key if not provided by the user."),
     }),
     func: getJiraIssues,
   }),
@@ -167,9 +167,9 @@ const jiraReadTools = [
 const jiraWriteTools = [
   new DynamicStructuredTool({
     name: "create_jira_issue",
-    description: "Create a Jira ticket. REQUIRES 'projectKey'. If user doesn't specify which project/space, ASK them - do NOT guess or retry.",
+    description: "Create a Jira ticket. REQUIRES 'projectKey'. If user doesn't specify which project/space, use list_jira_projects to find the correct project key. Only ask the user if multiple projects exist and the correct one is ambiguous.",
     schema: z.object({
-      projectKey: z.string().describe("REQUIRED: Project Key (e.g., 'FDIT'). ASK the user if not provided."),
+      projectKey: z.string().describe("REQUIRED: Project Key (e.g., 'FDIT'). Use list_jira_projects to discover if not provided by the user."),
       summary: z.string().describe("REQUIRED: Ticket title"),
       description: z.string().optional(),
       issueType: z.string().optional(),
@@ -178,9 +178,9 @@ const jiraWriteTools = [
   }),
   new DynamicStructuredTool({
     name: "update_jira_issue",
-    description: "Update a Jira ticket's fields. REQUIRES 'issueKey' (e.g., 'FDIT-12'). If user doesn't specify the ticket key, ASK them - do NOT guess or retry. Supports: Status, Priority, Summary, Description, Assignee, Due Date, Labels, and Parent. Do NOT change the summary unless explicitly asked.",
+    description: "Update a Jira ticket's fields. REQUIRES 'issueKey' (e.g., 'FDIT-12'). If user doesn't specify the ticket key, search for it first using search_jira_issues. Only ask the user if the search returns multiple ambiguous matches. Supports: Status, Priority, Summary, Description, Assignee, Due Date, Labels, and Parent. Do NOT change the summary unless explicitly asked.",
     schema: z.object({
-      issueKey: z.string().describe("REQUIRED: The ticket key (e.g., 'FDIT-12'). ASK the user if not provided."),
+      issueKey: z.string().describe("REQUIRED: The ticket key (e.g., 'FDIT-12'). Use search_jira_issues to find it if not provided by the user."),
       summary: z.string().optional().describe("New title for the ticket."),
       description: z.string().optional().describe("New description text."),
       status: z.string().optional().describe("Target status to move to (e.g., 'In Progress', 'Done')."),
@@ -194,18 +194,18 @@ const jiraWriteTools = [
   }),
   new DynamicStructuredTool({
     name: "delete_jira_issue",
-    description: "Delete a Jira ticket by its key. REQUIRES 'issueKey' (e.g., 'FDIT-123'). If user doesn't specify the ticket key, ASK them - do NOT guess or retry.",
+    description: "Delete a Jira ticket by its key. REQUIRES 'issueKey' (e.g., 'FDIT-123'). If user doesn't specify the ticket key, search for it first using search_jira_issues. Only ask the user if the search returns multiple ambiguous matches.",
     schema: z.object({
-        issueKey: z.string().describe("REQUIRED: The ticket key to delete (e.g., 'FDIT-123'). ASK the user if not provided."),
+        issueKey: z.string().describe("REQUIRED: The ticket key to delete (e.g., 'FDIT-123'). Use search_jira_issues to find it if not provided by the user."),
     }),
     func: deleteJiraIssue,
   }),
   new DynamicStructuredTool({
     name: "create_jira_project",
-    description: "Create a new Jira Project (sometimes referred to as a Space). REQUIRES ADMIN RIGHTS. REQUIRES 'key' and 'name'. If user doesn't specify project key or name, ASK them - do NOT guess or retry.",
+    description: "Create a new Jira Project (sometimes referred to as a Space). REQUIRES ADMIN RIGHTS. REQUIRES 'key' and 'name'. If the user provides a name but not a key, generate a reasonable uppercase key from the name (e.g., 'My Project' → 'MP'). Only ask the user if neither name nor key is provided.",
     schema: z.object({
-        key: z.string().describe("REQUIRED: The Project Key (e.g., 'NEWPROJ'). Must be unique and uppercase. ASK user if not provided."),
-        name: z.string().describe("REQUIRED: The name of the project. ASK user if not provided."),
+        key: z.string().describe("REQUIRED: The Project Key (e.g., 'NEWPROJ'). Must be unique and uppercase. Derive from project name if not explicitly provided."),
+        name: z.string().describe("REQUIRED: The name of the project. Ask the user if not provided."),
         description: z.string().optional().describe("Project description."),
         templateKey: z.string().optional().describe("Template key (default: 'com.pyxis.greenhopper.jira:gh-simplified-kanban-classic')."),
         projectTypeKey: z.string().optional().describe("Type key (default: 'software')."),
@@ -1075,8 +1075,11 @@ async function processWithSemanticRouting(input) {
 export async function* streamWithSemanticRouting(userQuery, userId, timezone, userPrefs) {
     const sessionId = "user-1"; // Still using a single session per user for now
     process.env.ACTIVE_REQUEST = 'true';
-    
-    const { llm, classifier } = await getLLMForUser(userId);
+
+    let llm, classifier;
+    try {
+
+    ({ llm, classifier } = await getLLMForUser(userId));
     
     const messageHistory = getMessageHistory(sessionId, userId);
     const fullHistory = await messageHistory.getMessages();
@@ -1180,6 +1183,8 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
             `Even if you see a similar request or tool result in the conversation history, ` +
             `you MUST invoke the appropriate tool again to fulfill this specific request. ` +
             `Past successes or failures do NOT apply here. ALWAYS call the tool fresh. ` +
+            `Execute the action directly. Do NOT ask the user to confirm information you can discover with your tools. ` +
+            `Do NOT say you cannot do something unless a tool actually returned an error. ` +
             `You MUST cite the new Receipt (ID/Link) in your confirmation.`
         );
     }
@@ -1187,13 +1192,16 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         { messages: [...history, agentTimeReminder, toolNudge, new HumanMessage(userQuery)] },
         { version: "v2" }
     );
-    
+
     let completeResponse = "";
-    
+    const STREAM_TIMEOUT_MS = 30000;
+    let lastEventTime = Date.now();
+
     for await (const event of stream) {
+        lastEventTime = Date.now();
         // Forward the event
         yield event;
-        
+
         // Capture final response for history
         if (event.event === "on_chat_model_stream") {
             const content = event.data?.chunk?.content;
@@ -1202,11 +1210,21 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
             }
         }
     }
-    
+
     // Save to history after streaming completes
     await messageHistory.addMessage(new HumanMessage(userQuery));
     if (completeResponse) {
         await messageHistory.addMessage(new AIMessage(completeResponse));
+    }
+
+    } catch (error) {
+        console.error("[Agent] Stream error:", error);
+        yield {
+            event: "on_chat_model_stream",
+            data: { chunk: { content: `\n\nI encountered an error processing your request: ${error.message}` } }
+        };
+    } finally {
+        process.env.ACTIVE_REQUEST = 'false';
     }
 }
 

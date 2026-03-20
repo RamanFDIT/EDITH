@@ -463,12 +463,16 @@ app.post('/api/ask', extractUser, async (req, res) => {
         console.log('[TTS] Queue drained.');
     }
 
-    res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
-    res.end();
-
   } catch (error) {
     console.error("[Server] Ask Error:", error);
-    res.write(`data: ${JSON.stringify({ type: "error", content: error.message })}\n\n`);
+    try {
+      res.write(`data: ${JSON.stringify({ type: "error", content: error.message })}\n\n`);
+    } catch (e) { /* response already closed */ }
+  } finally {
+    // Always send done, even on error, so the frontend never hangs
+    try {
+      res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+    } catch (e) { /* response already closed */ }
     res.end();
   }
 });
@@ -563,15 +567,17 @@ app.post('/api/voice', extractUser, voiceUpload.single('audio'), async (req, res
         await ttsProcessingPromise;
     }
 
-    res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
-    res.end();
-
   } catch (error) {
     console.error('[Voice Error]', error);
     try {
       res.write(`data: ${JSON.stringify({ type: 'error', content: error.message })}\n\n`);
-      res.end();
-    } catch (e) { }
+    } catch (e) { /* response already closed */ }
+  } finally {
+    // Always send done, even on error, so the frontend never hangs
+    try {
+      res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+    } catch (e) { /* response already closed */ }
+    try { res.end(); } catch (e) { }
   }
 });
 
