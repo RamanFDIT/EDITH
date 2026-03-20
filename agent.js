@@ -608,9 +608,76 @@ const FALLBACK_KEYWORD_MAP = {
     github: ['github', 'repo', 'pr', 'pull request', 'commit', 'branch', 'push', 'merge', 'clone', 'check', 'code'],
 };
 
+// =============================================================================
+// CONFIRMATION DETECTION
+// Detects when user is confirming/approving a previously proposed action
+// =============================================================================
+
+const CONFIRMATION_PHRASES = new Set([
+    'go', 'yes', 'yep', 'yeah', 'yup', 'do it', 'proceed', 'confirmed',
+    'approved', 'go ahead', 'sure', 'ok', 'okay', 'affirmative',
+    'please do', 'go for it', 'make it happen', 'execute', 'run it',
+    'do that', 'yes please', 'confirm', 'let\'s go', 'sounds good',
+    'perfect', 'do it now', 'yes do it', 'go on', 'carry on',
+    'continue', 'alright', 'right', 'please', 'absolutely', 'definitely'
+]);
+
+const FILLER_WORDS = new Set(['it', 'that', 'this', 'the', 'a', 'now', 'then']);
+
+function isConfirmationMessage(message, chatHistory) {
+    if (!chatHistory || chatHistory.length === 0) return false;
+
+    const trimmed = message.trim().toLowerCase().replace(/[.!,?]+$/, '').trim();
+    if (CONFIRMATION_PHRASES.has(trimmed)) return true;
+
+    const words = trimmed.split(/\s+/);
+    if (words.length > 4) return false;
+
+    // Check if entire message is confirmation phrases + filler words
+    let remaining = trimmed;
+    const sortedPhrases = [...CONFIRMATION_PHRASES].sort((a, b) => b.length - a.length);
+    for (const phrase of sortedPhrases) {
+        remaining = remaining.replace(
+            new RegExp(`\\b${phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g'), ''
+        ).trim();
+    }
+
+    if (remaining === '') return true;
+    return remaining.split(/\s+/).every(w => FILLER_WORDS.has(w));
+}
+
 async function classifyIntent(userMessage, chatHistory = [], classifier) {
     const lowerMsg = userMessage.toLowerCase();
     const detectedCategories = new Set();
+
+    // 0. CONFIRMATION CHECK: Is this a short affirmation confirming a prior AI proposal?
+    if (isConfirmationMessage(userMessage, chatHistory)) {
+        console.log("[Traffic Cop] ✅ Confirmation detected. Scanning full context (human + AI)...");
+
+        // For confirmations, check ALL recent messages (including AI proposals)
+        const recentMessages = chatHistory.slice(-4);
+        const recentContext = recentMessages.map(m => m.content || '').join(' ').toLowerCase();
+
+        const contextCategories = new Set();
+        for (const [service, keywords] of Object.entries(FALLBACK_KEYWORD_MAP)) {
+            if (keywords.some(k => recentContext.includes(k))) {
+                contextCategories.add(`${service}_read`);
+                contextCategories.add(`${service}_write`);
+            }
+        }
+        for (const [category, keywords] of Object.entries(KEYWORD_MAP)) {
+            if (keywords.some(k => recentContext.includes(k))) {
+                contextCategories.add(category);
+            }
+        }
+
+        if (contextCategories.size > 0 && contextCategories.size <= 6) {
+            console.log(`[Traffic Cop] ✅ Confirmation routed: ${Array.from(contextCategories)}`);
+            return { categories: Array.from(contextCategories), isConfirmation: true };
+        }
+
+        return { categories: ['general'], isConfirmation: true };
+    }
 
     // 1. FAST PASS: Check specific keywords first (< 1ms)
     for (const [category, keywords] of Object.entries(KEYWORD_MAP)) {
@@ -630,7 +697,7 @@ async function classifyIntent(userMessage, chatHistory = [], classifier) {
 
     if (detectedCategories.size > 0) {
         console.log(`[Traffic Cop] ⚡ Fast-Pass Intent: ${Array.from(detectedCategories)}`);
-        return Array.from(detectedCategories);
+        return { categories: Array.from(detectedCategories), isConfirmation: false };
     }
 
     // 3. CONTEXT PASS: For short messages OR messages with reference words, check conversation context
@@ -670,13 +737,13 @@ async function classifyIntent(userMessage, chatHistory = [], classifier) {
         // Only return if it resolved to a reasonably small set of categories (prevent 30 tool nightmare)
         if (contextCategories.size > 0 && contextCategories.size <= 4) {
             console.log(`[Traffic Cop] 🔗 Context-Pass Intent (follow-up): ${Array.from(contextCategories)}`);
-            return Array.from(contextCategories);
+            return { categories: Array.from(contextCategories), isConfirmation: false };
         }
     }
 
     if (wordCount < 8) {
         console.log("[Traffic Cop] Short query with no context. Defaulting to General.");
-        return ['general'];
+        return { categories: ['general'], isConfirmation: false };
     }
 
     // 4. SLOW PASS: Fallback to LLM for ambiguous queries
@@ -695,20 +762,20 @@ async function classifyIntent(userMessage, chatHistory = [], classifier) {
         
         if (!classifier) {
             console.warn("[Traffic Cop] Classifier LLM missing, defaulting to General.");
-            return ['general'];
+            return { categories: ['general'], isConfirmation: false };
         }
 
         const response = await classifier.invoke(prompt + userMessage);
         const categories = response.content.toLowerCase().trim().split(',').map(c => c.trim());
         const validCategories = categories.filter(c => toolsByCategory.hasOwnProperty(c));
-        
-        if (validCategories.length === 0) return ['general'];
-        
+
+        if (validCategories.length === 0) return { categories: ['general'], isConfirmation: false };
+
         console.log(`[Traffic Cop] Intent classified: ${validCategories.join(', ')}`);
-        return validCategories;
+        return { categories: validCategories, isConfirmation: false };
     } catch (error) {
         console.error("[Traffic Cop] Classification error:", error.message);
-        return ['general']; 
+        return { categories: ['general'], isConfirmation: false };
     }
 }
 
@@ -916,27 +983,37 @@ async function processWithSemanticRouting(input) {
     const history = sanitizeHistoryForTools(trimHistory(Array.isArray(chat_history) ? chat_history : []));
     
     // Step 1: Classify intent using the Traffic Cop (now with context)
-    const categories = await classifyIntent(userQuery, history, classifier);
-    
+    const { categories, isConfirmation } = await classifyIntent(userQuery, history, classifier);
+
     // Step 2: Get the appropriate tools for the classified categories
     const selectedTools = getToolsForCategories(categories);
-    
-    console.log(`[Traffic Cop] Selected ${selectedTools.length} tools for categories: ${categories.join(', ')}`);
-    
+
+    console.log(`[Traffic Cop] Selected ${selectedTools.length} tools for categories: ${categories.join(', ')}${isConfirmation ? ' (confirmation)' : ''}`);
+
     // Step 3: Handle "general" conversation directly with LLM (no agent needed)
     if (selectedTools.length === 0) {
         console.log("[Traffic Cop] General conversation - using direct LLM call");
-        
+
         const systemPrompt = getSystemPrompt(timezone, input.userPrefs);
-        const noToolsGuard = new HumanMessage(
-            "[SYSTEM NOTICE] IMPORTANT: You have NO tools available in this response. " +
-            "You CANNOT perform any actions such as sending emails, creating tickets, " +
-            "posting messages, reading files, scheduling events, or querying APIs. " +
-            "Do NOT pretend to execute actions or fabricate results. " +
-            "If the user asks you to perform an action, tell them clearly and honestly " +
-            "that you were unable to route their request to the appropriate tool, " +
-            "and ask them to rephrase or be more specific."
-        );
+        let guardMessage;
+        if (isConfirmation) {
+            guardMessage = new HumanMessage(
+                "[CONTINUATION] The user is confirming something you previously said. " +
+                "Review your recent conversation and respond appropriately. " +
+                "If the user is confirming an action plan but you don't have the right tools available, " +
+                "let them know and ask them to rephrase the specific action request."
+            );
+        } else {
+            guardMessage = new HumanMessage(
+                "[SYSTEM NOTICE] IMPORTANT: You have NO tools available in this response. " +
+                "You CANNOT perform any actions such as sending emails, creating tickets, " +
+                "posting messages, reading files, scheduling events, or querying APIs. " +
+                "Do NOT pretend to execute actions or fabricate results. " +
+                "If the user asks you to perform an action, tell them clearly and honestly " +
+                "that you were unable to route their request to the appropriate tool, " +
+                "and ask them to rephrase or be more specific."
+            );
+        }
         const now = new Date();
         const effectiveTimezone = timezone || 'UTC';
         const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: effectiveTimezone };
@@ -946,7 +1023,7 @@ async function processWithSemanticRouting(input) {
         );
         const messages = [
             systemPrompt,
-            noToolsGuard,
+            guardMessage,
             ...history,
             freshTimeReminder,
             new HumanMessage(userQuery)
@@ -967,8 +1044,28 @@ async function processWithSemanticRouting(input) {
     const freshTimeReminder = new HumanMessage(
         `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', timeOptions)} on ${now.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
     );
+    // Conditional guard: CONTINUATION for confirmations, FRESHNESS GUARD for new requests
+    let toolNudge;
+    if (isConfirmation) {
+        toolNudge = new HumanMessage(
+            `[CONTINUATION] The user is confirming/approving a plan you previously proposed. ` +
+            `Review your most recent message in the conversation history and EXECUTE the action(s) you described. ` +
+            `Do NOT ask for further confirmation. Do NOT re-propose the plan. Proceed to call the tools now. ` +
+            `You have ${selectedTools.length} tools available. Use them to carry out the plan. ` +
+            `You MUST cite the Receipt (ID/Link) in your confirmation.`
+        );
+    } else {
+        toolNudge = new HumanMessage(
+            `[FRESHNESS GUARD] You have ${selectedTools.length} tools available. ` +
+            `The following request from the user is NEW and INDEPENDENT. ` +
+            `Even if you see a similar request or tool result in the conversation history, ` +
+            `you MUST invoke the appropriate tool again to fulfill this specific request. ` +
+            `Past successes or failures do NOT apply here. ALWAYS call the tool fresh. ` +
+            `You MUST cite the new Receipt (ID/Link) in your confirmation.`
+        );
+    }
     const result = await agent.invoke({
-        messages: [...history, freshTimeReminder, new HumanMessage(userQuery)]
+        messages: [...history, freshTimeReminder, toolNudge, new HumanMessage(userQuery)]
     });
 
     return result;
@@ -986,28 +1083,38 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
     const history = sanitizeHistoryForTools(trimHistory(fullHistory));
     
     // Step 1: Classify intent using the Traffic Cop (with conversation context)
-    const categories = await classifyIntent(userQuery, history, classifier);
+    const { categories, isConfirmation } = await classifyIntent(userQuery, history, classifier);
 
     // Step 2: Get the appropriate tools for the classified categories
     const selectedTools = getToolsForCategories(categories);
-    
-    console.log(`[Traffic Cop] Selected ${selectedTools.length} tools for categories: ${categories.join(', ')}`);
-    
+
+    console.log(`[Traffic Cop] Selected ${selectedTools.length} tools for categories: ${categories.join(', ')}${isConfirmation ? ' (confirmation)' : ''}`);
+
     // Step 3: Handle "general" conversation directly with LLM (no agent needed)
     if (selectedTools.length === 0) {
         console.log("[Traffic Cop] General conversation - using direct LLM call");
-        
+
         // getSystemPrompt() already returns a SystemMessage — don't double-wrap
         const systemPrompt = getSystemPrompt(timezone, userPrefs);
-        const noToolsGuard = new HumanMessage(
-            "[SYSTEM NOTICE] IMPORTANT: You have NO tools available in this response. " +
-            "You CANNOT perform any actions such as sending emails, creating tickets, " +
-            "posting messages, reading files, scheduling events, or querying APIs. " +
-            "Do NOT pretend to execute actions or fabricate results. " +
-            "If the user asks you to perform an action, tell them clearly and honestly " +
-            "that you were unable to route their request to the appropriate tool, " +
-            "and ask them to rephrase or be more specific."
-        );
+        let guardMessage;
+        if (isConfirmation) {
+            guardMessage = new HumanMessage(
+                "[CONTINUATION] The user is confirming something you previously said. " +
+                "Review your recent conversation and respond appropriately. " +
+                "If the user is confirming an action plan but you don't have the right tools available, " +
+                "let them know and ask them to rephrase the specific action request."
+            );
+        } else {
+            guardMessage = new HumanMessage(
+                "[SYSTEM NOTICE] IMPORTANT: You have NO tools available in this response. " +
+                "You CANNOT perform any actions such as sending emails, creating tickets, " +
+                "posting messages, reading files, scheduling events, or querying APIs. " +
+                "Do NOT pretend to execute actions or fabricate results. " +
+                "If the user asks you to perform an action, tell them clearly and honestly " +
+                "that you were unable to route their request to the appropriate tool, " +
+                "and ask them to rephrase or be more specific."
+            );
+        }
         // Inject a fresh time reminder right before the user query so the LLM
         // doesn't rely on stale timestamps from earlier in the conversation history.
         const now = new Date();
@@ -1018,7 +1125,7 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         );
         const messages = [
             systemPrompt,
-            noToolsGuard,
+            guardMessage,
             ...history,
             freshTimeReminder,
             new HumanMessage(userQuery)
@@ -1056,16 +1163,26 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
     const agentTimeReminder = new HumanMessage(
         `[TIME UPDATE] Current time is now: ${agentNow.toLocaleTimeString('en-US', timeOptions)} on ${agentNow.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
     );
-    // Force tool execution — combats LLM refusing to retry after past failures
-    // FRESHNESS GUARD: Explicitly state that past actions do not fulfill current requests.
-    const toolNudge = new HumanMessage(
-        `[FRESHNESS GUARD] You have ${selectedTools.length} tools available. ` +
-        `The following request from the user is NEW and INDEPENDENT. ` +
-        `Even if you see a similar request or tool result in the conversation history, ` +
-        `you MUST invoke the appropriate tool again to fulfill this specific request. ` +
-        `Past successes or failures do NOT apply here. ALWAYS call the tool fresh. ` +
-        `You MUST cite the new Receipt (ID/Link) in your confirmation.`
-    );
+    // Conditional guard: CONTINUATION for confirmations, FRESHNESS GUARD for new requests
+    let toolNudge;
+    if (isConfirmation) {
+        toolNudge = new HumanMessage(
+            `[CONTINUATION] The user is confirming/approving a plan you previously proposed. ` +
+            `Review your most recent message in the conversation history and EXECUTE the action(s) you described. ` +
+            `Do NOT ask for further confirmation. Do NOT re-propose the plan. Proceed to call the tools now. ` +
+            `You have ${selectedTools.length} tools available. Use them to carry out the plan. ` +
+            `You MUST cite the Receipt (ID/Link) in your confirmation.`
+        );
+    } else {
+        toolNudge = new HumanMessage(
+            `[FRESHNESS GUARD] You have ${selectedTools.length} tools available. ` +
+            `The following request from the user is NEW and INDEPENDENT. ` +
+            `Even if you see a similar request or tool result in the conversation history, ` +
+            `you MUST invoke the appropriate tool again to fulfill this specific request. ` +
+            `Past successes or failures do NOT apply here. ALWAYS call the tool fresh. ` +
+            `You MUST cite the new Receipt (ID/Link) in your confirmation.`
+        );
+    }
     const stream = agent.streamEvents(
         { messages: [...history, agentTimeReminder, toolNudge, new HumanMessage(userQuery)] },
         { version: "v2" }
