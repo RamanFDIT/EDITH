@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Github, Figma, Calendar, MessageSquare, CheckCircle2, Plug, Unplug, Wifi } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Github, Figma, Calendar, MessageSquare, CheckCircle2, Plug, Unplug, Wifi, LogOut, Shield } from 'lucide-react';
 import styles from './Settings.module.css';
 import { useNavBar } from '../../components/NavBar/NavBarContext.jsx';
 import BackButton from '../../components/BackButton/BackButton.jsx';
@@ -16,7 +17,8 @@ const providers = [
 
 const Settings = () => {
   const { expanded } = useNavBar();
-  const { userId, oauthStatus, refreshOauthStatus } = useApp();
+  const { userEmail, googleName, oauthStatus, refreshOauthStatus, signOut } = useApp();
+  const navigate = useNavigate();
 
   const [status, setStatus] = useState({ type: '', message: '' });
   const [connecting, setConnecting] = useState('');
@@ -25,26 +27,22 @@ const Settings = () => {
     setConnecting(provider);
     try {
       const res = await fetch(`${API_URL}/api/oauth/connect/${provider}`, {
-        headers: { 'X-User-ID': userId }
+        headers: { 'X-User-Email': userEmail }
       });
       const { url } = await res.json();
-      
-      // Open auth in a new window
+
       const authWindow = window.open(url, '_blank', 'width=600,height=800');
-      
-      // Poll for completion
+
       const checkInterval = setInterval(async () => {
         if (authWindow.closed) {
           clearInterval(checkInterval);
-          // Fetch fresh status and check directly (can't rely on stale closure)
           const statusRes = await fetch(`${API_URL}/api/oauth/status`, {
-            headers: { 'X-User-ID': userId }
+            headers: { 'X-User-Email': userEmail }
           });
           const statusData = await statusRes.json();
           if (statusData[provider]?.connected) {
             setStatus({ type: 'success', message: `Connected to ${provider}!` });
           }
-          // Update shared state + localStorage cache
           await refreshOauthStatus();
           setConnecting('');
         }
@@ -59,10 +57,20 @@ const Settings = () => {
   };
 
   const handleDisconnect = async (provider) => {
+    // Google is tied to sign-in — disconnecting means signing out
+    if (provider === 'google') {
+      if (!window.confirm('Google is your sign-in provider. Disconnecting will sign you out. Continue?')) {
+        return;
+      }
+      signOut();
+      navigate('/');
+      return;
+    }
+
     try {
-      await fetch(`${API_URL}/api/oauth/disconnect/${provider}`, { 
+      await fetch(`${API_URL}/api/oauth/disconnect/${provider}`, {
         method: 'POST',
-        headers: { 'X-User-ID': userId }
+        headers: { 'X-User-Email': userEmail }
       });
       setStatus({ type: 'info', message: `Disconnected from ${provider}.` });
       await refreshOauthStatus();
@@ -70,6 +78,13 @@ const Settings = () => {
       console.error('Disconnect failed:', err);
     }
     setTimeout(() => setStatus({ type: '', message: '' }), 3000);
+  };
+
+  const handleSignOut = () => {
+    if (window.confirm('Sign out of EDITH? You will need to sign in again with Google.')) {
+      signOut();
+      navigate('/');
+    }
   };
 
   return (
@@ -80,6 +95,20 @@ const Settings = () => {
           <h1 className={styles.header}>Settings</h1>
         </div>
         <p className={styles.subheading}>Manage your connected integrations</p>
+
+        {/* Account Info */}
+        <div className={styles.accountCard}>
+          <div className={styles.accountInfo}>
+            <Shield size={20} className={styles.accountIcon} />
+            <div>
+              <p className={styles.accountEmail}>{userEmail}</p>
+              {googleName && <p className={styles.accountName}>{googleName}</p>}
+            </div>
+          </div>
+          <button onClick={handleSignOut} className={styles.signOutButton}>
+            <LogOut size={14} /> Sign Out
+          </button>
+        </div>
 
         {status.message && (
           <div className={`${styles.statusBar} ${
@@ -100,13 +129,17 @@ const Settings = () => {
           {providers.map(({ key, label, description, icon: Icon }) => {
             const isConnected = oauthStatus[key]?.connected;
             const isConnecting = connecting === key;
+            const isGoogleAuth = key === 'google';
 
             return (
               <div key={key} className={isConnected ? styles.oauthCardConnected : styles.oauthCard}>
                 <div className={styles.cardInfo}>
                   <Icon size={24} className={isConnected ? styles.cardIconConnected : styles.cardIcon} />
                   <div>
-                    <p className={styles.cardLabel}>{label}</p>
+                    <p className={styles.cardLabel}>
+                      {label}
+                      {isGoogleAuth && isConnected && <span className={styles.authBadge}>Sign-In</span>}
+                    </p>
                     <p className={styles.cardDescription}>{description}</p>
                   </div>
                 </div>
@@ -119,7 +152,7 @@ const Settings = () => {
                   {isConnected ? (
                     <button onClick={() => handleDisconnect(key)} className={styles.disconnectButton}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                        <Unplug size={14} /> Disconnect
+                        <Unplug size={14} /> {isGoogleAuth ? 'Sign Out' : 'Disconnect'}
                       </span>
                     </button>
                   ) : (

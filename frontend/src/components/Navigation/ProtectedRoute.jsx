@@ -2,9 +2,12 @@ import { Navigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 
 export const ProtectedRoute = ({ children }) => {
-    const { onboardingComplete } = useApp();
+    const { isAuthenticated, authLoading, onboardingComplete } = useApp();
 
-    if (!onboardingComplete) {
+    // Don't redirect while session is being validated
+    if (authLoading) return null;
+
+    if (!isAuthenticated || !onboardingComplete) {
         return <Navigate to="/" replace />;
     }
 

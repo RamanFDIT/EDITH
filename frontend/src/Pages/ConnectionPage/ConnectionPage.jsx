@@ -18,7 +18,7 @@ const cardInfo = [
 const ConnectionPage = () => {
     const location = useLocation();
     const navigate = useNavigate();
-    const { userId, oauthStatus, refreshOauthStatus, setOnboardingComplete } = useApp();
+    const { userEmail, oauthStatus, refreshOauthStatus, setOnboardingComplete } = useApp();
     const selectedTools = location.state?.selectedTools || [];
     const [connectionStatus, setConnectionStatus] = useState(() => {
         const seeded = {};
@@ -54,7 +54,7 @@ const ConnectionPage = () => {
 
         try {
             const res = await fetch(`${API_URL}/api/oauth/connect/${providerKey}`, {
-                headers: { 'X-User-ID': userId }
+                headers: { 'X-User-Email': userEmail }
             });
             const { url } = await res.json();
             
@@ -64,7 +64,7 @@ const ConnectionPage = () => {
                 try {
                     // Periodic poll regardless of window state
                     const statusRes = await fetch(`${API_URL}/api/oauth/status`, {
-                        headers: { 'X-User-ID': userId }
+                        headers: { 'X-User-Email': userEmail }
                     });
                     const statusData = await statusRes.json();
                     

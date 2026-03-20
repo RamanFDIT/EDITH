@@ -12,3 +12,6 @@
 .header {
     @apply text-bgCTA font-fontDisplay text-5xl md:text-7xl text-center font-semibold;
 }
+.error {
+    @apply text-colorFail font-fontBody text-sm text-center;
+}

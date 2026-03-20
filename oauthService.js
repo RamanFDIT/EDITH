@@ -75,6 +75,9 @@ function getOAuthProviders() {
       clientId: process.env.OAUTH_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '',
       clientSecret: process.env.OAUTH_GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || '',
       scopes: [
+        'openid',
+        'email',
+        'profile',
         'https://www.googleapis.com/auth/calendar',
         'https://www.googleapis.com/auth/calendar.events',
         'https://www.googleapis.com/auth/gmail.send',
@@ -289,4 +292,13 @@ export async function discoverJiraCloudId(accessToken) {
   const sites = await response.json();
   if (sites.length === 0) throw new Error('No Jira sites found');
   return { cloud_id: sites[0].id, cloud_url: sites[0].url };
+}
+
+export async function fetchGoogleUserInfo(accessToken) {
+  const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+    headers: { 'Authorization': `Bearer ${accessToken}` },
+  });
+  if (!response.ok) throw new Error(`Failed to fetch Google user info: ${response.status}`);
+  const data = await response.json();
+  return { email: data.email, name: data.name, picture: data.picture };
 }

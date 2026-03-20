@@ -12,7 +12,7 @@ const MESSAGES_PER_PAGE = 20;
 
 const Home = () => {
   const { expanded } = useNavBar();
-  const { userId, messages, setMessages, historyLoaded, setHistoryLoaded } = useApp();
+  const { userEmail, messages, setMessages, historyLoaded, setHistoryLoaded } = useApp();
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [files, setFiles] = useState([]);
@@ -84,7 +84,7 @@ const Home = () => {
     const loadHistory = async () => {
       try {
         const res = await fetch(`${API_URL}/api/history?sessionId=user-1&limit=${MESSAGES_PER_PAGE}`, {
-            headers: { 'X-User-ID': userId }
+            headers: { 'X-User-Email': userEmail }
         });
         const data = await res.json();
         if (data.messages && data.messages.length > 0) {
@@ -105,7 +105,7 @@ const Home = () => {
       }
     };
     loadHistory();
-  }, [historyLoaded, setMessages, setHistoryLoaded, userId]);
+  }, [historyLoaded, setMessages, setHistoryLoaded, userEmail]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -125,7 +125,7 @@ const Home = () => {
     try {
       const res = await fetch(
         `${API_URL}/api/history?sessionId=user-1&offset=${messages.length}&limit=${MESSAGES_PER_PAGE}`,
-        { headers: { 'X-User-ID': userId } }
+        { headers: { 'X-User-Email': userEmail } }
       );
       const data = await res.json();
       if (data.messages && data.messages.length > 0) {
@@ -150,7 +150,7 @@ const Home = () => {
     } finally {
       setLoadingOlder(false);
     }
-  }, [messages.length, loadingOlder, hasMore, historyLoaded, setMessages, userId]);
+  }, [messages.length, loadingOlder, hasMore, historyLoaded, setMessages, userEmail]);
 
   // Intersection observer for scroll-to-load-older
   useEffect(() => {
@@ -200,7 +200,7 @@ const Home = () => {
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json',
-            'X-User-ID': userId 
+            'X-User-Email': userEmail 
         },
         body: JSON.stringify({ 
           question, 

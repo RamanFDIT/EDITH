@@ -42,18 +42,34 @@ app.use((req, res, next) => {
 
 // --- Middleware: User Isolation ---
 async function extractUser(req, res, next) {
-    const userId = req.headers['x-user-id'] || req.query.userId || 'default-user';
-    
+    const userEmail = req.headers['x-user-email'];
+    const userId = req.headers['x-user-id'] || req.query.userId;
+
     try {
-        let user = await User.findOne({ email: `${userId}@edith.local` });
-        if (!user) {
-            user = await User.create({ 
-                email: `${userId}@edith.local`, 
-                name: `User ${userId.substring(0, 8)}`,
-                authProvider: 'local'
-            });
-            console.log(`[User] Created new isolated user: ${userId}`);
+        let user = null;
+
+        // Prefer X-User-Email (Google Sign-In identity)
+        if (userEmail) {
+            user = await User.findOne({ email: userEmail });
         }
+
+        // Fall back to X-User-ID (legacy random UUID → @edith.local)
+        if (!user && userId) {
+            user = await User.findOne({ email: `${userId}@edith.local` });
+            if (!user) {
+                user = await User.create({
+                    email: `${userId}@edith.local`,
+                    name: `User ${userId.substring(0, 8)}`,
+                    authProvider: 'local'
+                });
+                console.log(`[User] Created new local user: ${userId}`);
+            }
+        }
+
+        if (!user) {
+            return res.status(401).json({ error: 'No user identity provided' });
+        }
+
         req.user = user;
         next();
     } catch (err) {
@@ -84,15 +100,55 @@ app.post('/api/upload', fileUpload.array('files', 10), (req, res) => {
     res.json({ files: uploaded });
 });
 
-import { 
-    buildAuthUrl, 
-    exchangeCodeForTokens, 
-    storeTokens, 
-    getConnectionStatus, 
+import {
+    buildAuthUrl,
+    exchangeCodeForTokens,
+    storeTokens,
+    getConnectionStatus,
     clearTokens,
-    discoverJiraCloudId
+    discoverJiraCloudId,
+    fetchGoogleUserInfo
 } from './oauthService.js';
 import crypto from 'crypto';
+
+// --- API: Auth (Google Sign-In) ---
+
+app.get('/api/auth/google', (req, res) => {
+    try {
+        const state = `auth__${crypto.randomBytes(16).toString('hex')}`;
+        const authUrl = buildAuthUrl('google', state);
+        res.json({ url: authUrl });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/auth/session', async (req, res) => {
+    try {
+        const email = req.headers['x-user-email'];
+        if (!email) return res.json({ valid: false });
+
+        const user = await User.findOne({ email });
+        if (!user) return res.json({ valid: false });
+
+        // Check if Google tokens exist and are decryptable
+        const status = await getConnectionStatus(user._id);
+        const googleValid = status.google?.connected || false;
+
+        res.json({
+            valid: true,
+            email: user.email,
+            name: user.name,
+            preferredName: user.preferredName || '',
+            titlePreference: user.titlePreference || 'Sir',
+            oauthStatus: status,
+            onboardingComplete: !!(user.preferredName)
+        });
+    } catch (error) {
+        console.error('[Auth Session] Error:', error);
+        res.json({ valid: false });
+    }
+});
 
 // --- API: OAuth ---
 
@@ -100,11 +156,11 @@ import crypto from 'crypto';
 app.get('/api/oauth/connect/:provider', extractUser, async (req, res) => {
     try {
         const { provider } = req.params;
-        const userId = req.user.email.split('@')[0]; // Extract the ID we used
-        
-        // Encode provider AND userId in state so callback knows who sent it
-        const state = `${provider}__${userId}__${crypto.randomBytes(8).toString('hex')}`;
-        
+        const userIdentifier = req.user.email;
+
+        // Encode provider AND full email in state so callback knows who sent it
+        const state = `${provider}__${userIdentifier}__${crypto.randomBytes(8).toString('hex')}`;
+
         const authUrl = buildAuthUrl(provider, state);
         res.json({ url: authUrl });
     } catch (error) {
@@ -115,32 +171,101 @@ app.get('/api/oauth/connect/:provider', extractUser, async (req, res) => {
 // 2. OAuth Callback
 app.get('/api/oauth/callback', async (req, res) => {
     try {
-        const { code, state, error } = req.query;
+        const { code, state, error: oauthError } = req.query;
 
         if (!state) return res.status(400).send("Missing state parameter");
+        if (oauthError) return res.status(400).send(`OAuth Error: ${oauthError}`);
 
-        // Extract provider and userId from state (e.g. "google__user_abc__...")
-        const [provider, userId] = state.split('__'); 
+        // --- AUTH SIGN-IN FLOW ---
+        if (state.startsWith('auth__')) {
+            const tokenData = await exchangeCodeForTokens('google', code);
+            const userInfo = await fetchGoogleUserInfo(tokenData.access_token);
 
-        if (error) return res.status(400).send(`OAuth Error: ${error}`);
+            // Find or create user by Google email
+            let user = await User.findOne({ email: userInfo.email });
+            if (!user) {
+                user = await User.create({
+                    email: userInfo.email,
+                    name: userInfo.name,
+                    authProvider: 'google'
+                });
+                console.log(`[Auth] Created new Google user: ${userInfo.email}`);
+            } else {
+                // Update name from Google profile if changed
+                if (user.name !== userInfo.name) {
+                    user.name = userInfo.name;
+                    await user.save();
+                }
+            }
+
+            // Store Google tokens (Calendar/Gmail are connected via sign-in)
+            await storeTokens(user._id, 'google', tokenData);
+
+            const safeEmail = userInfo.email.replace(/'/g, "\\'");
+            const safeName = (userInfo.name || '').replace(/'/g, "\\'");
+            const safePreferredName = (user.preferredName || '').replace(/'/g, "\\'");
+            const safeTitlePref = (user.titlePreference || 'Sir').replace(/'/g, "\\'");
+
+            res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
+            res.send(`
+                <html>
+                    <body style="font-family:sans-serif;text-align:center;padding:50px;background:#0a0a0a;color:#00ff88">
+                        <h2>Signed In Successfully!</h2>
+                        <p>You can close this tab and return to EDITH.</p>
+                        <script>
+                            try {
+                                if (window.opener) {
+                                    window.opener.postMessage({
+                                        type: 'AUTH_COMPLETE',
+                                        email: '${safeEmail}',
+                                        name: '${safeName}',
+                                        preferredName: '${safePreferredName}',
+                                        titlePreference: '${safeTitlePref}'
+                                    }, '*');
+                                }
+                            } catch (e) {}
+                            setTimeout(() => window.close(), 2000);
+                        </script>
+                    </body>
+                </html>
+            `);
+            return;
+        }
+
+        // --- TOOL-CONNECTION FLOW ---
+        const [provider, ...rest] = state.split('__');
+        // userIdentifier is everything between first and last __ segments
+        const userIdentifier = rest.slice(0, -1).join('__');
 
         const tokenData = await exchangeCodeForTokens(provider, code);
-        
+
         if (provider === 'jira') {
             const jiraInfo = await discoverJiraCloudId(tokenData.access_token);
             tokenData.cloud_id = jiraInfo.cloud_id;
             tokenData.cloud_url = jiraInfo.cloud_url;
         }
 
-        // Find the specific isolated user
-        let user = await User.findOne({ email: `${userId}@edith.local` });
-        if (!user) {
-            user = await User.create({ 
-                email: `${userId}@edith.local`, 
-                name: `User ${userId.substring(0, 8)}`,
-                authProvider: 'local'
-            });
+        // Find user — detect real email vs legacy @edith.local
+        let user;
+        if (userIdentifier.includes('@') && !userIdentifier.endsWith('@edith.local')) {
+            user = await User.findOne({ email: userIdentifier });
+        } else {
+            // Legacy: strip @edith.local if present, or use as-is
+            const legacyId = userIdentifier.replace(/@edith\.local$/, '');
+            user = await User.findOne({ email: `${legacyId}@edith.local` });
+            if (!user) {
+                user = await User.create({
+                    email: `${legacyId}@edith.local`,
+                    name: `User ${legacyId.substring(0, 8)}`,
+                    authProvider: 'local'
+                });
+            }
         }
+
+        if (!user) {
+            return res.status(400).send('User not found. Please sign in again.');
+        }
+
         await storeTokens(user._id, provider, tokenData);
 
         res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
@@ -161,6 +286,7 @@ app.get('/api/oauth/callback', async (req, res) => {
             </html>
         `);
     } catch (error) {
+        console.error('[OAuth Callback] Error:', error);
         res.status(500).send(`Authentication failed: ${error.message}`);
     }
 });

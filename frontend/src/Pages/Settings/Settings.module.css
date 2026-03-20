@@ -82,3 +82,28 @@
            hover:bg-colorFail/20 hover:text-colorFail hover:cursor-pointer
            transition-all ease-out active:scale-95;
 }
+.accountCard {
+    @apply bg-bgComponents rounded-sm px-4 md:px-6 py-4 md:py-5 mb-8
+           flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:justify-between
+           border border-bgHover;
+}
+.accountInfo {
+    @apply flex items-center gap-3;
+}
+.accountIcon {
+    @apply text-bgCTA;
+}
+.accountEmail {
+    @apply text-textPrimary font-fontDisplay text-sm font-semibold;
+}
+.accountName {
+    @apply text-textPrimary/60 font-fontBody text-xs;
+}
+.signOutButton {
+    @apply flex items-center gap-2 bg-bgHover text-textPrimary font-fontDisplay font-semibold text-sm px-5 py-2 rounded-sm
+           hover:bg-colorFail/20 hover:text-colorFail hover:cursor-pointer
+           transition-all ease-out active:scale-95;
+}
+.authBadge {
+    @apply ml-2 text-xs font-fontBody font-normal text-bgCTA/80 bg-bgCTA/10 px-2 py-0.5 rounded-sm;
+}
