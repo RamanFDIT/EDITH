@@ -9,9 +9,12 @@ import { promisify } from 'util';
 import os from 'os';
 import { transcribeAudio, generateSpeech } from './audioTool.js';
 import { connectDB, Chat, User } from './db.js';
+import { ensureEncryptionKey } from './oauthService.js';
 
-// Connect to Database
-connectDB();
+// Connect to Database, then initialize encryption key
+connectDB().then(() => ensureEncryptionKey()).catch(err => {
+  console.error('[Startup] Failed to initialize encryption key:', err.message);
+});
 
 const execAsync = promisify(exec);
 

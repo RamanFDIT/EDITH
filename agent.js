@@ -1021,11 +1021,14 @@ async function processWithSemanticRouting(input) {
         const freshTimeReminder = new SystemMessage(
             `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', timeOptions)} on ${now.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
         );
+        // Merge all system-level content into a single SystemMessage so that
+        // Gemini doesn't crash with "System message should be the first one".
+        const combinedSystemContent = systemPrompt.content
+            + '\n\n' + guardMessage.content
+            + '\n\n' + freshTimeReminder.content;
         const messages = [
-            systemPrompt,
-            guardMessage,
+            new SystemMessage(combinedSystemContent),
             ...history,
-            freshTimeReminder,
             new HumanMessage(userQuery)
         ];
 
@@ -1128,11 +1131,14 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         const freshTimeReminder = new SystemMessage(
             `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', timeOptions)} on ${now.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
         );
+        // Merge all system-level content into a single SystemMessage so that
+        // Gemini doesn't crash with "System message should be the first one".
+        const combinedSystemContent = systemPrompt.content
+            + '\n\n' + guardMessage.content
+            + '\n\n' + freshTimeReminder.content;
         const messages = [
-            systemPrompt,
-            guardMessage,
+            new SystemMessage(combinedSystemContent),
             ...history,
-            freshTimeReminder,
             new HumanMessage(userQuery)
         ];
 

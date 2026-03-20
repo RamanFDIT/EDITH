@@ -2,26 +2,91 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import fetch from 'node-fetch';
+import mongoose from 'mongoose';
 import { User } from './db.js';
 
 /**
  * oauthService.js — Refactored for Web (Server-Side)
  */
 
+// --- APP CONFIG MODEL (for persistent settings like ENCRYPTION_KEY) ---
+const appConfigSchema = new mongoose.Schema({
+  key: { type: String, unique: true, required: true },
+  value: { type: String, required: true },
+});
+const AppConfig = mongoose.models.AppConfig || mongoose.model('AppConfig', appConfigSchema);
+
 // --- ENCRYPTION HELPERS ---
 const ALGORITHM = 'aes-256-cbc';
 
-function getValidKey() {
-  if (!process.env.ENCRYPTION_KEY) {
-    const generated = crypto.randomBytes(32).toString('hex');
-    // Persist to .env so it survives restarts
+let _cachedKey = null;
+
+/**
+ * Must be called after MongoDB connects. Resolves ENCRYPTION_KEY from:
+ * 1. process.env (from .env or platform env vars)
+ * 2. MongoDB AppConfig collection (survives ephemeral filesystems)
+ * 3. Auto-generate and save to both MongoDB and .env
+ */
+export async function ensureEncryptionKey() {
+  if (_cachedKey) return;
+
+  // 1. From environment?
+  if (process.env.ENCRYPTION_KEY) {
+    _cachedKey = process.env.ENCRYPTION_KEY;
+    // Also persist to MongoDB if not already there
+    try {
+      await AppConfig.updateOne(
+        { key: 'ENCRYPTION_KEY' },
+        { $setOnInsert: { key: 'ENCRYPTION_KEY', value: _cachedKey } },
+        { upsert: true }
+      );
+    } catch (e) {
+      // DB not available — fine, env var is sufficient
+    }
+    return;
+  }
+
+  // 2. From MongoDB?
+  try {
+    const stored = await AppConfig.findOne({ key: 'ENCRYPTION_KEY' });
+    if (stored) {
+      process.env.ENCRYPTION_KEY = stored.value;
+      _cachedKey = stored.value;
+      console.log('[Security] Loaded ENCRYPTION_KEY from database');
+      return;
+    }
+  } catch (e) {
+    // DB not available — fall through to generate
+  }
+
+  // 3. Generate new key, save everywhere
+  const generated = crypto.randomBytes(32).toString('hex');
+  process.env.ENCRYPTION_KEY = generated;
+  _cachedKey = generated;
+
+  try {
+    await AppConfig.create({ key: 'ENCRYPTION_KEY', value: generated });
+    console.log('[Security] Generated new ENCRYPTION_KEY and saved to database');
+  } catch (e) {
+    console.log('[Security] Generated new ENCRYPTION_KEY (could not save to database)');
+  }
+
+  // Also save to .env (local dev convenience, best-effort)
+  try {
     const envPath = path.resolve(process.cwd(), '.env');
     fs.appendFileSync(envPath, `\nENCRYPTION_KEY=${generated}\n`);
-    process.env.ENCRYPTION_KEY = generated;
-    console.log('[Security] Auto-generated ENCRYPTION_KEY and saved to .env');
+  } catch (e) {
+    // Ephemeral filesystem — expected on Render, ignore
+  }
+}
+
+function getValidKey() {
+  const key = process.env.ENCRYPTION_KEY || _cachedKey;
+  if (!key) {
+    throw new Error('ENCRYPTION_KEY not initialized. Call ensureEncryptionKey() at startup.');
   }
   // Hash the key to ensure it's exactly 32 bytes (256 bits)
-  return crypto.createHash('sha256').update(String(process.env.ENCRYPTION_KEY)).digest('base64').substring(0, 32);
+  return crypto.createHash('sha256').update(String(key)).digest('base64').substring(0, 32);
 }
 
 function encryptToken(text) {
