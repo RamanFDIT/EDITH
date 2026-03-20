@@ -2,7 +2,7 @@ import Logo from '../../assets/EDITH.svg?react';
 import Button from '../../components/Button/Button.jsx';
 import BackButton from '../../components/BackButton/BackButton.jsx';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Github, Calendar, MessageSquare, CheckCircle2, Plug, Wifi, AlertCircle } from 'lucide-react';
 import styles from './ConnectionPage.module.css';
 import { useApp } from '../../context/AppContext.jsx';
@@ -27,6 +27,18 @@ const ConnectionPage = () => {
         }
         return seeded;
     });
+
+    useEffect(() => {
+        setConnectionStatus(prev => {
+            const updated = { ...prev };
+            for (const [provider, info] of Object.entries(oauthStatus)) {
+                if (info.connected && prev[provider] !== 'connected') {
+                    updated[provider] = 'connected';
+                }
+            }
+            return updated;
+        });
+    }, [oauthStatus]);
 
     const toolsToShow = cardInfo.filter(card =>
         card.cardHead === 'GitHub' || selectedTools.includes(card.cardHead)

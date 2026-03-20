@@ -35,7 +35,15 @@ export const AppProvider = ({ children }) => {
             const res = await fetch(`${API_URL}/api/oauth/status`, {
                 headers: { 'X-User-ID': userId }
             });
+            if (!res.ok) {
+                console.warn('[OAuth] Status fetch failed:', res.status);
+                return; // Keep cached state
+            }
             const status = await res.json();
+            if (!status || typeof status !== 'object' || status.error) {
+                console.warn('[OAuth] Invalid status response:', status);
+                return; // Keep cached state
+            }
             setOauthStatus(status);
             localStorage.setItem('edith_oauth_status', JSON.stringify(status));
         } catch (err) {
