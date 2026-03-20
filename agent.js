@@ -997,14 +997,14 @@ async function processWithSemanticRouting(input) {
         const systemPrompt = getSystemPrompt(timezone, input.userPrefs);
         let guardMessage;
         if (isConfirmation) {
-            guardMessage = new HumanMessage(
+            guardMessage = new SystemMessage(
                 "[CONTINUATION] The user is confirming something you previously said. " +
                 "Review your recent conversation and respond appropriately. " +
                 "If the user is confirming an action plan but you don't have the right tools available, " +
                 "let them know and ask them to rephrase the specific action request."
             );
         } else {
-            guardMessage = new HumanMessage(
+            guardMessage = new SystemMessage(
                 "[SYSTEM NOTICE] IMPORTANT: You have NO tools available in this response. " +
                 "You CANNOT perform any actions such as sending emails, creating tickets, " +
                 "posting messages, reading files, scheduling events, or querying APIs. " +
@@ -1018,7 +1018,7 @@ async function processWithSemanticRouting(input) {
         const effectiveTimezone = timezone || 'UTC';
         const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: effectiveTimezone };
         const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: effectiveTimezone };
-        const freshTimeReminder = new HumanMessage(
+        const freshTimeReminder = new SystemMessage(
             `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', timeOptions)} on ${now.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
         );
         const messages = [
@@ -1041,13 +1041,13 @@ async function processWithSemanticRouting(input) {
     const effectiveTimezone = timezone || 'UTC';
     const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: effectiveTimezone };
     const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: effectiveTimezone };
-    const freshTimeReminder = new HumanMessage(
+    const freshTimeReminder = new SystemMessage(
         `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', timeOptions)} on ${now.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
     );
     // Conditional guard: CONTINUATION for confirmations, FRESHNESS GUARD for new requests
     let toolNudge;
     if (isConfirmation) {
-        toolNudge = new HumanMessage(
+        toolNudge = new SystemMessage(
             `[CONTINUATION] The user is confirming/approving a plan you previously proposed. ` +
             `Review your most recent message in the conversation history and EXECUTE the action(s) you described. ` +
             `Do NOT ask for further confirmation. Do NOT re-propose the plan. Proceed to call the tools now. ` +
@@ -1055,12 +1055,14 @@ async function processWithSemanticRouting(input) {
             `You MUST cite the Receipt (ID/Link) in your confirmation.`
         );
     } else {
-        toolNudge = new HumanMessage(
+        toolNudge = new SystemMessage(
             `[FRESHNESS GUARD] You have ${selectedTools.length} tools available. ` +
             `The following request from the user is NEW and INDEPENDENT. ` +
             `Even if you see a similar request or tool result in the conversation history, ` +
             `you MUST invoke the appropriate tool again to fulfill this specific request. ` +
             `Past successes or failures do NOT apply here. ALWAYS call the tool fresh. ` +
+            `Execute the action directly. Do NOT ask the user to confirm information you can discover with your tools. ` +
+            `Do NOT say you cannot do something unless a tool actually returned an error. ` +
             `You MUST cite the new Receipt (ID/Link) in your confirmation.`
         );
     }
@@ -1101,14 +1103,14 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         const systemPrompt = getSystemPrompt(timezone, userPrefs);
         let guardMessage;
         if (isConfirmation) {
-            guardMessage = new HumanMessage(
+            guardMessage = new SystemMessage(
                 "[CONTINUATION] The user is confirming something you previously said. " +
                 "Review your recent conversation and respond appropriately. " +
                 "If the user is confirming an action plan but you don't have the right tools available, " +
                 "let them know and ask them to rephrase the specific action request."
             );
         } else {
-            guardMessage = new HumanMessage(
+            guardMessage = new SystemMessage(
                 "[SYSTEM NOTICE] IMPORTANT: You have NO tools available in this response. " +
                 "You CANNOT perform any actions such as sending emails, creating tickets, " +
                 "posting messages, reading files, scheduling events, or querying APIs. " +
@@ -1123,7 +1125,7 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         const now = new Date();
         const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: timezone };
         const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: timezone };
-        const freshTimeReminder = new HumanMessage(
+        const freshTimeReminder = new SystemMessage(
             `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', timeOptions)} on ${now.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
         );
         const messages = [
@@ -1163,13 +1165,13 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
     const agentNow = new Date();
     const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: timezone };
     const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: timezone };
-    const agentTimeReminder = new HumanMessage(
+    const agentTimeReminder = new SystemMessage(
         `[TIME UPDATE] Current time is now: ${agentNow.toLocaleTimeString('en-US', timeOptions)} on ${agentNow.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
     );
     // Conditional guard: CONTINUATION for confirmations, FRESHNESS GUARD for new requests
     let toolNudge;
     if (isConfirmation) {
-        toolNudge = new HumanMessage(
+        toolNudge = new SystemMessage(
             `[CONTINUATION] The user is confirming/approving a plan you previously proposed. ` +
             `Review your most recent message in the conversation history and EXECUTE the action(s) you described. ` +
             `Do NOT ask for further confirmation. Do NOT re-propose the plan. Proceed to call the tools now. ` +
@@ -1177,7 +1179,7 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
             `You MUST cite the Receipt (ID/Link) in your confirmation.`
         );
     } else {
-        toolNudge = new HumanMessage(
+        toolNudge = new SystemMessage(
             `[FRESHNESS GUARD] You have ${selectedTools.length} tools available. ` +
             `The following request from the user is NEW and INDEPENDENT. ` +
             `Even if you see a similar request or tool result in the conversation history, ` +
