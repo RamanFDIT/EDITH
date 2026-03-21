@@ -54,12 +54,18 @@ function buildSystemPrompt(userTimezone, userPrefs) {
     const prefs = userPrefs || {};
     let userDesignation = '"Sir", "Ma\'am", or [User\'s Title]';
     let userNameLine = '';
+
+    // Apply title preference regardless of whether name is set
+    if (prefs.titlePreference === 'name' && prefs.preferredName) {
+        userDesignation = `"${prefs.preferredName}"`;
+    } else if (prefs.titlePreference === "Ma'am") {
+        userDesignation = '"Ma\'am"';
+    } else if (prefs.titlePreference === 'Sir') {
+        userDesignation = '"Sir"';
+    }
+
+    // Add name line if name is set (independent of title choice)
     if (prefs.preferredName) {
-        if (prefs.titlePreference === 'name') {
-            userDesignation = `"${prefs.preferredName}"`;
-        } else if (prefs.titlePreference === "Ma'am" || prefs.titlePreference === 'Sir') {
-            userDesignation = `"${prefs.titlePreference}"`;
-        }
         userNameLine = `\n# USER NAME: ${prefs.preferredName}`;
     }
 

@@ -604,7 +604,8 @@ const KEYWORD_MAP = {
         'read file', 'read that', 'summarize', 'summary',
         'that document', 'the file', 'the document',
         'brief me', 'overview', 'contents of', 'what does it say',
-        'attached', 'attachment', 'uploaded'
+        'attached', 'attachment', 'uploaded',
+        'file tools', 'attached the following'
     ],
     slack: [
         'slack', 'tell the team', 'notify team', 'post to', 'announce', 'message channel',
@@ -1020,6 +1021,7 @@ function getOrCreateAgent(tools, userTimezone, userId, userLLM, userPrefs) {
         llm: userLLM,
         tools,
         stateModifier: systemPrompt,
+        recursionLimit: 50,
     });
     
     console.log(`[Agent Factory] Created agent with tools: ${toolSignature || '(none)'}`);
@@ -1163,6 +1165,14 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         // Step 1: Classify intent using the Traffic Cop (with conversation context)
         const { categories, isConfirmation } = await classifyIntent(userQuery, history, classifier);
 
+        // Auto-include file tools when files are attached
+        if (userQuery.includes('Read them using your file tools')) {
+            if (!categories.includes('files')) {
+                categories.push('files');
+                console.log('[Traffic Cop] Files detected in request — added files category');
+            }
+        }
+
         // Step 2: Get the appropriate tools for the classified categories
         const selectedTools = getToolsForCategories(categories);
 
@@ -1276,8 +1286,36 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         const STREAM_TIMEOUT_MS = 30000;
         let lastEventTime = Date.now();
 
+        // Repeated tool call detector — catches hallucination loops
+        const MAX_REPEATED_CALLS = 3;
+        let lastToolCall = null;
+        let repeatCount = 0;
+
         for await (const event of stream) {
             lastEventTime = Date.now();
+
+            // Track tool calls to detect hallucination loops
+            if (event.event === "on_tool_start") {
+                const toolName = event.name || '';
+                const toolInput = JSON.stringify(event.data?.input || {});
+                const callSignature = `${toolName}:${toolInput}`;
+
+                if (callSignature === lastToolCall) {
+                    repeatCount++;
+                    if (repeatCount >= MAX_REPEATED_CALLS) {
+                        console.warn(`[Traffic Cop] Halting: tool "${toolName}" called ${MAX_REPEATED_CALLS}+ times with identical args. Likely hallucination loop.`);
+                        yield {
+                            event: "on_chat_model_stream",
+                            data: { chunk: { content: "\n\nI noticed I was repeating the same action. Let me stop here and summarize what I've done so far." } }
+                        };
+                        break;
+                    }
+                } else {
+                    lastToolCall = callSignature;
+                    repeatCount = 1;
+                }
+            }
+
             // Forward the event
             yield event;
 
