@@ -1339,19 +1339,20 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
 
         } catch (error) {
             lastError = error;
+            const is401 = error.message?.includes('401') || error.status === 401;
             const is403 = error.message?.includes('403') || error.status === 403;
             const is413 = error.message?.includes('413') || error.status === 413;
             const isGitHubProvider = !excludeProviders.has('github');
 
-            if ((is403 || is413) && isGitHubProvider && attempt < MAX_ATTEMPTS - 1) {
-                console.warn(`[LLM] GitHub Models returned ${is413 ? '413' : '403'} for user ${userId}. Falling back to next provider...`);
+            if ((is401 || is403 || is413) && isGitHubProvider && attempt < MAX_ATTEMPTS - 1) {
+                console.warn(`[LLM] GitHub Models returned ${is401 ? '401' : is413 ? '413' : '403'} for user ${userId}. Falling back to next provider...`);
                 // Evict cached GitHub LLM so subsequent requests don't retry it
                 const providerKey = (process.env.LLM_PROVIDER || 'auto').toLowerCase();
                 llmCache.delete(`${userId}:${providerKey}:`);
                 excludeProviders.add('github');
 
-                // Only permanently block for 403 (account not enrolled), not 413 (request-specific)
-                if (is403) {
+                // Permanently block for 401/403 (token invalid or account not enrolled), not 413 (request-specific)
+                if (is401 || is403) {
                     blockedProviders.set(userId, {
                         providers: new Set(['github']),
                         createdAt: Date.now()

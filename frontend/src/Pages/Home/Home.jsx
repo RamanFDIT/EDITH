@@ -202,10 +202,11 @@ const Home = () => {
             'Content-Type': 'application/json',
             'X-User-Email': userEmail 
         },
-        body: JSON.stringify({ 
-          question, 
+        body: JSON.stringify({
+          question,
           files: uploadedFiles,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone 
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          voiceEnabled
         }),
       });
 
@@ -272,7 +273,9 @@ const Home = () => {
               return updated;
             });
           } else if (data.type === 'done') {
-            break;
+            // Unblock UI immediately — audio may still arrive after this
+            setIsStreaming(false);
+            setIsThinking(false);
           }
         }
       }
@@ -341,7 +344,7 @@ const Home = () => {
           } else if (data.type === 'error') {
             console.error('[Voice] Stream error:', data.content);
           } else if (data.type === 'done') {
-            break;
+            // Voice stream text complete — audio may still arrive
           }
         }
       }

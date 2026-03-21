@@ -429,7 +429,7 @@ app.get('/api/user/preferences', extractUser, async (req, res) => {
 // --- API Endpoint ---
 app.post('/api/ask', extractUser, async (req, res) => {
   try {
-    const { question, files, timezone } = req.body;
+    const { question, files, timezone, voiceEnabled } = req.body;
 
     if (!question) {
       return res.status(400).json({ error: 'Question is required' });
@@ -452,18 +452,19 @@ app.post('/api/ask', extractUser, async (req, res) => {
     const stream = streamWithSemanticRouting(fullQuestion, req.user._id.toString(), timezone, userPrefs);
     
     let sentenceBuffer = "";
-    
-    // --- Audio Generation Logic ---
+
+    // --- Audio Generation Logic (only when voice is enabled) ---
     const ttsPromises = [];
 
     function generateAudioChunk(text) {
+        if (!voiceEnabled) return; // Skip TTS when voice is off
         console.log(`[Server] Triggering TTS for chunk: "${text.substring(0, 40)}..."`);
         const promise = (async () => {
             try {
                 console.log(`[Server] Generating speech...`);
                 const audioResult = await generateSpeech({ text });
                 console.log(`[Server] TTS result type: ${typeof audioResult}, length: ${audioResult ? audioResult.length : 0}`);
-                
+
                 if (typeof audioResult === 'string') {
                     try {
                         const parsed = JSON.parse(audioResult);
@@ -488,7 +489,7 @@ app.post('/api/ask', extractUser, async (req, res) => {
 
     for await (const event of stream) {
         const eventType = event.event;
-        
+
         if (eventType === "on_chat_model_stream") {
             const content = event.data?.chunk?.content;
             if (content) {
@@ -520,28 +521,28 @@ app.post('/api/ask', extractUser, async (req, res) => {
         }
     }
 
-    // Flush remaining text in the sentence buffer
-    if (sentenceBuffer.trim().length > 0) {
-        generateAudioChunk(sentenceBuffer.trim());
-    }
+    // Send "done" immediately so the frontend unblocks
+    res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
 
-    // Wait for ALL TTS processing to complete before closing the stream
-    if (ttsPromises.length > 0) {
-        console.log('[TTS] Awaiting TTS queue drain...');
-        await Promise.all(ttsPromises);
-        console.log('[TTS] Queue drained.');
+    // Flush remaining TTS and wait for delivery (connection stays open for audio)
+    if (voiceEnabled) {
+        if (sentenceBuffer.trim().length > 0) {
+            generateAudioChunk(sentenceBuffer.trim());
+        }
+        if (ttsPromises.length > 0) {
+            console.log('[TTS] Awaiting TTS queue drain...');
+            await Promise.all(ttsPromises);
+            console.log('[TTS] Queue drained.');
+        }
     }
 
   } catch (error) {
     console.error("[Server] Ask Error:", error);
     try {
       res.write(`data: ${JSON.stringify({ type: "error", content: error.message })}\n\n`);
-    } catch (e) { /* response already closed */ }
-  } finally {
-    // Always send done, even on error, so the frontend never hangs
-    try {
       res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
     } catch (e) { /* response already closed */ }
+  } finally {
     res.end();
   }
 });
@@ -627,11 +628,13 @@ app.post('/api/voice', extractUser, voiceUpload.single('audio'), async (req, res
       }
     }
 
+    // Send "done" immediately so the frontend unblocks
+    res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+
+    // Flush remaining TTS and wait for delivery (connection stays open for audio)
     if (sentenceBuffer.trim().length > 0) {
       queueAudioChunk(sentenceBuffer.trim());
     }
-
-    // Wait for ALL TTS processing to complete before closing
     if (ttsProcessingPromise) {
         await ttsProcessingPromise;
     }
@@ -640,12 +643,9 @@ app.post('/api/voice', extractUser, voiceUpload.single('audio'), async (req, res
     console.error('[Voice Error]', error);
     try {
       res.write(`data: ${JSON.stringify({ type: 'error', content: error.message })}\n\n`);
-    } catch (e) { /* response already closed */ }
-  } finally {
-    // Always send done, even on error, so the frontend never hangs
-    try {
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     } catch (e) { /* response already closed */ }
+  } finally {
     try { res.end(); } catch (e) { }
   }
 });
