@@ -3,7 +3,8 @@ import mongoose from 'mongoose';
 const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   name: String,
-  authProvider: String, // 'github' or 'google'
+  password: String, // bcrypt hash — null for Google-only users
+  authProvider: String, // 'local', 'google', or 'github'
   tokens: {
     google: {
       access_token: String,

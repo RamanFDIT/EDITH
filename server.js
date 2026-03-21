@@ -1,12 +1,13 @@
 import express from 'express';
-import { streamWithSemanticRouting } from './agent.js'; 
-import cors from 'cors'; 
+import { streamWithSemanticRouting } from './agent.js';
+import cors from 'cors';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import os from 'os';
+import bcrypt from 'bcryptjs';
 import { transcribeAudio, generateSpeech } from './audioTool.js';
 import { connectDB, Chat, User } from './db.js';
 import { ensureEncryptionKey } from './oauthService.js';
@@ -126,6 +127,70 @@ app.get('/api/auth/google', (req, res) => {
     }
 });
 
+// --- API: Email/Password Auth ---
+app.post('/api/auth/register', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            return res.status(400).json({ error: 'Valid email is required' });
+        }
+        if (!password || password.length < 6) {
+            return res.status(400).json({ error: 'Password must be at least 6 characters' });
+        }
+
+        const existing = await User.findOne({ email: email.toLowerCase() });
+        if (existing) {
+            return res.status(409).json({ error: 'An account with this email already exists' });
+        }
+
+        const hash = await bcrypt.hash(password, 10);
+        const user = await User.create({
+            email: email.toLowerCase(),
+            name: '',
+            password: hash,
+            authProvider: 'local'
+        });
+
+        console.log(`[Auth] Created new local user: ${user.email}`);
+        res.json({ email: user.email, name: '' });
+    } catch (error) {
+        console.error('[Auth Register] Error:', error);
+        res.status(500).json({ error: 'Registration failed' });
+    }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        if (!email || !password) {
+            return res.status(400).json({ error: 'Email and password are required' });
+        }
+
+        const user = await User.findOne({ email: email.toLowerCase() });
+        if (!user || !user.password) {
+            return res.status(401).json({ error: 'Invalid email or password' });
+        }
+
+        const valid = await bcrypt.compare(password, user.password);
+        if (!valid) {
+            return res.status(401).json({ error: 'Invalid email or password' });
+        }
+
+        console.log(`[Auth] Local login: ${user.email}`);
+        res.json({
+            email: user.email,
+            name: user.name || '',
+            preferredName: user.preferredName || '',
+            titlePreference: user.titlePreference || 'Sir'
+        });
+    } catch (error) {
+        console.error('[Auth Login] Error:', error);
+        res.status(500).json({ error: 'Login failed' });
+    }
+});
+
 app.get('/api/auth/session', async (req, res) => {
     try {
         const email = req.headers['x-user-email'];
@@ -145,7 +210,7 @@ app.get('/api/auth/session', async (req, res) => {
             preferredName: user.preferredName || '',
             titlePreference: user.titlePreference || 'Sir',
             oauthStatus: status,
-            onboardingComplete: !!(user.preferredName)
+            onboardingComplete: true
         });
     } catch (error) {
         console.error('[Auth Session] Error:', error);

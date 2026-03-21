@@ -2,12 +2,11 @@ import { Navigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 
 export const PublicOnlyRoute = ({ children }) => {
-    const { isAuthenticated, authLoading, onboardingComplete } = useApp();
+    const { isAuthenticated, authLoading } = useApp();
 
-    // Don't redirect while session is being validated
     if (authLoading) return null;
 
-    if (isAuthenticated && onboardingComplete) {
+    if (isAuthenticated) {
         return <Navigate to="/home" replace />;
     }
 

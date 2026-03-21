@@ -1,0 +1,81 @@
+@reference "../../index.css";
+
+.mainSection {
+    @apply w-screen h-screen bg-bgPrimary flex items-center justify-center;
+}
+.container {
+    @apply w-full max-w-md flex flex-col items-center gap-6 px-6;
+}
+.logo {
+    @apply text-bgCTA font-fontDisplay text-3xl font-semibold mb-2;
+}
+.title {
+    @apply text-textPrimary font-fontDisplay text-xl font-medium;
+}
+.form {
+    @apply w-full flex flex-col gap-4;
+}
+.inputGroup {
+    @apply flex flex-col gap-1.5;
+}
+.label {
+    @apply text-textPrimary/70 font-fontBody text-sm;
+}
+.input {
+    @apply w-full bg-bgComponents text-textPrimary font-fontBody text-sm
+           rounded-lg px-4 py-3 border border-bgHover
+           outline-none transition-colors;
+}
+.input:focus {
+    @apply border-bgCTA/50;
+}
+.input::placeholder {
+    @apply text-textPrimary/30;
+}
+.passwordWrapper {
+    @apply relative;
+}
+.passwordWrapper .input {
+    @apply pr-16;
+}
+.togglePassword {
+    @apply absolute right-3 top-1/2 -translate-y-1/2
+           text-textPrimary/50 font-fontBody text-xs
+           bg-transparent border-none cursor-pointer
+           hover:text-textPrimary/80 transition-colors;
+}
+.error {
+    @apply text-colorFail font-fontBody text-sm text-center;
+}
+.primaryButton {
+    @apply w-full bg-bgCTA text-textCTA font-fontBody text-sm font-medium
+           rounded-lg py-3 cursor-pointer
+           hover:opacity-90 transition-opacity
+           disabled:opacity-50 disabled:cursor-not-allowed;
+}
+.divider {
+    @apply w-full flex items-center gap-3;
+}
+.dividerLine {
+    @apply flex-1 h-px bg-bgHover;
+}
+.dividerText {
+    @apply text-textPrimary/40 font-fontBody text-xs uppercase;
+}
+.googleButton {
+    @apply w-full flex items-center justify-center gap-3
+           bg-bgComponents text-textPrimary font-fontBody text-sm
+           rounded-lg py-3 border border-bgHover cursor-pointer
+           hover:bg-bgHover transition-colors
+           disabled:opacity-50 disabled:cursor-not-allowed;
+}
+.googleIcon {
+    @apply w-5 h-5 flex-shrink-0;
+}
+.switchMode {
+    @apply text-textPrimary/50 font-fontBody text-sm;
+}
+.switchButton {
+    @apply text-bgCTA font-medium bg-transparent border-none cursor-pointer
+           hover:underline;
+}

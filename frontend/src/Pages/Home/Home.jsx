@@ -18,9 +18,10 @@ const Home = () => {
   const [files, setFiles] = useState([]);
   const [hasMore, setHasMore] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(() => {
     const saved = localStorage.getItem('edithVoiceEnabled');
-    return saved !== null ? JSON.parse(saved) : true;
+    return saved !== null ? JSON.parse(saved) : false;
   });
 
   const voiceEnabledRef = useRef(voiceEnabled);
@@ -186,8 +187,7 @@ const Home = () => {
     setInput('');
     setFiles([]);
     setIsStreaming(true);
-
-    setMessages(prev => [...prev, { role: 'ai', content: '' }]);
+    setIsThinking(true);
 
     try {
       // Upload files first if any
@@ -232,11 +232,17 @@ const Home = () => {
           }
 
           if (data.type === 'token') {
+            setIsThinking(prev => {
+              if (prev) return false;
+              return prev;
+            });
             setMessages(prev => {
               const updated = [...prev];
               const last = updated[updated.length - 1];
-              if (last.role === 'ai') {
+              if (last?.role === 'ai') {
                 updated[updated.length - 1] = { ...last, content: last.content + data.content };
+              } else {
+                updated.push({ role: 'ai', content: data.content });
               }
               return updated;
             });
@@ -282,6 +288,7 @@ const Home = () => {
       });
     } finally {
       setIsStreaming(false);
+      setIsThinking(false);
     }
   };
 
@@ -359,6 +366,13 @@ const Home = () => {
               msg.role === 'user'
                 ? <ChatHuman key={i} message={msg.content} files={msg.files} />
                 : <ChatAI key={i} message={msg.content} images={msg.images} />
+            )}
+            {isThinking && (
+              <div className={styles.thinkingBubble}>
+                <span className={styles.thinkingDot} />
+                <span className={styles.thinkingDot} />
+                <span className={styles.thinkingDot} />
+              </div>
             )}
             <div ref={messageEndRef} />
           </div>

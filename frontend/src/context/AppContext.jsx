@@ -141,6 +141,54 @@ export const AppProvider = ({ children }) => {
         }
     }, [isAuthenticated, authLoading, refreshOauthStatus]);
 
+    // --- Email/Password Auth ---
+    const signIn = useCallback(async (email, password) => {
+        const res = await fetch(`${API_URL}/api/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Login failed');
+
+        localStorage.setItem('edith_auth_email', data.email);
+        localStorage.setItem('edith_auth_name', data.name || '');
+        setUserEmail(data.email);
+        setGoogleName(data.name || '');
+        setIsAuthenticated(true);
+        setOnboardingComplete(true);
+        localStorage.setItem('edith_onboarding_complete', 'true');
+
+        if (data.preferredName) {
+            setPreferredName(data.preferredName);
+            localStorage.setItem('edith_preferred_name', data.preferredName);
+        }
+        if (data.titlePreference) {
+            setTitlePreference(data.titlePreference);
+            localStorage.setItem('edith_title_preference', data.titlePreference);
+        }
+        return data;
+    }, []);
+
+    const register = useCallback(async (email, password) => {
+        const res = await fetch(`${API_URL}/api/auth/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Registration failed');
+
+        localStorage.setItem('edith_auth_email', data.email);
+        localStorage.setItem('edith_auth_name', data.name || '');
+        setUserEmail(data.email);
+        setGoogleName(data.name || '');
+        setIsAuthenticated(true);
+        setOnboardingComplete(true);
+        localStorage.setItem('edith_onboarding_complete', 'true');
+        return data;
+    }, []);
+
     // --- Sign In with Google ---
     const signInWithGoogle = useCallback(() => {
         return new Promise(async (resolve, reject) => {
@@ -168,6 +216,9 @@ export const AppProvider = ({ children }) => {
                             setTitlePreference(tPref);
                             localStorage.setItem('edith_title_preference', tPref);
                         }
+
+                        setOnboardingComplete(true);
+                        localStorage.setItem('edith_onboarding_complete', 'true');
 
                         // Google is now connected (tokens stored during sign-in)
                         refreshOauthStatus();
@@ -226,6 +277,8 @@ export const AppProvider = ({ children }) => {
         googleName,
         isAuthenticated,
         authLoading,
+        signIn,
+        register,
         signInWithGoogle,
         signOut,
         onboardingComplete,
