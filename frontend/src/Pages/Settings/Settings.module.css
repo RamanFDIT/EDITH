@@ -107,3 +107,41 @@
 .authBadge {
     @apply ml-2 text-xs font-fontBody font-normal text-bgCTA/80 bg-bgCTA/10 px-2 py-0.5 rounded-sm;
 }
+.prefsCard {
+    @apply bg-bgComponents rounded-sm px-4 md:px-6 py-4 md:py-5 mb-8
+           flex flex-col gap-5 border border-bgHover;
+}
+.prefsField {
+    @apply flex flex-col gap-2;
+}
+.prefsLabel {
+    @apply text-textPrimary/70 font-fontBody text-sm;
+}
+.prefsInput {
+    @apply w-full max-w-sm bg-bgPrimary text-textPrimary font-fontBody text-sm
+           rounded-sm px-4 py-2.5 border border-bgHover outline-none transition-colors;
+}
+.prefsInput:focus {
+    @apply border-bgCTA/50;
+}
+.prefsInput::placeholder {
+    @apply text-textPrimary/30;
+}
+.titleOptions {
+    @apply flex gap-3 flex-wrap;
+}
+.titleOption {
+    @apply bg-bgPrimary text-textPrimary/60 font-fontBody text-sm
+           px-4 py-2 rounded-sm border border-bgHover cursor-pointer
+           hover:border-textPrimary/40 transition-colors;
+}
+.titleOptionActive {
+    @apply bg-bgCTA/10 text-bgCTA font-fontBody text-sm
+           px-4 py-2 rounded-sm border border-bgCTA/40 cursor-pointer;
+}
+.prefsActions {
+    @apply flex items-center gap-3;
+}
+.prefsStatus {
+    @apply text-textPrimary/60 font-fontBody text-sm;
+}

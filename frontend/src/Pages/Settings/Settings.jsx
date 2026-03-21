@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Github, Figma, Calendar, MessageSquare, CheckCircle2, Plug, Unplug, Wifi, LogOut, Shield } from 'lucide-react';
+import { Github, Figma, Calendar, MessageSquare, CheckCircle2, Plug, Unplug, Wifi, LogOut, Shield, User } from 'lucide-react';
 import styles from './Settings.module.css';
 import { useNavBar } from '../../components/NavBar/NavBarContext.jsx';
 import BackButton from '../../components/BackButton/BackButton.jsx';
@@ -17,8 +17,37 @@ const providers = [
 
 const Settings = () => {
   const { expanded } = useNavBar();
-  const { userEmail, googleName, oauthStatus, refreshOauthStatus, signOut } = useApp();
+  const { userEmail, googleName, oauthStatus, refreshOauthStatus, signOut, preferredName, titlePreference, updateUserPreferences } = useApp();
   const navigate = useNavigate();
+
+  const [editName, setEditName] = useState(preferredName);
+  const [editTitle, setEditTitle] = useState(titlePreference);
+  const [prefsSaving, setPrefsSaving] = useState(false);
+  const [prefsStatus, setPrefsStatus] = useState('');
+
+  const prefsChanged = editName !== preferredName || editTitle !== titlePreference;
+
+  const handleSavePreferences = async () => {
+    const trimmed = editName.trim();
+    if (trimmed.length < 2 || trimmed.length > 20) {
+      setPrefsStatus('Name must be 2-20 characters');
+      return;
+    }
+    if (!/^[a-zA-Z\s\-']+$/.test(trimmed)) {
+      setPrefsStatus('Name can only contain letters, spaces, hyphens, and apostrophes');
+      return;
+    }
+    setPrefsSaving(true);
+    try {
+      await updateUserPreferences(trimmed, editTitle);
+      setPrefsStatus('Saved!');
+    } catch {
+      setPrefsStatus('Failed to save');
+    } finally {
+      setPrefsSaving(false);
+      setTimeout(() => setPrefsStatus(''), 3000);
+    }
+  };
 
   const [status, setStatus] = useState({ type: '', message: '' });
   const [connecting, setConnecting] = useState('');
@@ -164,6 +193,50 @@ const Settings = () => {
           <button onClick={handleSignOut} className={styles.signOutButton}>
             <LogOut size={14} /> Sign Out
           </button>
+        </div>
+
+        {/* User Preferences */}
+        <h2 className={styles.sectionTitle}>
+          <User size={20} className={styles.sectionIcon} />
+          Preferences
+        </h2>
+        <div className={styles.prefsCard}>
+          <div className={styles.prefsField}>
+            <label className={styles.prefsLabel} htmlFor="prefName">Preferred Name</label>
+            <input
+              id="prefName"
+              type="text"
+              className={styles.prefsInput}
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              placeholder="What should EDITH call you?"
+              maxLength={20}
+            />
+          </div>
+          <div className={styles.prefsField}>
+            <label className={styles.prefsLabel}>How should EDITH address you?</label>
+            <div className={styles.titleOptions}>
+              {[{ value: 'Sir', label: 'Sir' }, { value: "Ma'am", label: "Ma'am" }, { value: 'name', label: 'Just my name' }].map(opt => (
+                <button
+                  key={opt.value}
+                  className={editTitle === opt.value ? styles.titleOptionActive : styles.titleOption}
+                  onClick={() => setEditTitle(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className={styles.prefsActions}>
+            {prefsStatus && <span className={styles.prefsStatus}>{prefsStatus}</span>}
+            <button
+              className={styles.connectButton}
+              onClick={handleSavePreferences}
+              disabled={!prefsChanged || prefsSaving}
+            >
+              {prefsSaving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
         </div>
 
         {status.message && (
