@@ -21,6 +21,7 @@ import { sendSlackMessage, sendSlackAnnouncement, sendSlackLink } from "./slackT
 import { createRepository, getRepoIssues, createRepoIssue, listCommits, listPullRequests, getPullRequest, getCommit, getRepoChecks } from "./githubTool.js";
 import { getFigmaFileStructure, getFigmaComments, postFigmaComment } from "./figmaTool.js";
 import { sendGmail, searchGmailContacts, getRecentEmails } from "./gmailTool.js";
+import { readFile } from "./fileTool.js";
 
 // =============================================================================
 // LLM PROVIDER SELECTION
@@ -468,6 +469,18 @@ const gmailTools = [
   }),
 ];
 
+// --- FILE TOOLS ---
+const fileTools = [
+  new DynamicStructuredTool({
+    name: "read_file",
+    description: "Read an uploaded file — auto-detects type (.pdf, .docx, .txt, .md, .json, etc.) and extracts content. Use when the user has attached a file.",
+    schema: z.object({
+      filePath: z.string().describe("The server path to the uploaded file."),
+    }),
+    func: readFile,
+  }),
+];
+
 // =============================================================================
 // TOOL CATEGORY MAP
 // =============================================================================
@@ -482,11 +495,12 @@ const toolsByCategory = {
   slack:        slackCustomTools,
   gmail:        gmailTools,
   image:        imageTools,
-  general:      [],
+  files:        fileTools,
+  general:      [...calendarTools],
 };
 
 // All tools combined (for fallback or multi-category queries)
-const allTools = [...imageTools, ...jiraReadTools, ...jiraWriteTools, ...githubReadTools, ...githubWriteTools, ...figmaTools, ...calendarTools, ...slackCustomTools, ...gmailTools];
+const allTools = [...imageTools, ...jiraReadTools, ...jiraWriteTools, ...githubReadTools, ...githubWriteTools, ...figmaTools, ...calendarTools, ...slackCustomTools, ...gmailTools, ...fileTools];
 
 // =============================================================================
 // SEMANTIC CLASSIFIER (The Traffic Cop)
@@ -505,6 +519,7 @@ CATEGORIES:
 - slack: Sending messages to Slack, posting announcements, notifying team, messaging channels, team notifications
 - gmail: Sending emails, reading inbox, checking mail, finding someone's email address, emailing a person
 - image: Generating images, pictures, illustrations, graphics, logos, artwork, drawings, visualisations
+- files: Reading uploaded documents, files, PDFs, Word docs, summarizing attached documents
 - general: Casual conversation, greetings, questions that don't need tools, chitchat
 
 RULES:
@@ -537,6 +552,9 @@ User: "Check my inbox" -> gmail
 User: "Generate an image of a sunset over mountains" -> image
 User: "Draw me a logo for my app" -> image
 User: "Create a picture of a robot" -> image
+User: "Read the uploaded file" -> files
+User: "Summarize that document" -> files
+User: "What does the PDF say?" -> files
 
 User message: `;
 
@@ -572,15 +590,21 @@ const KEYWORD_MAP = {
         'memory usage', 'system status', 'disk space', 'battery'
     ],
     calendar: [
-        'schedule', 'meeting', 'appointment', 'calendar', 'event', 'free time',
-        'availability', 'busy', 'remind', 'reminder', 'book', 'block time',
-        'tomorrow', 'yesterday', 'next week', 'this week'
+        'schedule', 'meeting', 'meetings', 'appointment', 'calendar', 'event', 'events',
+        'free time', 'availability', 'busy', 'remind', 'reminder', 'book', 'block time',
+        'tomorrow', 'yesterday', 'next week', 'this week', 'today', 'tonight',
+        'what do i have', 'do i have', 'anything scheduled', 'anything on my',
+        'what\'s on my', 'what is on my', 'check my calendar', 'show my calendar',
+        'my schedule', 'my agenda', 'upcoming', 'plans for', 'what\'s happening',
+        'this evening', 'this morning', 'this afternoon',
+        'any tasks', 'any events', 'any meetings'
     ],
     files: [
-        'download', 'downloaded', 'document', 'pdf', 'docx', 'word doc', 'file',
-        'read file', 'read that', 'summarize', 'summary', 'latest file', 'recent file',
-        'my files', 'list files', 'what file', 'that document', 'the file', 'the document',
-        'brief me', 'overview', 'contents of', 'open the', 'what does it say'
+        'document', 'pdf', 'docx', 'word doc', 'file',
+        'read file', 'read that', 'summarize', 'summary',
+        'that document', 'the file', 'the document',
+        'brief me', 'overview', 'contents of', 'what does it say',
+        'attached', 'attachment', 'uploaded'
     ],
     slack: [
         'slack', 'tell the team', 'notify team', 'post to', 'announce', 'message channel',
@@ -751,7 +775,7 @@ async function classifyIntent(userMessage, chatHistory = [], classifier) {
         }
     }
 
-    if (wordCount < 8) {
+    if (wordCount < 5) {
         console.log("[Traffic Cop] Short query with no context. Defaulting to General.");
         return { categories: ['general'], isConfirmation: false };
     }
@@ -817,6 +841,28 @@ const MAX_HISTORY_MESSAGES = 30;
 function trimHistory(messages) {
     if (messages.length <= MAX_HISTORY_MESSAGES) return messages;
     return messages.slice(-MAX_HISTORY_MESSAGES);
+}
+
+// =============================================================================
+// TOKEN ESTIMATION (for pre-flight GitHub Models limit check)
+// =============================================================================
+
+function estimateTokens(text) {
+    if (!text) return 0;
+    return Math.ceil((typeof text === 'string' ? text : JSON.stringify(text)).length / 4);
+}
+
+function estimateMessagesTokens(messages) {
+    return messages.reduce((sum, m) => sum + estimateTokens(m.content) + 4, 0);
+}
+
+const GITHUB_MODELS_SAFE_LIMIT = 7000;
+
+function wouldExceedGitHubLimit(systemPromptText, history, userQuery) {
+    const total = estimateTokens(systemPromptText)
+        + estimateMessagesTokens(history)
+        + estimateTokens(userQuery);
+    return total > GITHUB_MODELS_SAFE_LIMIT;
 }
 
 /**
@@ -1093,7 +1139,7 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
 
     let excludeProviders = new Set();
     let lastError = null;
-    const MAX_ATTEMPTS = 2;
+    const MAX_ATTEMPTS = 3;
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         try {
@@ -1103,6 +1149,16 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         const messageHistory = getMessageHistory(sessionId, userId);
         const fullHistory = await messageHistory.getMessages();
         const history = sanitizeHistoryForTools(trimHistory(fullHistory));
+
+        // Pre-flight: Check if request is too large for GitHub Models
+        if (activeProvider === 'github') {
+            const systemPromptText = getSystemPrompt(timezone, userPrefs);
+            if (wouldExceedGitHubLimit(systemPromptText.content || systemPromptText, history, userQuery)) {
+                console.warn(`[LLM] Request too large for GitHub Models (~${estimateTokens(userQuery)} query tokens). Routing to Gemini.`);
+                excludeProviders.add('github');
+                continue;
+            }
+        }
 
         // Step 1: Classify intent using the Traffic Cop (with conversation context)
         const { categories, isConfirmation } = await classifyIntent(userQuery, history, classifier);
@@ -1246,20 +1302,23 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         } catch (error) {
             lastError = error;
             const is403 = error.message?.includes('403') || error.status === 403;
+            const is413 = error.message?.includes('413') || error.status === 413;
             const isGitHubProvider = !excludeProviders.has('github');
 
-            if (is403 && isGitHubProvider && attempt === 0) {
-                console.warn(`[LLM] GitHub Models returned 403 for user ${userId}. User's GitHub account may not be enrolled in GitHub Models. Falling back to next provider...`);
+            if ((is403 || is413) && isGitHubProvider && attempt < MAX_ATTEMPTS - 1) {
+                console.warn(`[LLM] GitHub Models returned ${is413 ? '413' : '403'} for user ${userId}. Falling back to next provider...`);
                 // Evict cached GitHub LLM so subsequent requests don't retry it
                 const providerKey = (process.env.LLM_PROVIDER || 'auto').toLowerCase();
                 llmCache.delete(`${userId}:${providerKey}:`);
                 excludeProviders.add('github');
 
-                // Remember this so subsequent messages skip GitHub immediately
-                blockedProviders.set(userId, {
-                    providers: new Set(['github']),
-                    createdAt: Date.now()
-                });
+                // Only permanently block for 403 (account not enrolled), not 413 (request-specific)
+                if (is403) {
+                    blockedProviders.set(userId, {
+                        providers: new Set(['github']),
+                        createdAt: Date.now()
+                    });
+                }
 
                 continue; // retry with next provider
             }

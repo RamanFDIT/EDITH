@@ -307,7 +307,9 @@ export async function getValidToken(userId, provider) {
   return tokens.access_token;
 }
 
-export function buildAuthUrl(provider, state) {
+export const GOOGLE_AUTH_SCOPES = ['openid', 'email', 'profile'];
+
+export function buildAuthUrl(provider, state, scopes) {
   const config = getOAuthProviders()[provider];
   const params = new URLSearchParams({
     client_id: config.clientId,
@@ -317,10 +319,11 @@ export function buildAuthUrl(provider, state) {
     ...config.extraParams,
   });
 
+  const scopeList = scopes || config.scopes;
   if (provider === 'slack') {
-    params.set('scope', config.scopes.join(','));
+    params.set('scope', scopeList.join(','));
   } else {
-    params.set('scope', config.scopes.join(' '));
+    params.set('scope', scopeList.join(' '));
   }
 
   return `${config.authUrl}?${params.toString()}`;

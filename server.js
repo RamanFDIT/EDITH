@@ -106,6 +106,7 @@ app.post('/api/upload', fileUpload.array('files', 10), (req, res) => {
 
 import {
     buildAuthUrl,
+    GOOGLE_AUTH_SCOPES,
     exchangeCodeForTokens,
     storeTokens,
     getConnectionStatus,
@@ -120,7 +121,7 @@ import crypto from 'crypto';
 app.get('/api/auth/google', (req, res) => {
     try {
         const state = `auth__${crypto.randomBytes(16).toString('hex')}`;
-        const authUrl = buildAuthUrl('google', state);
+        const authUrl = buildAuthUrl('google', state, GOOGLE_AUTH_SCOPES);
         res.json({ url: authUrl });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -266,8 +267,8 @@ app.get('/api/oauth/callback', async (req, res) => {
                 }
             }
 
-            // Store Google tokens (Calendar/Gmail are connected via sign-in)
-            await storeTokens(user._id, 'google', tokenData);
+            // Auth tokens only have basic scopes (openid, email, profile)
+            // Calendar/Gmail tokens are stored when user connects tools in Settings
 
             const safeEmail = userInfo.email.replace(/'/g, "\\'");
             const safeName = (userInfo.name || '').replace(/'/g, "\\'");

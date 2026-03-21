@@ -75,21 +75,47 @@ The short-query threshold for skipping LLM-based intent classification was bumpe
 
 **Problem**: The system prompt hardcoded `USER DESIGNATION: "Sir", "Ma'am", or [User's Title]` — EDITH never actually personalized how it addressed the user.
 
-**Solution**: Added a new onboarding step (`/user-setup`) where the user sets their preferred name and title preference (Sir, Ma'am, or just their name). This data flows end-to-end:
+**Solution**: Added user preference fields and an end-to-end flow for personalized addressing:
 
 1. **User model** (`db.js`): Added `preferredName` (String) and `titlePreference` (enum: `'Sir'`, `'Ma'am'`, `'name'`, default `'Sir'`).
 2. **API** (`server.js`): New `PUT /api/user/preferences` (with server-side validation: length 2-20, alpha/space/hyphen/apostrophe regex, valid enum) and `GET /api/user/preferences`. Both `/api/ask` and `/api/voice` extract `userPrefs` from `req.user` and pass them downstream.
 3. **System prompt** (`systemPrompt.js`): `buildSystemPrompt(userTimezone, userPrefs)` and `getSystemPrompt(userTimezone, userPrefs)` now accept a second `userPrefs` parameter. The `USER DESIGNATION` line is dynamic — shows the title or the name depending on preference. A `USER NAME` line is injected so EDITH always knows the user's name regardless of title choice.
 4. **Agent** (`agent.js`): `streamWithSemanticRouting(query, userId, timezone, userPrefs)` accepts a 4th parameter. `getOrCreateAgent(tools, tz, userId, llm, userPrefs)` accepts a 5th. Both `getSystemPrompt()` call sites (general path and agent path) pass `userPrefs` through.
 5. **Frontend context** (`AppContext.jsx`): Added `preferredName` and `titlePreference` state (persisted to localStorage). Added `updateUserPreferences(name, title)` — updates state, localStorage, and calls `PUT /api/user/preferences`.
-6. **Frontend page** (`frontend/src/Pages/UserSetup/UserSetup.jsx`): New onboarding page with name input (inline validation), three title radio cards, and a Next button. Uses `profanityFilter.js` for client-side validation.
-7. **Profanity filter** (`frontend/src/utils/profanityFilter.js`): `validateName(text)` checks empty, length 2-20, character regex, and a ~70-word profanity blocklist. `containsProfanity(text)` does case-insensitive word-boundary matching.
+6. **Profanity filter** (`frontend/src/utils/profanityFilter.js`): `validateName(text)` checks empty, length 2-20, character regex, and a ~70-word profanity blocklist. `containsProfanity(text)` does case-insensitive word-boundary matching.
 
-**Onboarding flow**: `/` (Intro) → `/user-setup` (NEW) → `/onboarding` → `/connectionPage` → `/home`
+**Current flow**: Preferences are managed in the Settings page (see "User preferences moved to Settings" below). The original `/user-setup` onboarding page was removed from routing.
 
 **Files changed**: `db.js`, `server.js`, `systemPrompt.js`, `agent.js`, `frontend/src/context/AppContext.jsx`, `frontend/src/App.jsx`, `frontend/src/Pages/Intro/Intro.jsx`
 
 **Files created**: `frontend/src/Pages/UserSetup/UserSetup.jsx`, `frontend/src/Pages/UserSetup/UserSetup.module.css`, `frontend/src/utils/profanityFilter.js`
+
+### Simplified auth flow (2026-03-20)
+
+**Problem**: Multi-step onboarding (Intro → UserSetup → Onboarding → ConnectionPage → Home) was confusing, and Google's unverified app warning scared users away during sign-in.
+
+**Solution**: Email/password as primary auth (using `bcryptjs` for hashing), Google OAuth as secondary. Simplified flow: `/` (Intro) → `/auth` → `/home`. Added `POST /api/auth/register` and `POST /api/auth/login` endpoints to `server.js`. Added `password` field to User schema in `db.js`. Auth page supports both registration and login with toggle.
+
+**Files changed**: `db.js`, `server.js`, `frontend/src/App.jsx`, `frontend/src/Pages/Intro/Intro.jsx`, `frontend/src/context/AppContext.jsx`, `frontend/src/components/Navigation/ProtectedRoute.jsx`, `frontend/src/components/Navigation/PublicOnlyRoute.jsx`
+
+**Files created**: `frontend/src/Pages/Auth/Auth.jsx`, `frontend/src/Pages/Auth/Auth.module.css`
+
+**Dependency added**: `bcryptjs`
+
+### User preferences moved to Settings (2026-03-20)
+
+**Problem**: The `/user-setup` onboarding page was removed from the routing flow, so there was no UI for setting preferred name / title preference.
+
+**Solution**: Added a Preferences section to the Settings page with name input, title radio buttons (Sir / Ma'am / Just my name), and a Save button. Settings page now fetches current preferences on mount and uses `updateUserPreferences()` from AppContext.
+
+**Files changed**: `frontend/src/Pages/Settings/Settings.jsx`, `frontend/src/Pages/Settings/Settings.module.css`
+
+### Thinking indicator & voice default OFF (2026-03-20)
+
+- Voice output now defaults to OFF for new installs (less surprising UX).
+- Added `isThinking` state with animated pulsing dots bubble that displays between message submit and first streamed token, giving visual feedback that the AI is processing.
+
+**Files changed**: `frontend/src/Pages/Home/Home.jsx`, `frontend/src/Pages/Home/Home.module.css`
 
 ## Build & Run
 
@@ -107,6 +133,7 @@ npm run dist
 - Target: Windows NSIS installer
 - App ID: `com.raman.edith`
 - `npm run dist` runs `predist` first to build the frontend
+- `bcryptjs` is a runtime dependency (used for email/password auth hashing)
 
 ## Environment Variables (.env)
 
@@ -126,5 +153,7 @@ npm run dist
 - **BrowserWindow import in oauthService**: Must be lazily imported inside functions, not at module level — packaged Electron apps crash otherwise (Electron not ready at import time).
 - **Token encryption is key-dependent**: Changing or losing `ENCRYPTION_KEY` invalidates all stored OAuth tokens. Users must re-authenticate.
 - **`--legacy-peer-deps`**: Always use this flag with `npm install` due to dependency conflicts.
-- **User preferences are dual-stored**: `preferredName` and `titlePreference` live in both localStorage (for instant frontend access) and MongoDB (for backend system prompt injection). If one gets out of sync (e.g., clearing browser data), the frontend will show defaults but the backend will still use the DB values. A future Settings page should re-fetch from `GET /api/user/preferences` on mount to reconcile.
+- **User preferences are dual-stored**: `preferredName` and `titlePreference` live in both localStorage (for instant frontend access) and MongoDB (for backend system prompt injection). The Settings page fetches from `GET /api/user/preferences` on mount to reconcile. If localStorage is cleared, Settings will re-sync from the DB on next visit.
+- **Email/password auth coexists with Google OAuth**: Passwords are bcrypt-hashed in the User model. Google-only users have `password: null`. Both auth methods share the same User document — a user who registered with email can later connect Google OAuth, and vice versa.
+- **Removed onboarding pages still exist on disk**: `UserSetup`, `Onboarding`, and `ConnectionPage` files remain in the codebase but are not routed in `App.jsx` — kept as reference. They can be safely deleted if no longer needed.
 - **OAuth status is cached in localStorage**: `edith_oauth_status` in localStorage provides instant UI on reload. The cache is refreshed from the API on every mount and after every connect/disconnect action. Clearing localStorage will cause a brief flash of "disconnected" until the API fetch completes — this is cosmetic only, tokens remain valid in the DB.

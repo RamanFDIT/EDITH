@@ -220,8 +220,8 @@ export const AppProvider = ({ children }) => {
                         setOnboardingComplete(true);
                         localStorage.setItem('edith_onboarding_complete', 'true');
 
-                        // Google is now connected (tokens stored during sign-in)
-                        refreshOauthStatus();
+                        // Auth sign-in only grants basic scopes — Google tools
+                        // (Calendar/Gmail) must be connected separately in Settings
 
                         resolve({ email, name, preferredName: pName, titlePreference: tPref });
                     }

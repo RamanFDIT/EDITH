@@ -142,16 +142,6 @@ const Settings = () => {
   };
 
   const handleDisconnect = async (provider) => {
-    // Google is tied to sign-in — disconnecting means signing out
-    if (provider === 'google') {
-      if (!window.confirm('Google is your sign-in provider. Disconnecting will sign you out. Continue?')) {
-        return;
-      }
-      signOut();
-      navigate('/');
-      return;
-    }
-
     try {
       await fetch(`${API_URL}/api/oauth/disconnect/${provider}`, {
         method: 'POST',
@@ -258,8 +248,6 @@ const Settings = () => {
           {providers.map(({ key, label, description, icon: Icon }) => {
             const isConnected = oauthStatus[key]?.connected;
             const isConnecting = connecting === key;
-            const isGoogleAuth = key === 'google';
-
             return (
               <div key={key} className={isConnected ? styles.oauthCardConnected : styles.oauthCard}>
                 <div className={styles.cardInfo}>
@@ -267,7 +255,6 @@ const Settings = () => {
                   <div>
                     <p className={styles.cardLabel}>
                       {label}
-                      {isGoogleAuth && isConnected && <span className={styles.authBadge}>Sign-In</span>}
                     </p>
                     <p className={styles.cardDescription}>{description}</p>
                   </div>
@@ -281,7 +268,7 @@ const Settings = () => {
                   {isConnected ? (
                     <button onClick={() => handleDisconnect(key)} className={styles.disconnectButton}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                        <Unplug size={14} /> {isGoogleAuth ? 'Sign Out' : 'Disconnect'}
+                        <Unplug size={14} /> Disconnect
                       </span>
                     </button>
                   ) : (
