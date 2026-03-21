@@ -98,9 +98,11 @@ export async function readPdfDocument(input) {
 
         const buffer = await fs.promises.readFile(filePath);
 
-        // pdf-parse v2 uses dynamic import
-        const pdfParse = (await import('pdf-parse')).default;
-        const data = await pdfParse(buffer);
+        // pdf-parse v2 class-based API
+        const { PDFParse } = await import('pdf-parse');
+        const parser = new PDFParse({ data: buffer });
+        const textResult = await parser.getText();
+        const infoResult = await parser.getInfo();
         const stats = fs.statSync(filePath);
 
         return JSON.stringify({
@@ -109,10 +111,10 @@ export async function readPdfDocument(input) {
             fileName: path.basename(filePath),
             size: stats.size,
             lastModified: stats.mtime.toISOString(),
-            pageCount: data.numpages,
-            content: data.text,
-            charCount: data.text.length,
-            info: data.info
+            pageCount: textResult.total,
+            content: textResult.text,
+            charCount: textResult.text.length,
+            info: infoResult.info
         });
     } catch (error) {
         console.error("PDF Read Error:", error);
