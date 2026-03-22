@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 import { API_URL } from '../apiConfig';
 
 const AppContext = createContext();
@@ -265,11 +265,122 @@ export const AppProvider = ({ children }) => {
         setOauthStatus({});
         setPreferredName('');
         setTitlePreference('Sir');
+        setProjects([]);
+        setActiveProjectIdRaw('');
     }, []);
 
     // --- Chat Messages (persists across navigation) ---
     const [messages, setMessages] = useState([]);
     const [historyLoaded, setHistoryLoaded] = useState(false);
+
+    // --- Projects ---
+    const [projects, setProjects] = useState([]);
+    const [activeProjectId, setActiveProjectIdRaw] = useState(
+        () => localStorage.getItem('edith_active_project') || ''
+    );
+
+    const activeProject = useMemo(
+        () => projects.find(p => p._id === activeProjectId) || null,
+        [projects, activeProjectId]
+    );
+
+    const activeSessionId = useMemo(() => {
+        if (!activeProject) return 'session-general';
+        return activeProject.isDefault ? 'session-general' : `project-${activeProjectId}`;
+    }, [activeProject, activeProjectId]);
+
+    const setActiveProjectId = useCallback((id) => {
+        setActiveProjectIdRaw(id);
+        localStorage.setItem('edith_active_project', id);
+        // Reset chat state so Home re-fetches for the new session
+        setMessages([]);
+        setHistoryLoaded(false);
+    }, []);
+
+    const loadProjects = useCallback(async () => {
+        if (!userEmail) return;
+        try {
+            const res = await fetch(`${API_URL}/api/projects`, {
+                headers: { 'X-User-Email': userEmail }
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            setProjects(data.projects || []);
+
+            // If no active project set, default to the General project
+            const storedId = localStorage.getItem('edith_active_project');
+            const ids = (data.projects || []).map(p => p._id);
+            if (!storedId || !ids.includes(storedId)) {
+                const general = (data.projects || []).find(p => p.isDefault);
+                if (general) {
+                    setActiveProjectIdRaw(general._id);
+                    localStorage.setItem('edith_active_project', general._id);
+                }
+            }
+        } catch (err) {
+            console.error('[Projects] Load error:', err);
+        }
+    }, [userEmail]);
+
+    const createProject = useCallback(async (projectData) => {
+        const res = await fetch(`${API_URL}/api/projects`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-User-Email': userEmail },
+            body: JSON.stringify(projectData),
+        });
+        if (!res.ok) {
+            const text = await res.text();
+            let errorMsg = 'Failed to create project';
+            try { errorMsg = JSON.parse(text).error || errorMsg; } catch {}
+            throw new Error(errorMsg);
+        }
+        const data = await res.json();
+        await loadProjects();
+        return data.project;
+    }, [userEmail, loadProjects]);
+
+    const updateProject = useCallback(async (id, projectData) => {
+        const res = await fetch(`${API_URL}/api/projects/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'X-User-Email': userEmail },
+            body: JSON.stringify(projectData),
+        });
+        if (!res.ok) {
+            const text = await res.text();
+            let errorMsg = 'Failed to update project';
+            try { errorMsg = JSON.parse(text).error || errorMsg; } catch {}
+            throw new Error(errorMsg);
+        }
+        const data = await res.json();
+        await loadProjects();
+        return data.project;
+    }, [userEmail, loadProjects]);
+
+    const deleteProject = useCallback(async (id) => {
+        const res = await fetch(`${API_URL}/api/projects/${id}`, {
+            method: 'DELETE',
+            headers: { 'X-User-Email': userEmail },
+        });
+        if (!res.ok) {
+            const text = await res.text();
+            let errorMsg = 'Failed to delete project';
+            try { errorMsg = JSON.parse(text).error || errorMsg; } catch {}
+            throw new Error(errorMsg);
+        }
+        // If we deleted the active project, switch to General
+        if (id === activeProjectId) {
+            const general = projects.find(p => p.isDefault);
+            if (general) setActiveProjectId(general._id);
+        }
+        await loadProjects();
+    }, [userEmail, activeProjectId, projects, setActiveProjectId, loadProjects]);
+
+    // Load projects after auth is confirmed
+    useEffect(() => {
+        if (isAuthenticated && !authLoading) {
+            loadProjects();
+        }
+    }, [isAuthenticated, authLoading, loadProjects]);
 
     const value = {
         userId,
@@ -293,6 +404,15 @@ export const AppProvider = ({ children }) => {
         setMessages,
         historyLoaded,
         setHistoryLoaded,
+        projects,
+        activeProjectId,
+        activeProject,
+        activeSessionId,
+        setActiveProjectId,
+        loadProjects,
+        createProject,
+        updateProject,
+        deleteProject,
     };
 
     return (

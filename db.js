@@ -48,8 +48,19 @@ const chatSchema = new mongoose.Schema({
   lastUpdatedAt: { type: Date, default: Date.now }
 });
 
+const projectSchema = new mongoose.Schema({
+  userId:         { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  name:           { type: String, required: true },
+  isDefault:      { type: Boolean, default: false },
+  jiraProjectKey: { type: String, default: '' },
+  githubRepo:     { type: String, default: '' },
+  createdAt:      { type: Date, default: Date.now },
+});
+projectSchema.index({ userId: 1 });
+
 const User = mongoose.models.User || mongoose.model('User', userSchema);
 const Chat = mongoose.models.Chat || mongoose.model('Chat', chatSchema);
+const Project = mongoose.models.Project || mongoose.model('Project', projectSchema);
 
 export async function connectDB() {
   if (mongoose.connection.readyState >= 1) return;
@@ -67,4 +78,4 @@ export async function connectDB() {
   }
 }
 
-export { User, Chat };
+export { User, Chat, Project };

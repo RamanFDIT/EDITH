@@ -1,0 +1,44 @@
+@reference '../../index.css';
+
+.container {
+    @apply flex flex-col items-center gap-4;
+}
+.title {
+    @apply text-textPrimary text-sm font-fontBody font-semibold uppercase tracking-wider;
+}
+.chartWrapper {
+    @apply relative flex items-center justify-center;
+}
+.svg {
+    @apply drop-shadow-md;
+}
+.segment {
+    @apply transition-all duration-500 ease-out;
+}
+.centerLabel {
+    @apply absolute flex flex-col items-center;
+}
+.centerValue {
+    @apply text-textPrimary text-2xl font-fontDisplay font-bold;
+}
+.centerText {
+    @apply text-textPrimary/50 text-xs font-fontBody;
+}
+.legend {
+    @apply flex flex-col gap-1.5 w-full;
+}
+.legendItem {
+    @apply flex items-center gap-2 text-sm font-fontBody;
+}
+.legendDot {
+    @apply w-2.5 h-2.5 rounded-full shrink-0;
+}
+.legendLabel {
+    @apply text-textPrimary/70 flex-1;
+}
+.legendValue {
+    @apply text-textPrimary font-semibold;
+}
+.empty {
+    @apply text-textPrimary/40 text-sm font-fontBody py-8;
+}

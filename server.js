@@ -9,8 +9,8 @@ import { promisify } from 'util';
 import os from 'os';
 import bcrypt from 'bcryptjs';
 import { transcribeAudio, generateSpeech } from './audioTool.js';
-import { connectDB, Chat, User } from './db.js';
-import { ensureEncryptionKey } from './oauthService.js';
+import { connectDB, Chat, User, Project } from './db.js';
+import { ensureEncryptionKey, getValidToken, getStoredTokens } from './oauthService.js';
 
 // Connect to Database, then initialize encryption key
 connectDB().then(() => ensureEncryptionKey()).catch(err => {
@@ -426,10 +426,234 @@ app.get('/api/user/preferences', extractUser, async (req, res) => {
     }
 });
 
+// --- API: Projects ---
+
+// List all projects (auto-seeds General + migrates legacy chat)
+app.get('/api/projects', extractUser, async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const count = await Project.countDocuments({ userId });
+
+        if (count === 0) {
+            // Auto-seed the default "General" project
+            await Project.create({ userId, name: 'General', isDefault: true });
+            // Migrate legacy "user-1" chat history to "session-general"
+            await Chat.updateMany(
+                { userId, sessionId: 'user-1' },
+                { $set: { sessionId: 'session-general' } }
+            );
+            console.log(`[Projects] Auto-seeded General project for user ${req.user.email}`);
+        }
+
+        const projects = await Project.find({ userId }).sort({ createdAt: 1 });
+        res.json({ projects });
+    } catch (error) {
+        console.error('[Projects] List error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get single project
+app.get('/api/projects/:id', extractUser, async (req, res) => {
+    try {
+        const project = await Project.findOne({ _id: req.params.id, userId: req.user._id });
+        if (!project) return res.status(404).json({ error: 'Project not found' });
+        res.json({ project });
+    } catch (error) {
+        console.error('[Projects] Get error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Create project
+app.post('/api/projects', extractUser, async (req, res) => {
+    try {
+        const { name, jiraProjectKey, githubRepo } = req.body;
+
+        if (!name || name.trim().length < 1 || name.trim().length > 50) {
+            return res.status(400).json({ error: 'Project name must be 1-50 characters' });
+        }
+
+        if (githubRepo && !/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(githubRepo)) {
+            return res.status(400).json({ error: 'GitHub repo must be in owner/repo format' });
+        }
+
+        if (jiraProjectKey && !/^[A-Z][A-Z0-9_]{1,9}$/.test(jiraProjectKey)) {
+            return res.status(400).json({ error: 'Jira project key must be uppercase letters/numbers (2-10 chars)' });
+        }
+
+        const project = await Project.create({
+            userId: req.user._id,
+            name: name.trim(),
+            jiraProjectKey: jiraProjectKey || '',
+            githubRepo: githubRepo || '',
+        });
+
+        res.status(201).json({ project });
+    } catch (error) {
+        console.error('[Projects] Create error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update project
+app.put('/api/projects/:id', extractUser, async (req, res) => {
+    try {
+        const project = await Project.findOne({ _id: req.params.id, userId: req.user._id });
+        if (!project) return res.status(404).json({ error: 'Project not found' });
+
+        const { name, jiraProjectKey, githubRepo } = req.body;
+
+        if (name !== undefined) {
+            if (!name || name.trim().length < 1 || name.trim().length > 50) {
+                return res.status(400).json({ error: 'Project name must be 1-50 characters' });
+            }
+            project.name = name.trim();
+        }
+
+        if (githubRepo !== undefined) {
+            if (githubRepo && !/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(githubRepo)) {
+                return res.status(400).json({ error: 'GitHub repo must be in owner/repo format' });
+            }
+            project.githubRepo = githubRepo || '';
+        }
+
+        if (jiraProjectKey !== undefined) {
+            if (jiraProjectKey && !/^[A-Z][A-Z0-9_]{1,9}$/.test(jiraProjectKey)) {
+                return res.status(400).json({ error: 'Jira project key must be uppercase letters/numbers (2-10 chars)' });
+            }
+            project.jiraProjectKey = jiraProjectKey || '';
+        }
+
+        await project.save();
+        res.json({ project });
+    } catch (error) {
+        console.error('[Projects] Update error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete project (cannot delete default)
+app.delete('/api/projects/:id', extractUser, async (req, res) => {
+    try {
+        const project = await Project.findOne({ _id: req.params.id, userId: req.user._id });
+        if (!project) return res.status(404).json({ error: 'Project not found' });
+        if (project.isDefault) return res.status(400).json({ error: 'Cannot delete the default project' });
+
+        const sessionId = `project-${project._id}`;
+        await Chat.deleteMany({ userId: req.user._id, sessionId });
+        await Project.deleteOne({ _id: project._id });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[Projects] Delete error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GitHub stats for project dashboard
+app.get('/api/projects/:id/github-stats', extractUser, async (req, res) => {
+    try {
+        const project = await Project.findOne({ _id: req.params.id, userId: req.user._id });
+        if (!project) return res.status(404).json({ error: 'Project not found' });
+        if (!project.githubRepo) return res.json({ error: 'no_repo_configured' });
+
+        const token = await getValidToken(req.user._id, 'github');
+        if (!token) return res.json({ error: 'not_connected' });
+
+        const [owner, repo] = project.githubRepo.split('/');
+        const headers = {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+        };
+
+        // Fetch PRs and issues in parallel
+        const [prsRes, issuesRes] = await Promise.all([
+            fetch(`https://api.github.com/repos/${owner}/${repo}/pulls?state=all&per_page=100`, { headers }),
+            fetch(`https://api.github.com/repos/${owner}/${repo}/issues?state=all&per_page=100`, { headers }),
+        ]);
+
+        if (!prsRes.ok || !issuesRes.ok) {
+            return res.status(502).json({ error: 'Failed to fetch GitHub data' });
+        }
+
+        const prs = await prsRes.json();
+        const allIssues = await issuesRes.json();
+
+        // GitHub API includes PRs in issues — filter them out
+        const issues = allIssues.filter(i => !i.pull_request);
+
+        const stats = {
+            prs: {
+                open: prs.filter(p => p.state === 'open').length,
+                closed: prs.filter(p => p.state === 'closed' && !p.merged_at).length,
+                merged: prs.filter(p => p.merged_at).length,
+            },
+            issues: {
+                open: issues.filter(i => i.state === 'open').length,
+                closed: issues.filter(i => i.state === 'closed').length,
+            },
+        };
+
+        res.json(stats);
+    } catch (error) {
+        console.error('[Projects] GitHub stats error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Jira stats for project dashboard
+app.get('/api/projects/:id/jira-stats', extractUser, async (req, res) => {
+    try {
+        const project = await Project.findOne({ _id: req.params.id, userId: req.user._id });
+        if (!project) return res.status(404).json({ error: 'Project not found' });
+        if (!project.jiraProjectKey) return res.json({ error: 'no_key_configured' });
+
+        const tokens = await getStoredTokens(req.user._id, 'jira');
+        if (!tokens?.access_token) return res.json({ error: 'not_connected' });
+
+        const baseUrl = tokens.cloud_id
+            ? `https://api.atlassian.com/ex/jira/${tokens.cloud_id}`
+            : tokens.cloud_url;
+
+        if (!baseUrl) return res.json({ error: 'not_connected' });
+
+        const jql = encodeURIComponent(`project = "${project.jiraProjectKey}" ORDER BY created DESC`);
+        const jiraRes = await fetch(
+            `${baseUrl}/rest/api/3/search?jql=${jql}&fields=status&maxResults=100`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${tokens.access_token}`,
+                    'Accept': 'application/json',
+                },
+            }
+        );
+
+        if (!jiraRes.ok) {
+            const errBody = await jiraRes.text();
+            console.error('[Projects] Jira API error:', jiraRes.status, errBody);
+            return res.status(502).json({ error: 'Failed to fetch Jira data' });
+        }
+
+        const data = await jiraRes.json();
+        const statuses = {};
+        for (const issue of data.issues || []) {
+            const statusName = issue.fields?.status?.name || 'Unknown';
+            statuses[statusName] = (statuses[statusName] || 0) + 1;
+        }
+
+        res.json({ statuses, total: data.total || 0 });
+    } catch (error) {
+        console.error('[Projects] Jira stats error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // --- API Endpoint ---
 app.post('/api/ask', extractUser, async (req, res) => {
   try {
-    const { question, files, timezone, voiceEnabled } = req.body;
+    const { question, files, timezone, voiceEnabled, sessionId: clientSessionId, projectId } = req.body;
 
     if (!question) {
       return res.status(400).json({ error: 'Question is required' });
@@ -442,14 +666,31 @@ app.post('/api/ask', extractUser, async (req, res) => {
         console.log(`[Server] ${files.length} file(s) attached to question`);
     }
 
-    console.log(`[Server] User: ${req.user.email}, Q: ${question} (Timezone: ${timezone || 'UTC'})`);
+    // Resolve project context if a projectId was provided
+    let projectContext = null;
+    if (projectId) {
+        try {
+            const project = await Project.findOne({ _id: projectId, userId: req.user._id });
+            if (project) {
+                projectContext = {
+                    jiraProjectKey: project.jiraProjectKey || '',
+                    githubRepo: project.githubRepo || '',
+                };
+            }
+        } catch (err) {
+            console.warn('[Server] Failed to load project context:', err.message);
+        }
+    }
+
+    const sessionId = clientSessionId || 'session-general';
+    console.log(`[Server] User: ${req.user.email}, Q: ${question} (Timezone: ${timezone || 'UTC'}, Session: ${sessionId})`);
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
     const userPrefs = { preferredName: req.user.preferredName || '', titlePreference: req.user.titlePreference || 'Sir' };
-    const stream = streamWithSemanticRouting(fullQuestion, req.user._id.toString(), timezone, userPrefs);
+    const stream = streamWithSemanticRouting(fullQuestion, req.user._id.toString(), timezone, userPrefs, sessionId, projectContext);
     
     let sentenceBuffer = "";
 
@@ -566,7 +807,17 @@ app.post('/api/voice', extractUser, voiceUpload.single('audio'), async (req, res
     res.write(`data: ${JSON.stringify({ type: 'user_text', content: userText })}\n\n`);
 
     const voiceUserPrefs = { preferredName: req.user.preferredName || '', titlePreference: req.user.titlePreference || 'Sir' };
-    const stream = streamWithSemanticRouting(userText, req.user._id.toString(), undefined, voiceUserPrefs);
+    const voiceSessionId = req.body?.sessionId || 'session-general';
+    let voiceProjectContext = null;
+    if (req.body?.projectId) {
+        try {
+            const project = await Project.findOne({ _id: req.body.projectId, userId: req.user._id });
+            if (project) {
+                voiceProjectContext = { jiraProjectKey: project.jiraProjectKey || '', githubRepo: project.githubRepo || '' };
+            }
+        } catch (err) { /* ignore */ }
+    }
+    const stream = streamWithSemanticRouting(userText, req.user._id.toString(), undefined, voiceUserPrefs, voiceSessionId, voiceProjectContext);
     let sentenceBuffer = "";
     
     // --- Audio Queue System (properly awaited) ---

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
 import styles from './Home.module.css';
 import ChatAI from '../../components/ChatAI/ChatAI.jsx';
 import ChatHuman from '../../components/ChatHuman/ChatHuman.jsx';
@@ -11,8 +12,16 @@ import { API_URL } from '../../apiConfig.js';
 const MESSAGES_PER_PAGE = 20;
 
 const Home = () => {
+  const { id: projectIdFromUrl } = useParams();
   const { expanded } = useNavBar();
-  const { userEmail, messages, setMessages, historyLoaded, setHistoryLoaded } = useApp();
+  const { userEmail, messages, setMessages, historyLoaded, setHistoryLoaded, activeSessionId, activeProject, activeProjectId, setActiveProjectId } = useApp();
+
+  // Sync active project from URL param
+  useEffect(() => {
+    if (projectIdFromUrl && projectIdFromUrl !== activeProjectId) {
+      setActiveProjectId(projectIdFromUrl);
+    }
+  }, [projectIdFromUrl, activeProjectId, setActiveProjectId]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [files, setFiles] = useState([]);
@@ -84,7 +93,7 @@ const Home = () => {
 
     const loadHistory = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/history?sessionId=user-1&limit=${MESSAGES_PER_PAGE}`, {
+        const res = await fetch(`${API_URL}/api/history?sessionId=${activeSessionId}&limit=${MESSAGES_PER_PAGE}`, {
             headers: { 'X-User-Email': userEmail }
         });
         const data = await res.json();
@@ -106,7 +115,7 @@ const Home = () => {
       }
     };
     loadHistory();
-  }, [historyLoaded, setMessages, setHistoryLoaded, userEmail]);
+  }, [historyLoaded, setMessages, setHistoryLoaded, userEmail, activeSessionId]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -125,7 +134,7 @@ const Home = () => {
 
     try {
       const res = await fetch(
-        `${API_URL}/api/history?sessionId=user-1&offset=${messages.length}&limit=${MESSAGES_PER_PAGE}`,
+        `${API_URL}/api/history?sessionId=${activeSessionId}&offset=${messages.length}&limit=${MESSAGES_PER_PAGE}`,
         { headers: { 'X-User-Email': userEmail } }
       );
       const data = await res.json();
@@ -151,7 +160,7 @@ const Home = () => {
     } finally {
       setLoadingOlder(false);
     }
-  }, [messages.length, loadingOlder, hasMore, historyLoaded, setMessages, userEmail]);
+  }, [messages.length, loadingOlder, hasMore, historyLoaded, setMessages, userEmail, activeSessionId]);
 
   // Intersection observer for scroll-to-load-older
   useEffect(() => {
@@ -206,7 +215,9 @@ const Home = () => {
           question,
           files: uploadedFiles,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          voiceEnabled
+          voiceEnabled,
+          sessionId: activeSessionId,
+          projectId: activeProject?._id || null,
         }),
       });
 
@@ -356,7 +367,11 @@ const Home = () => {
   return (
     <section className={styles.mainSection}>
       <div className={expanded ? styles.container : styles.containerCompact}>
-        {messages.length === 0 && historyLoaded ? (
+        {!historyLoaded ? (
+          <div className={styles.emptyState}>
+            <p className={styles.emptySubtitle}>Loading...</p>
+          </div>
+        ) : messages.length === 0 ? (
           <div className={styles.emptyState}>
             <p className={styles.emptyTitle}>What can I help you with?</p>
             <p className={styles.emptySubtitle}>Ask E.D.I.T.H. to manage your tools, create tickets, or check your schedule.</p>

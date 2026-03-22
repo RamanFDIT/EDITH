@@ -1,0 +1,75 @@
+@reference '../../index.css';
+
+.overlay {
+    @apply fixed inset-0 z-50 bg-bgPrimary/80 backdrop-blur-sm
+           flex items-center justify-center p-4;
+}
+.modal {
+    @apply bg-bgComponents border border-bgHover rounded-xl w-full max-w-md
+           flex flex-col shadow-2xl;
+    animation: fadeIn 0.3s ease-out both;
+}
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Header */
+.header {
+    @apply flex items-center justify-between px-6 pt-5 pb-3;
+}
+.title {
+    @apply text-lg font-fontDisplay font-bold text-textPrimary;
+}
+.closeBtn {
+    @apply text-textPrimary/50 hover:text-textPrimary cursor-pointer
+           transition-colors p-1 rounded hover:bg-bgHover;
+}
+
+/* Body */
+.body {
+    @apply flex flex-col gap-5 px-6 py-4;
+}
+.field {
+    @apply flex flex-col gap-1.5;
+}
+.label {
+    @apply flex items-center gap-1.5 text-sm font-fontBody text-textPrimary/70;
+}
+.input {
+    @apply w-full bg-bgPrimary border border-bgHover rounded-lg px-3 py-2
+           text-sm font-fontBody text-textPrimary placeholder-textPrimary/30
+           outline-none focus:border-textPrimary/40 transition-colors;
+}
+
+/* Connect prompts */
+.connectPrompt {
+    @apply flex items-center justify-between bg-bgPrimary border border-bgHover
+           rounded-lg px-3 py-2;
+}
+.connectText {
+    @apply text-sm font-fontBody text-textPrimary/40;
+}
+.connectBtn {
+    @apply px-3 py-1 rounded-md bg-bgCTA text-textCTA text-xs font-fontBody
+           font-semibold cursor-pointer transition-all hover:opacity-90
+           active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.error {
+    @apply text-colorFail text-sm font-fontBody;
+}
+
+/* Footer */
+.footer {
+    @apply flex items-center justify-end gap-3 px-6 py-4 border-t border-bgHover;
+}
+.cancelBtn {
+    @apply px-4 py-2 rounded-lg text-sm font-fontBody text-textPrimary/70
+           cursor-pointer transition-colors hover:bg-bgHover;
+}
+.saveBtn {
+    @apply px-4 py-2 rounded-lg bg-bgCTA text-textCTA text-sm font-fontBody
+           font-semibold cursor-pointer transition-all hover:opacity-90
+           active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+}

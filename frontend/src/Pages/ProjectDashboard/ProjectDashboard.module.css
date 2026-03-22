@@ -1,0 +1,69 @@
+@reference '../../index.css';
+
+.container {
+    @apply min-h-screen bg-bgPrimary text-textPrimary p-8 md:ml-65 flex flex-col gap-8;
+}
+.loading {
+    @apply text-textPrimary/50 text-sm font-fontBody;
+}
+
+/* Header */
+.header {
+    @apply flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4;
+}
+.headerLeft {
+    @apply flex flex-col gap-2;
+}
+.projectName {
+    @apply text-3xl font-fontDisplay font-bold text-textPrimary;
+}
+.badges {
+    @apply flex flex-wrap gap-2;
+}
+.badge {
+    @apply flex items-center gap-1.5 px-3 py-1 rounded-full bg-bgComponents
+           text-xs font-fontBody text-textPrimary/60 border border-bgHover;
+}
+.headerActions {
+    @apply flex items-center gap-3;
+}
+.editBtn {
+    @apply p-2 rounded-lg text-textPrimary/50 hover:text-textPrimary
+           hover:bg-bgHover cursor-pointer transition-colors;
+}
+.chatBtn {
+    @apply flex items-center gap-2 px-4 py-2 rounded-lg bg-bgCTA text-textCTA
+           font-fontBody font-semibold text-sm cursor-pointer
+           transition-all hover:opacity-90 active:scale-95;
+}
+
+/* Charts */
+.chartsGrid {
+    @apply grid grid-cols-1 lg:grid-cols-2 gap-6;
+}
+.chartCard {
+    @apply bg-bgComponents rounded-xl p-6 border border-bgHover min-h-[320px]
+           flex items-center justify-center;
+}
+
+/* Connect prompts */
+.connectCard {
+    @apply flex flex-col items-center gap-4 py-8 text-center;
+}
+.connectIcon {
+    @apply text-textPrimary/30;
+}
+.connectText {
+    @apply text-textPrimary/50 text-sm font-fontBody max-w-[240px];
+}
+.connectBtn {
+    @apply px-4 py-2 rounded-lg bg-bgCTA text-textCTA font-fontBody font-semibold
+           text-sm cursor-pointer transition-all hover:opacity-90 active:scale-95;
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+    .container {
+        @apply ml-0 pt-20 px-4;
+    }
+}

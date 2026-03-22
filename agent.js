@@ -1009,13 +1009,31 @@ function getMessageHistory(sessionId, userId) {
 // =============================================================================
 
 // Create agent with fresh timestamp each time (don't cache system prompt)
-function getOrCreateAgent(tools, userTimezone, userId, userLLM, userPrefs) {
+function getOrCreateAgent(tools, userTimezone, userId, userLLM, userPrefs, projectContext = null) {
     // Always get fresh system prompt with current time
-    const systemPrompt = getSystemPrompt(userTimezone, userPrefs);
-    
+    let systemPrompt = getSystemPrompt(userTimezone, userPrefs);
+
+    // Inject project context into the system prompt if available
+    if (projectContext) {
+        let projectBlock = '\n\n[PROJECT CONTEXT]\nThe user is working within a project workspace.';
+        if (projectContext.jiraProjectKey) {
+            projectBlock += `\n- Jira Project Key: ${projectContext.jiraProjectKey} (use as default for all Jira queries)`;
+        }
+        if (projectContext.githubRepo) {
+            projectBlock += `\n- GitHub Repository: ${projectContext.githubRepo} (use as default owner/repo for all GitHub queries)`;
+        }
+        projectBlock += '\nWhen the user asks about issues, PRs, tickets without specifying a project or repo, default to these values.';
+        // systemPrompt is a SystemMessage — append to its content
+        if (typeof systemPrompt === 'string') {
+            systemPrompt = systemPrompt + projectBlock;
+        } else if (systemPrompt.content) {
+            systemPrompt = new SystemMessage(systemPrompt.content + projectBlock);
+        }
+    }
+
     // Create a signature based on userId and tool names
     const toolSignature = `${userId}:${tools.map(t => t.name).sort().join(',')}`;
-    
+
     // Don't cache agents - always create fresh to ensure current timestamp
     const agent = createReactAgent({
         llm: userLLM,
@@ -1135,8 +1153,7 @@ async function processWithSemanticRouting(input) {
 }
 
 // Streaming version for the server to use
-export async function* streamWithSemanticRouting(userQuery, userId, timezone, userPrefs) {
-    const sessionId = "user-1"; // Still using a single session per user for now
+export async function* streamWithSemanticRouting(userQuery, userId, timezone, userPrefs, sessionId = 'session-general', projectContext = null) {
     process.env.ACTIVE_REQUEST = 'true';
 
     let excludeProviders = new Set();
@@ -1213,9 +1230,22 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
             );
             // Merge all system-level content into a single SystemMessage so that
             // Gemini doesn't crash with "System message should be the first one".
-            const combinedSystemContent = systemPrompt.content
+            let combinedSystemContent = systemPrompt.content
                 + '\n\n' + guardMessage.content
                 + '\n\n' + freshTimeReminder.content;
+
+            if (projectContext) {
+                let projectBlock = '\n\n[PROJECT CONTEXT]\nThe user is working within a project workspace.';
+                if (projectContext.jiraProjectKey) {
+                    projectBlock += `\n- Jira Project Key: ${projectContext.jiraProjectKey} (use as default for all Jira queries)`;
+                }
+                if (projectContext.githubRepo) {
+                    projectBlock += `\n- GitHub Repository: ${projectContext.githubRepo} (use as default owner/repo for all GitHub queries)`;
+                }
+                projectBlock += '\nWhen the user asks about issues, PRs, tickets without specifying a project or repo, default to these values.';
+                combinedSystemContent += projectBlock;
+            }
+
             const messages = [
                 new SystemMessage(combinedSystemContent),
                 ...history,
@@ -1246,7 +1276,7 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         }
 
         // Step 4: Get or create an agent with these specific tools
-        const agent = getOrCreateAgent(selectedTools, timezone, userId, llm, userPrefs);
+        const agent = getOrCreateAgent(selectedTools, timezone, userId, llm, userPrefs, projectContext);
 
         // Step 5: Stream events from the agent (inject fresh time reminder before user query)
         const agentNow = new Date();

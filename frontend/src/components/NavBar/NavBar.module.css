@@ -104,3 +104,58 @@
 .mobileCloseBtn {
     @apply text-textPrimary cursor-pointer p-1;
 }
+
+/* ── Project Section ── */
+.projectSection {
+    @apply flex flex-col gap-2;
+}
+.projectHeader {
+    @apply flex items-center justify-between;
+}
+.sectionLabel {
+    @apply text-xs uppercase tracking-wider text-textPrimary/50 font-fontBody;
+}
+.newProjectBtn {
+    @apply text-textPrimary/60 hover:text-textPrimary cursor-pointer p-1 rounded
+           transition-colors hover:bg-bgHover;
+}
+.projectList {
+    @apply flex flex-col gap-1 max-h-48 overflow-y-auto;
+}
+.projectItem {
+    @apply flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer
+           text-textPrimary/70 hover:bg-bgHover hover:text-textPrimary
+           transition-colors text-sm font-fontBody relative;
+}
+.projectItemActive {
+    @apply bg-bgHover text-textPrimary;
+}
+.projectIcon {
+    @apply shrink-0;
+}
+.projectName {
+    @apply truncate flex-1;
+}
+.projectInitial {
+    @apply w-8 h-8 flex items-center justify-center rounded bg-bgHover
+           text-textPrimary text-xs font-fontBody font-semibold;
+}
+.projectIndicators {
+    @apply flex items-center gap-1 text-textPrimary/40 shrink-0;
+}
+.projectIndicator {
+    @apply text-textPrimary/40;
+}
+.deleteBtn {
+    @apply items-center p-0.5 rounded text-textPrimary/30
+           hover:text-colorFail cursor-pointer transition-colors opacity-0;
+}
+.projectItem:hover .deleteBtn {
+    @apply opacity-100;
+}
+.deleteBtnConfirm {
+    @apply text-colorFail opacity-100;
+}
+.divider {
+    @apply border-t border-bgHover my-2;
+}
