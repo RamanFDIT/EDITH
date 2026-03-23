@@ -155,10 +155,11 @@
     @apply text-textPrimary/40;
 }
 .deleteBtn {
-    @apply items-center p-0.5 rounded text-textPrimary/30
+    @apply flex items-center p-0.5 rounded text-textPrimary/30
            hover:text-colorFail cursor-pointer transition-colors opacity-0;
 }
-.projectItem:hover .deleteBtn {
+.projectItem:hover .deleteBtn,
+.projectItemCompact:hover .deleteBtn {
     @apply opacity-100;
 }
 .deleteBtnConfirm {

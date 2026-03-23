@@ -6,7 +6,7 @@ import { X, Github, ExternalLink } from 'lucide-react';
 import styles from './ProjectModal.module.css';
 
 const ProjectModal = ({ onClose, existingProject = null }) => {
-  const { userEmail, oauthStatus, refreshOauthStatus, createProject, updateProject, setActiveProjectId } = useApp();
+  const { userEmail, oauthStatus, refreshOauthStatus, createProject, updateProject, deleteProject, setActiveProjectId } = useApp();
   const navigate = useNavigate();
 
   const [name, setName] = useState(existingProject?.name || '');
@@ -14,6 +14,8 @@ const ProjectModal = ({ onClose, existingProject = null }) => {
   const [githubRepo, setGithubRepo] = useState(existingProject?.githubRepo || '');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [connecting, setConnecting] = useState('');
 
   const isEdit = !!existingProject;
@@ -83,6 +85,23 @@ const ProjectModal = ({ onClose, existingProject = null }) => {
       setError(err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteConfirm) {
+      setDeleteConfirm(true);
+      setTimeout(() => setDeleteConfirm(false), 3000);
+      return;
+    }
+    setDeleting(true);
+    try {
+      await deleteProject(existingProject._id);
+      navigate('/home');
+      onClose();
+    } catch (err) {
+      setError(err.message);
+      setDeleting(false);
     }
   };
 
@@ -175,11 +194,22 @@ const ProjectModal = ({ onClose, existingProject = null }) => {
           {error && <p className={styles.error}>{error}</p>}
         </div>
 
-        <div className={styles.footer}>
-          <button className={styles.cancelBtn} onClick={onClose}>Cancel</button>
-          <button className={styles.saveBtn} onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : (isEdit ? 'Save Changes' : 'Create Project')}
-          </button>
+        <div className={isEdit ? styles.footerEdit : styles.footer}>
+          {isEdit && (
+            <button
+              className={deleteConfirm ? styles.deleteProjectBtnConfirm : styles.deleteProjectBtn}
+              onClick={handleDelete}
+              disabled={deleting}
+            >
+              {deleting ? 'Deleting...' : deleteConfirm ? 'Confirm Delete' : 'Delete Project'}
+            </button>
+          )}
+          <div className={styles.footerActions}>
+            <button className={styles.cancelBtn} onClick={onClose}>Cancel</button>
+            <button className={styles.saveBtn} onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving...' : (isEdit ? 'Save Changes' : 'Create Project')}
+            </button>
+          </div>
         </div>
       </div>
     </div>

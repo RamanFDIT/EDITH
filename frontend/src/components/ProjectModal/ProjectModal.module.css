@@ -64,6 +64,12 @@
 .footer {
     @apply flex items-center justify-end gap-3 px-6 py-4 border-t border-bgHover;
 }
+.footerEdit {
+    @apply flex items-center justify-between px-6 py-4 border-t border-bgHover;
+}
+.footerActions {
+    @apply flex items-center gap-3;
+}
 .cancelBtn {
     @apply px-4 py-2 rounded-lg text-sm font-fontBody text-textPrimary/70
            cursor-pointer transition-colors hover:bg-bgHover;
@@ -72,4 +78,13 @@
     @apply px-4 py-2 rounded-lg bg-bgCTA text-textCTA text-sm font-fontBody
            font-semibold cursor-pointer transition-all hover:opacity-90
            active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+}
+.deleteProjectBtn {
+    @apply px-4 py-2 rounded-lg text-sm font-fontBody text-colorFail
+           cursor-pointer transition-colors hover:bg-colorFail/10;
+}
+.deleteProjectBtnConfirm {
+    @apply px-4 py-2 rounded-lg text-sm font-fontBody bg-colorFail text-white
+           cursor-pointer transition-all hover:opacity-90 active:scale-95
+           disabled:opacity-50 disabled:cursor-not-allowed;
 }
