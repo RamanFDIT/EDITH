@@ -112,6 +112,9 @@
 .projectHeader {
     @apply flex items-center justify-between;
 }
+.projectHeaderCompact {
+    @apply flex items-center justify-center;
+}
 .sectionLabel {
     @apply text-xs uppercase tracking-wider text-textPrimary/50 font-fontBody;
 }
@@ -126,6 +129,11 @@
     @apply flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer
            text-textPrimary/70 hover:bg-bgHover hover:text-textPrimary
            transition-colors text-sm font-fontBody relative;
+}
+.projectItemCompact {
+    @apply flex items-center justify-center py-1.5 rounded cursor-pointer
+           text-textPrimary/70 hover:bg-bgHover hover:text-textPrimary
+           transition-colors;
 }
 .projectItemActive {
     @apply bg-bgHover text-textPrimary;

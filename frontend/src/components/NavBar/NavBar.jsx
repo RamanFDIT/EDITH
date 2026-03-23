@@ -85,7 +85,7 @@ const NavBar = ({ onNewProject }) => {
   /* Project list section */
   const projectList = (isMobile = false) => (
     <div className={styles.projectSection}>
-      <div className={styles.projectHeader}>
+      <div className={(toggle || isMobile) ? styles.projectHeader : styles.projectHeaderCompact}>
         {(toggle || isMobile) && <p className={styles.sectionLabel}>Projects</p>}
         <button
           className={styles.newProjectBtn}
@@ -105,7 +105,7 @@ const NavBar = ({ onNewProject }) => {
           return (
             <div
               key={project._id}
-              className={`${styles.projectItem} ${(isActive || isCurrentRoute) ? styles.projectItemActive : ''}`}
+              className={`${(toggle || isMobile) ? styles.projectItem : styles.projectItemCompact} ${(isActive || isCurrentRoute) ? styles.projectItemActive : ''}`}
               onClick={() => handleProjectClick(project, isMobile)}
               title={project.name}
             >

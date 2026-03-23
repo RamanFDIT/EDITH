@@ -558,7 +558,11 @@ app.get('/api/projects/:id/github-stats', extractUser, async (req, res) => {
         if (!project) return res.status(404).json({ error: 'Project not found' });
         if (!project.githubRepo) return res.json({ error: 'no_repo_configured' });
 
-        const token = await getValidToken(req.user._id, 'github');
+        let token = await getValidToken(req.user._id, 'github');
+        if (!token) {
+            // Fallback to env PAT (same token the agent uses)
+            token = (process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || process.env.GITHUB_PERSONAL_ACCESS_TOKEN || '').trim() || null;
+        }
         if (!token) return res.json({ error: 'not_connected' });
 
         const [owner, repo] = project.githubRepo.split('/');

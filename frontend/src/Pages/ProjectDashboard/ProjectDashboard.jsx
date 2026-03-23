@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext.jsx';
+import { useNavBar } from '../../components/NavBar/NavBarContext.jsx';
 import DonutChart from '../../components/DonutChart/DonutChart.jsx';
 import ProjectModal from '../../components/ProjectModal/ProjectModal.jsx';
 import { API_URL } from '../../apiConfig';
@@ -44,6 +45,7 @@ const ProjectDashboard = () => {
     oauthStatus,
     refreshOauthStatus,
   } = useApp();
+  const { expanded } = useNavBar();
 
   const [githubStats, setGithubStats] = useState(null);
   const [jiraStats, setJiraStats] = useState(null);
@@ -77,6 +79,7 @@ const ProjectDashboard = () => {
       const res = await fetch(`${API_URL}/api/projects/${id}/github-stats`, {
         headers: { 'X-User-Email': userEmail },
       });
+      if (!res.ok) { setGithubError('fetch_failed'); return; }
       const data = await res.json();
       if (data.error === 'not_connected') {
         setGithubError('not_connected');
@@ -102,6 +105,7 @@ const ProjectDashboard = () => {
       const res = await fetch(`${API_URL}/api/projects/${id}/jira-stats`, {
         headers: { 'X-User-Email': userEmail },
       });
+      if (!res.ok) { setJiraError('fetch_failed'); return; }
       const data = await res.json();
       if (data.error === 'not_connected') {
         setJiraError('not_connected');
@@ -155,9 +159,11 @@ const ProjectDashboard = () => {
     }
   };
 
+  const containerClass = expanded ? styles.container : styles.containerCompact;
+
   if (!project) {
     return (
-      <div className={styles.container}>
+      <div className={containerClass}>
         <p className={styles.loading}>Loading project...</p>
       </div>
     );
@@ -178,7 +184,7 @@ const ProjectDashboard = () => {
   })) : [];
 
   return (
-    <div className={styles.container}>
+    <div className={containerClass}>
       {/* Header */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>

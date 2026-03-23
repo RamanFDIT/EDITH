@@ -1,7 +1,12 @@
 @reference '../../index.css';
 
 .container {
-    @apply min-h-screen bg-bgPrimary text-textPrimary p-8 md:ml-65 flex flex-col gap-8;
+    @apply min-h-screen bg-bgPrimary text-textPrimary p-8 md:ml-65 flex flex-col gap-8
+           transition-all duration-300 ease-in-out;
+}
+.containerCompact {
+    @apply min-h-screen bg-bgPrimary text-textPrimary p-8 md:ml-15 flex flex-col gap-8
+           transition-all duration-300 ease-in-out;
 }
 .loading {
     @apply text-textPrimary/50 text-sm font-fontBody;
@@ -63,7 +68,8 @@
 
 /* Mobile adjustments */
 @media (max-width: 768px) {
-    .container {
+    .container,
+    .containerCompact {
         @apply ml-0 pt-20 px-4;
     }
 }
