@@ -216,3 +216,56 @@ export async function getRepoChecks(args) {
         return JSON.stringify({ status: "error", message: `Error getting checks for ${ref}: ${error.message}` });
     }
 }
+
+export async function listBranches(args) {
+    const { owner, repo } = args;
+    if (!owner || !repo) throw new Error('Owner and Repo are required.');
+    try {
+        const branches = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/branches?per_page=100`);
+        const repoData = await githubFetch(`https://api.github.com/repos/${owner}/${repo}`);
+        const defaultBranch = repoData.default_branch;
+
+        return JSON.stringify({
+            status: "success",
+            defaultBranch,
+            totalBranches: branches.length,
+            branches: branches.map(b => ({
+                name: b.name,
+                isDefault: b.name === defaultBranch,
+                protected: b.protected,
+                lastCommitSha: b.commit?.sha?.substring(0, 7),
+            })),
+        });
+    } catch (error) {
+        return JSON.stringify({ status: "error", message: `Error listing branches: ${error.message}` });
+    }
+}
+
+export async function getRepoInfo(args) {
+    const { owner, repo } = args;
+    if (!owner || !repo) throw new Error('Owner and Repo are required.');
+    try {
+        const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}`);
+        return JSON.stringify({
+            status: "success",
+            repo: {
+                fullName: data.full_name,
+                description: data.description,
+                defaultBranch: data.default_branch,
+                visibility: data.visibility,
+                language: data.language,
+                stars: data.stargazers_count,
+                forks: data.forks_count,
+                openIssues: data.open_issues_count,
+                watchers: data.watchers_count,
+                createdAt: data.created_at,
+                updatedAt: data.updated_at,
+                pushedAt: data.pushed_at,
+                htmlUrl: data.html_url,
+                topics: data.topics || [],
+            },
+        });
+    } catch (error) {
+        return JSON.stringify({ status: "error", message: `Error getting repo info: ${error.message}` });
+    }
+}

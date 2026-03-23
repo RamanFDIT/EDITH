@@ -18,7 +18,7 @@ import { generateImage } from "./imageTool.js";
 import { getJiraIssues, createJiraIssue, updateJiraIssue, deleteJiraIssue, createJiraProject, listJiraProjects } from "./jiraTool.js";
 import { getCalendarEvents, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent, findFreeTime } from "./calendarTool.js";
 import { sendSlackMessage, sendSlackAnnouncement, sendSlackLink } from "./slackTool.js";
-import { createRepository, getRepoIssues, createRepoIssue, listCommits, listPullRequests, getPullRequest, getCommit, getRepoChecks } from "./githubTool.js";
+import { createRepository, getRepoIssues, createRepoIssue, listCommits, listPullRequests, getPullRequest, getCommit, getRepoChecks, listBranches, getRepoInfo } from "./githubTool.js";
 import { getFigmaFileStructure, getFigmaComments, postFigmaComment } from "./figmaTool.js";
 import { sendGmail, searchGmailContacts, getRecentEmails } from "./gmailTool.js";
 import { readFile } from "./fileTool.js";
@@ -380,6 +380,24 @@ const githubReadTools = [
     }),
     func: getRepoChecks,
   }),
+  new DynamicStructuredTool({
+    name: "list_branches",
+    description: "List all branches for a GitHub repository, including which is the default branch and whether each is protected.",
+    schema: z.object({
+      owner: z.string().describe("Repository owner (e.g., 'octocat')."),
+      repo: z.string().describe("Repository name (e.g., 'Hello-World')."),
+    }),
+    func: listBranches,
+  }),
+  new DynamicStructuredTool({
+    name: "get_repo_info",
+    description: "Get detailed information about a GitHub repository including default branch, description, stars, forks, open issues, visibility, language, and topics.",
+    schema: z.object({
+      owner: z.string().describe("Repository owner."),
+      repo: z.string().describe("Repository name."),
+    }),
+    func: getRepoInfo,
+  }),
 ];
 
 const githubWriteTools = [
@@ -512,7 +530,7 @@ Your ONLY job is to classify the user's message into ONE OR MORE categories.
 CATEGORIES:
 - jira_read: Reading/searching Jira tickets, issues, epics, sprints, backlogs (queries, lookups, listing)
 - jira_write: Creating, updating, or deleting Jira tickets, issues, projects
-- github_read: Reading GitHub data: commits, PRs, issues, checks, repo info (queries, lookups, listing)
+- github_read: Reading GitHub data: commits, PRs, issues, checks, branches, repo info, default branch (queries, lookups, listing)
 - github_write: Creating repos, issues, or any write operation on GitHub
 - figma: Anything about designs, mockups, UI/UX, wireframes, Figma files, design comments
 - calendar: Anything about scheduling, meetings, appointments, events, calendar, free time, availability, reminders
@@ -537,6 +555,8 @@ User: "Create a ticket for the login bug" -> jira_write
 User: "Update ticket FDIT-123 to done" -> jira_write
 User: "List all my Jira tickets and mark the first one done" -> jira_read,jira_write
 User: "Read the comments on the dashboard design" -> figma
+User: "What branches does the EDITH repo have?" -> github_read
+User: "What's the default branch?" -> github_read
 User: "Create a new repo called test-app" -> github_write
 User: "What meetings do I have today?" -> calendar
 User: "Schedule a call with John next Tuesday at 2pm" -> calendar
@@ -576,7 +596,8 @@ const KEYWORD_MAP = {
     ],
     github_read: [
         'list commits', 'show commits', 'check pr', 'list pr', 'show pull requests',
-        'get checks', 'repo status', 'list issues'
+        'get checks', 'repo status', 'list issues', 'list branches', 'show branches',
+        'what branches', 'default branch', 'main branch', 'repo info', 'repository info'
     ],
     github_write: [
         'create repo', 'new repository', 'create issue', 'make issue'
