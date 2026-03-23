@@ -34,9 +34,11 @@ const upload = multer({ storage: storage });
 const voiceUpload = multer({ storage: multer.memoryStorage() });
 
 // --- Middlewares ---
-app.use(express.json());
-app.use(cors()); 
-app.use(express.static('.')); // Serve static files from current directory
+app.use(express.json({ limit: '1mb' }));
+const FRONTEND_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:5173';
+app.use(cors({ origin: FRONTEND_ORIGIN, credentials: true }));
+app.use(express.static(path.join(process.cwd(), 'frontend', 'dist'))); // Only serve built frontend
+app.use('/uploads', express.static(uploadDir)); // Serve uploaded files under /uploads
 
 // --- Global Request Logger ---
 app.use((req, res, next) => {
@@ -290,7 +292,7 @@ app.get('/api/oauth/callback', async (req, res) => {
                                         name: '${safeName}',
                                         preferredName: '${safePreferredName}',
                                         titlePreference: '${safeTitlePref}'
-                                    }, '*');
+                                    }, '${FRONTEND_ORIGIN}');
                                 }
                             } catch (e) {}
                             setTimeout(() => window.close(), 2000);
@@ -346,7 +348,7 @@ app.get('/api/oauth/callback', async (req, res) => {
                     <script>
                         try {
                             if (window.opener) {
-                                window.opener.postMessage({ type: 'OAUTH_COMPLETE', provider: '${provider}' }, '*');
+                                window.opener.postMessage({ type: 'OAUTH_COMPLETE', provider: '${provider}' }, '${FRONTEND_ORIGIN}');
                             }
                         } catch (e) {}
                         setTimeout(() => window.close(), 3000);
@@ -705,9 +707,16 @@ app.post('/api/ask', extractUser, async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
+    // Detect client disconnect to stop processing
+    let clientDisconnected = false;
+    req.on('close', () => {
+        clientDisconnected = true;
+        console.log(`[Server] Client disconnected during stream`);
+    });
+
     const userPrefs = { preferredName: req.user.preferredName || '', titlePreference: req.user.titlePreference || 'Sir' };
     const stream = streamWithSemanticRouting(fullQuestion, req.user._id.toString(), timezone, userPrefs, sessionId, projectContext);
-    
+
     let sentenceBuffer = "";
 
     // --- Audio Generation Logic (only when voice is enabled) ---
@@ -745,6 +754,7 @@ app.post('/api/ask', extractUser, async (req, res) => {
     }
 
     for await (const event of stream) {
+        if (clientDisconnected) break;
         const eventType = event.event;
 
         if (eventType === "on_chat_model_stream") {

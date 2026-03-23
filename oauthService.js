@@ -292,13 +292,28 @@ export async function refreshAccessToken(userId, provider) {
   return data.access_token;
 }
 
+// Mutex to prevent concurrent refresh requests for the same user+provider
+const refreshLocks = new Map();
+
 export async function getValidToken(userId, provider) {
   const tokens = await getStoredTokens(userId, provider);
   if (!tokens) return null;
 
   if (isTokenExpired(tokens) && tokens.refresh_token) {
+    const lockKey = `${userId}:${provider}`;
+    // If a refresh is already in-flight, await it instead of starting another
+    if (refreshLocks.has(lockKey)) {
+      try {
+        return await refreshLocks.get(lockKey);
+      } catch {
+        return null;
+      }
+    }
+    const refreshPromise = refreshAccessToken(userId, provider)
+      .finally(() => refreshLocks.delete(lockKey));
+    refreshLocks.set(lockKey, refreshPromise);
     try {
-      return await refreshAccessToken(userId, provider);
+      return await refreshPromise;
     } catch (err) {
       console.error(`[OAuth] Auto-refresh failed for ${provider}:`, err.message);
       return null;

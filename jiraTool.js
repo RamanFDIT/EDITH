@@ -181,12 +181,16 @@ export async function createJiraIssue(input) {
 
         const data = await response.json();
         console.log(`✅ Ticket Created: ${data.key}`);
+        const domain = getJiraDomain();
+        const link = domain
+            ? `https://${domain}/browse/${data.key}`
+            : (data.self ? data.self.replace(/\/rest\/api\/.*/, `/browse/${data.key}`) : data.key);
         return JSON.stringify({
             status: "success",
             message: `Created Jira Ticket: ${data.key}`,
             key: data.key,
             id: data.id,
-            link: `https://${getJiraDomain()}/browse/${data.key}`
+            link
         });
 
     } catch (error) {

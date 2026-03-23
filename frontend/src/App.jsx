@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import ErrorBoundary from './components/ErrorBoundary/ErrorBoundary.jsx';
 import NavBar from './components/NavBar/NavBar.jsx';
 import { NavBarProvider } from './components/NavBar/NavBarContext.jsx';
 import { AppProvider, useApp } from './context/AppContext.jsx';
@@ -61,9 +62,11 @@ function HomeRedirect() {
 
 function App() {
   return (
-    <HashRouter>
-      <AppContent />
-    </HashRouter>
+    <ErrorBoundary>
+      <HashRouter>
+        <AppContent />
+      </HashRouter>
+    </ErrorBoundary>
   );
 }
 

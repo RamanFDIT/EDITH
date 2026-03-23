@@ -87,6 +87,15 @@ const Home = () => {
     if (!isPlayingRef.current) playNextAudio();
   }, [playNextAudio]);
 
+  // Cleanup audio queue on unmount
+  useEffect(() => {
+    return () => {
+      audioQueueRef.current = [];
+      isPlayingRef.current = false;
+      window.speechSynthesis?.cancel();
+    };
+  }, []);
+
   // Track which session we last loaded history for
   const lastLoadedSessionRef = useRef(null);
 
@@ -142,8 +151,9 @@ const Home = () => {
   useEffect(() => {
     if (pendingMessage && historyLoaded && !isStreaming && !pendingHandledRef.current) {
       pendingHandledRef.current = true;
-      handleSubmit(pendingMessage);
+      const msg = pendingMessage;
       setPendingMessage('');
+      handleSubmit(msg);
     }
     if (!pendingMessage) {
       pendingHandledRef.current = false;
@@ -231,18 +241,26 @@ const Home = () => {
     setIsStreaming(true);
     setIsThinking(true);
 
+    const streamAbort = new AbortController();
+    const STREAM_INACTIVITY_MS = 30000;
+    let inactivityTimer = setTimeout(() => streamAbort.abort(), STREAM_INACTIVITY_MS);
+
     try {
       // Upload files first if any
       let uploadedFiles = null;
       if (attachedFiles.length > 0) {
         uploadedFiles = await uploadFiles(attachedFiles);
       }
+      const resetInactivity = () => {
+        clearTimeout(inactivityTimer);
+        inactivityTimer = setTimeout(() => streamAbort.abort(), STREAM_INACTIVITY_MS);
+      };
 
       const res = await fetch(`${API_URL}/api/ask`, {
         method: 'POST',
-        headers: { 
+        headers: {
             'Content-Type': 'application/json',
-            'X-User-Email': userEmail 
+            'X-User-Email': userEmail
         },
         body: JSON.stringify({
           question,
@@ -252,6 +270,7 @@ const Home = () => {
           sessionId: activeSessionId,
           projectId: activeProject?._id || null,
         }),
+        signal: streamAbort.signal,
       });
 
       const reader = res.body.getReader();
@@ -261,6 +280,7 @@ const Home = () => {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        resetInactivity();
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
@@ -325,15 +345,22 @@ const Home = () => {
       }
     } catch (err) {
       console.error('[Stream] Fetch or read error:', err);
+      const isTimeout = err.name === 'AbortError';
+      const errorMsg = isTimeout
+        ? 'Response timed out. The server may be busy — please try again.'
+        : 'Failed to get a response. Is the server running?';
       setMessages(prev => {
         const updated = [...prev];
         const last = updated[updated.length - 1];
-        if (last.role === 'ai' && last.content === '') {
-          updated[updated.length - 1] = { ...last, content: 'Failed to get a response. Is the server running?' };
+        if (last?.role === 'ai' && last.content === '') {
+          updated[updated.length - 1] = { ...last, content: errorMsg };
+        } else if (last?.role === 'ai') {
+          updated[updated.length - 1] = { ...last, content: last.content + `\n\n*${errorMsg}*` };
         }
         return updated;
       });
     } finally {
+      clearTimeout(inactivityTimer);
       setIsStreaming(false);
       setIsThinking(false);
     }

@@ -57,6 +57,17 @@ const LLM_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const blockedProviders = new Map(); // userId → { providers: Set, createdAt: number }
 const BLOCKED_TTL = 30 * 60 * 1000; // 30 minutes — re-check occasionally in case user enrolls
 
+// Periodic cleanup of expired cache entries (every 10 minutes)
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of llmCache) {
+        if (now - entry.createdAt >= LLM_CACHE_TTL) llmCache.delete(key);
+    }
+    for (const [userId, entry] of blockedProviders) {
+        if (now - entry.createdAt >= BLOCKED_TTL) blockedProviders.delete(userId);
+    }
+}, 10 * 60 * 1000);
+
 async function getLLMForUser(userId, excludeProviders = new Set()) {
   // Merge caller exclusions with any providers blocked due to prior 403s
   const blocked = blockedProviders.get(userId);
@@ -68,9 +79,12 @@ async function getLLMForUser(userId, excludeProviders = new Set()) {
 
   const cacheKey = `${userId}:${provider}:${[...excludeProviders].sort().join(',')}`;
   const cached = llmCache.get(cacheKey);
-  if (cached && (Date.now() - cached.createdAt < LLM_CACHE_TTL)) {
-    console.log(`[LLM] Cache hit for user ${userId} (${cached.provider})`);
-    return { llm: cached.llm, classifier: cached.classifier, provider: cached.provider };
+  if (cached) {
+    if (Date.now() - cached.createdAt < LLM_CACHE_TTL) {
+      console.log(`[LLM] Cache hit for user ${userId} (${cached.provider})`);
+      return { llm: cached.llm, classifier: cached.classifier, provider: cached.provider };
+    }
+    llmCache.delete(cacheKey);
   }
 
   // 1. GITHUB (GitHub Models via standard OAuth - PRIORITY)
@@ -1337,15 +1351,28 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
 
         let completeResponse = "";
         const STREAM_TIMEOUT_MS = 30000;
-        let lastEventTime = Date.now();
 
         // Repeated tool call detector — catches hallucination loops
         const MAX_REPEATED_CALLS = 3;
         let lastToolCall = null;
         let repeatCount = 0;
 
-        for await (const event of stream) {
-            lastEventTime = Date.now();
+        // Wrap stream with inactivity timeout
+        async function* withTimeout(source, timeoutMs) {
+            const iterator = source[Symbol.asyncIterator]();
+            while (true) {
+                const raceResult = await Promise.race([
+                    iterator.next(),
+                    new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('Stream inactivity timeout')), timeoutMs)
+                    ),
+                ]);
+                if (raceResult.done) break;
+                yield raceResult.value;
+            }
+        }
+
+        for await (const event of withTimeout(stream, STREAM_TIMEOUT_MS)) {
 
             // Track tool calls to detect hallucination loops
             if (event.event === "on_tool_start") {

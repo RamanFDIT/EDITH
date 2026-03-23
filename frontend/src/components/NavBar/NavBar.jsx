@@ -1,5 +1,5 @@
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import styles from "./NavBar.module.css";
 import Logo from '../../assets/EDITH.svg?react';
 import settings from '../../assets/settings.svg';
@@ -24,9 +24,9 @@ const toolIcons = {
   jira: Plus,
 };
 
-// Jira icon used as small indicator in project list
-const JiraIcon = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" className={styles.projectIndicator}>
+// Jira icon — used both as tool sidebar icon and small project indicator
+const JiraIcon = ({ size = 12, className }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className || styles.projectIndicator}>
     <path d="M11.53 2c0 2.4 1.97 4.35 4.35 4.35h1.78v1.7c0 2.4 1.94 4.34 4.34 4.35V2.84a.84.84 0 00-.84-.84H11.53zM6.77 6.8a4.36 4.36 0 004.34 4.34h1.78v1.72a4.36 4.36 0 004.34 4.34V7.63a.84.84 0 00-.83-.83H6.77zM2 11.6a4.35 4.35 0 004.34 4.34h1.78v1.72c0 2.4 1.94 4.34 4.34 4.34v-9.57a.84.84 0 00-.84-.83H2z"/>
   </svg>
 );
@@ -44,6 +44,12 @@ const NavBar = ({ onNewProject }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const deleteTimerRef = useRef(null);
+
+  // Clean up delete confirmation timer on unmount
+  useEffect(() => {
+    return () => { if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current); };
+  }, []);
 
   const connectedTools = Object.entries(oauthStatus)
     .filter(([, info]) => info.connected)
@@ -77,8 +83,8 @@ const NavBar = ({ onNewProject }) => {
       setDeleteConfirm(null);
     } else {
       setDeleteConfirm(projectId);
-      // Auto-clear confirmation after 3 seconds
-      setTimeout(() => setDeleteConfirm(null), 3000);
+      if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+      deleteTimerRef.current = setTimeout(() => setDeleteConfirm(null), 3000);
     }
   };
 

@@ -2,7 +2,16 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import styles from './DonutChart.module.css';
 
 const DonutChart = ({ segments, title, centerLabel }) => {
-  const total = segments.reduce((sum, s) => sum + s.value, 0);
+  if (!Array.isArray(segments) || segments.length === 0) {
+    return (
+      <div className={styles.container}>
+        {title && <h3 className={styles.title}>{title}</h3>}
+        <p className={styles.empty}>No data available</p>
+      </div>
+    );
+  }
+  const validSegments = segments.filter(s => s && typeof s.value === 'number' && s.value >= 0);
+  const total = validSegments.reduce((sum, s) => sum + s.value, 0);
   if (total === 0) {
     return (
       <div className={styles.container}>
@@ -12,7 +21,7 @@ const DonutChart = ({ segments, title, centerLabel }) => {
     );
   }
 
-  const data = segments.filter(s => s.value > 0).map(s => ({
+  const data = validSegments.filter(s => s.value > 0).map(s => ({
     name: s.label,
     value: s.value,
     fill: s.color,

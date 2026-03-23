@@ -40,8 +40,8 @@ function formatRFC3339(input, defaultValue = undefined) {
     if (!input) return defaultValue;
     const date = new Date(input);
     if (isNaN(date.getTime())) {
-        console.warn(`[calendarTool] Invalid date input: ${input}. Using original or default.`);
-        return input;
+        console.warn(`[calendarTool] Invalid date input: ${input}. Using default.`);
+        return defaultValue;
     }
     return date.toISOString();
 }
