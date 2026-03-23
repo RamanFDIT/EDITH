@@ -1,7 +1,7 @@
 @reference '../../index.css';
 
 .mainSection {
-    @apply w-screen h-screen bg-bgPrimary flex;
+    @apply w-screen h-screen max-w-350 mx-auto bg-bgPrimary flex;
 }
 .container {
     @apply ml-0 md:ml-65 w-full h-screen flex flex-col transition-all duration-300 ease-in-out
