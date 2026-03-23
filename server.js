@@ -36,7 +36,28 @@ const voiceUpload = multer({ storage: multer.memoryStorage() });
 // --- Middlewares ---
 app.use(express.json({ limit: '1mb' }));
 const FRONTEND_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:5173';
-app.use(cors({ origin: FRONTEND_ORIGIN, credentials: true }));
+const allowedOrigins = [
+  FRONTEND_ORIGIN,
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://edith-1-2sxz.onrender.com'
+];
+
+app.use(cors({ 
+  origin: function (origin, callback) {
+    // allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    // Allow any Render frontend just to be safe
+    if (origin.endsWith('.onrender.com')) {
+      return callback(null, true);
+    }
+    return callback(new Error('CORS blocked origin: ' + origin), false);
+  }, 
+  credentials: true 
+}));
 app.use(express.static(path.join(process.cwd(), 'frontend', 'dist'))); // Only serve built frontend
 app.use('/uploads', express.static(uploadDir)); // Serve uploaded files under /uploads
 
