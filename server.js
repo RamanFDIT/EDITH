@@ -614,12 +614,15 @@ app.get('/api/projects/:id/jira-stats', extractUser, async (req, res) => {
         if (!project) return res.status(404).json({ error: 'Project not found' });
         if (!project.jiraProjectKey) return res.json({ error: 'no_key_configured' });
 
-        const tokens = await getStoredTokens(req.user._id, 'jira');
-        if (!tokens?.access_token) return res.json({ error: 'not_connected' });
+        // Use getValidToken to auto-refresh expired tokens
+        const accessToken = await getValidToken(req.user._id, 'jira');
+        if (!accessToken) return res.json({ error: 'not_connected' });
 
-        const baseUrl = tokens.cloud_id
+        // Still need stored tokens for cloud_id/cloud_url metadata
+        const tokens = await getStoredTokens(req.user._id, 'jira');
+        const baseUrl = tokens?.cloud_id
             ? `https://api.atlassian.com/ex/jira/${tokens.cloud_id}`
-            : tokens.cloud_url;
+            : tokens?.cloud_url;
 
         if (!baseUrl) return res.json({ error: 'not_connected' });
 
@@ -628,7 +631,7 @@ app.get('/api/projects/:id/jira-stats', extractUser, async (req, res) => {
             `${baseUrl}/rest/api/3/search?jql=${jql}&fields=status&maxResults=100`,
             {
                 headers: {
-                    'Authorization': `Bearer ${tokens.access_token}`,
+                    'Authorization': `Bearer ${accessToken}`,
                     'Accept': 'application/json',
                 },
             }

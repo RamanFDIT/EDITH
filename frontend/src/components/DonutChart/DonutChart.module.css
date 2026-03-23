@@ -1,22 +1,19 @@
 @reference '../../index.css';
 
 .container {
-    @apply flex flex-col items-center gap-4;
+    @apply flex flex-col items-center gap-4 w-full;
 }
 .title {
     @apply text-textPrimary text-sm font-fontBody font-semibold uppercase tracking-wider;
 }
 .chartWrapper {
-    @apply relative flex items-center justify-center;
-}
-.svg {
-    @apply drop-shadow-md;
-}
-.segment {
-    @apply transition-all duration-500 ease-out;
+    @apply relative flex items-center justify-center w-full;
 }
 .centerLabel {
-    @apply absolute flex flex-col items-center;
+    @apply absolute flex flex-col items-center pointer-events-none;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
 }
 .centerValue {
     @apply text-textPrimary text-2xl font-fontDisplay font-bold;
