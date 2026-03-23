@@ -285,9 +285,13 @@ export const AppProvider = ({ children }) => {
     );
 
     const activeSessionId = useMemo(() => {
-        if (!activeProject) return 'session-general';
-        return activeProject.isDefault ? 'session-general' : `project-${activeProjectId}`;
-    }, [activeProject, activeProjectId]);
+        if (!activeProjectId) return 'session-general';
+        const proj = projects.find(p => p._id === activeProjectId);
+        if (proj?.isDefault) return 'session-general';
+        // If projects aren't loaded yet but we have an ID, use project-scoped session
+        if (!proj) return `project-${activeProjectId}`;
+        return `project-${activeProjectId}`;
+    }, [projects, activeProjectId]);
 
     const setActiveProjectId = useCallback((id) => {
         setActiveProjectIdRaw(id);

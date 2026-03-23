@@ -90,6 +90,8 @@ const Home = () => {
   // Load initial history on first mount
   useEffect(() => {
     if (historyLoaded) return;
+    // Wait until activeProjectId is synced with URL param to avoid loading wrong session
+    if (projectIdFromUrl && projectIdFromUrl !== activeProjectId) return;
 
     const loadHistory = async () => {
       try {
@@ -115,7 +117,7 @@ const Home = () => {
       }
     };
     loadHistory();
-  }, [historyLoaded, setMessages, setHistoryLoaded, userEmail, activeSessionId]);
+  }, [historyLoaded, setMessages, setHistoryLoaded, userEmail, activeSessionId, activeProjectId, projectIdFromUrl]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {

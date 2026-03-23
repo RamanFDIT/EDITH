@@ -920,7 +920,7 @@ app.post('/api/voice', extractUser, voiceUpload.single('audio'), async (req, res
 // --- API: Chat History ---
 app.get('/api/history', extractUser, async (req, res) => {
     try {
-        const sessionId = req.query.sessionId || 'user-1';
+        const sessionId = req.query.sessionId || 'session-general';
         const offset = parseInt(req.query.offset) || 0;
         const limit = parseInt(req.query.limit) || 20;
 
