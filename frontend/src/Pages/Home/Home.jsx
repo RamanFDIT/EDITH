@@ -14,7 +14,7 @@ const MESSAGES_PER_PAGE = 20;
 const Home = () => {
   const { id: projectIdFromUrl } = useParams();
   const { expanded } = useNavBar();
-  const { userEmail, messages, setMessages, historyLoaded, setHistoryLoaded, activeSessionId, activeProject, activeProjectId, setActiveProjectId } = useApp();
+  const { userEmail, messages, setMessages, historyLoaded, setHistoryLoaded, activeSessionId, activeProject, activeProjectId, setActiveProjectId, pendingMessage, setPendingMessage } = useApp();
 
   // Sync active project from URL param
   useEffect(() => {
@@ -87,16 +87,28 @@ const Home = () => {
     if (!isPlayingRef.current) playNextAudio();
   }, [playNextAudio]);
 
-  // Load initial history on first mount
+  // Track which session we last loaded history for
+  const lastLoadedSessionRef = useRef(null);
+
+  // Load chat history on mount and when session changes
   useEffect(() => {
-    if (historyLoaded) return;
     // Wait until activeProjectId is synced with URL param to avoid loading wrong session
     if (projectIdFromUrl && projectIdFromUrl !== activeProjectId) return;
+    // Already loaded for this exact session
+    if (lastLoadedSessionRef.current === activeSessionId) return;
+
+    // Show loading state and clear stale messages
+    setHistoryLoaded(false);
+    setMessages([]);
+    setHasMore(true);
+
+    const controller = new AbortController();
 
     const loadHistory = async () => {
       try {
         const res = await fetch(`${API_URL}/api/history?sessionId=${activeSessionId}&limit=${MESSAGES_PER_PAGE}`, {
-            headers: { 'X-User-Email': userEmail }
+            headers: { 'X-User-Email': userEmail },
+            signal: controller.signal,
         });
         const data = await res.json();
         if (data.messages && data.messages.length > 0) {
@@ -110,14 +122,33 @@ const Home = () => {
           setHasMore(false);
         }
       } catch (err) {
+        if (err.name === 'AbortError') return;
         console.error('Failed to load chat history:', err);
         setHasMore(false);
       } finally {
-        setHistoryLoaded(true);
+        if (!controller.signal.aborted) {
+          lastLoadedSessionRef.current = activeSessionId;
+          setHistoryLoaded(true);
+        }
       }
     };
     loadHistory();
-  }, [historyLoaded, setMessages, setHistoryLoaded, userEmail, activeSessionId, activeProjectId, projectIdFromUrl]);
+
+    return () => controller.abort();
+  }, [setMessages, setHistoryLoaded, userEmail, activeSessionId, activeProjectId, projectIdFromUrl]);
+
+  // Auto-submit pending message (from ProjectDashboard quick chat)
+  const pendingHandledRef = useRef(false);
+  useEffect(() => {
+    if (pendingMessage && historyLoaded && !isStreaming && !pendingHandledRef.current) {
+      pendingHandledRef.current = true;
+      handleSubmit(pendingMessage);
+      setPendingMessage('');
+    }
+    if (!pendingMessage) {
+      pendingHandledRef.current = false;
+    }
+  }, [pendingMessage, historyLoaded, isStreaming]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {

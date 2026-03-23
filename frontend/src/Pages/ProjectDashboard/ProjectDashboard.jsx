@@ -5,7 +5,7 @@ import { useNavBar } from '../../components/NavBar/NavBarContext.jsx';
 import DonutChart from '../../components/DonutChart/DonutChart.jsx';
 import ProjectModal from '../../components/ProjectModal/ProjectModal.jsx';
 import { API_URL } from '../../apiConfig';
-import { MessageSquare, Settings as SettingsIcon, Github, ExternalLink } from 'lucide-react';
+import { MessageSquare, Settings as SettingsIcon, Github, ExternalLink, Send } from 'lucide-react';
 import styles from './ProjectDashboard.module.css';
 
 const GITHUB_COLORS = {
@@ -44,8 +44,10 @@ const ProjectDashboard = () => {
     setActiveProjectId,
     oauthStatus,
     refreshOauthStatus,
+    setPendingMessage,
   } = useApp();
   const { expanded } = useNavBar();
+  const [quickChatInput, setQuickChatInput] = useState('');
 
   const [githubStats, setGithubStats] = useState(null);
   const [jiraStats, setJiraStats] = useState(null);
@@ -281,6 +283,36 @@ const ProjectDashboard = () => {
             />
           )}
         </div>
+      </div>
+
+      {/* Quick Chat Input */}
+      <div className={styles.quickChatContainer}>
+        <form
+          className={styles.quickChatForm}
+          onSubmit={(e) => {
+            e.preventDefault();
+            const msg = quickChatInput.trim();
+            if (!msg) return;
+            setPendingMessage(msg);
+            setQuickChatInput('');
+            navigate(`/project/${id}/chat`);
+          }}
+        >
+          <input
+            type="text"
+            className={styles.quickChatInput}
+            placeholder={`Ask E.D.I.T.H. about ${project.name}...`}
+            value={quickChatInput}
+            onChange={(e) => setQuickChatInput(e.target.value)}
+          />
+          <button
+            type="submit"
+            className={styles.quickChatSendBtn}
+            disabled={!quickChatInput.trim()}
+          >
+            <Send size={18} />
+          </button>
+        </form>
       </div>
 
       {showEditModal && (

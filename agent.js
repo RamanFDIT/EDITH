@@ -178,12 +178,13 @@ const jiraReadTools = [
 const jiraWriteTools = [
   new DynamicStructuredTool({
     name: "create_jira_issue",
-    description: "Create a Jira ticket. REQUIRES 'projectKey'. If user doesn't specify which project/space, use list_jira_projects to find the correct project key. Only ask the user if multiple projects exist and the correct one is ambiguous.",
+    description: "Create a Jira ticket. REQUIRES 'projectKey'. If user doesn't specify which project/space, use list_jira_projects to find the correct project key. Only ask the user if multiple projects exist and the correct one is ambiguous. For WBS/hierarchy: create Epics first, then pass the Epic's key as 'parent' when creating Stories/Tasks underneath.",
     schema: z.object({
       projectKey: z.string().describe("REQUIRED: Project Key (e.g., 'FDIT'). Use list_jira_projects to discover if not provided by the user."),
       summary: z.string().describe("REQUIRED: Ticket title"),
       description: z.string().optional(),
-      issueType: z.string().optional(),
+      issueType: z.string().optional().describe("Issue type: 'Epic', 'Story', 'Task', 'Sub-task', or 'Bug'. Default: 'Task'."),
+      parent: z.string().optional().describe("Parent issue key (e.g., 'PROJ-1') to create this issue under. Use for hierarchy: Stories under Epics, Tasks under Stories, Sub-tasks under Tasks."),
     }),
     func: createJiraIssue,
   }),
@@ -476,7 +477,7 @@ const gmailTools = [
     }),
     func: searchGmailContacts,
   }),
-  new DynamicStructuredTool({
+  new DynamicStructuredTool({ 
     name: "get_recent_emails",
     description: "Get recent emails from the user's Gmail inbox. Use to check inbox, find specific emails, or summarize recent mail.",
     schema: z.object({
@@ -1060,7 +1061,7 @@ function getOrCreateAgent(tools, userTimezone, userId, userLLM, userPrefs, proje
         llm: userLLM,
         tools,
         stateModifier: systemPrompt,
-        recursionLimit: 50,
+        recursionLimit: 150,
     });
     
     console.log(`[Agent Factory] Created agent with tools: ${toolSignature || '(none)'}`);
@@ -1166,9 +1167,10 @@ async function processWithSemanticRouting(input) {
             `You MUST cite the new Receipt (ID/Link) in your confirmation.`
         );
     }
-    const result = await agent.invoke({
-        messages: [...history, freshTimeReminder, toolNudge, new HumanMessage(userQuery)]
-    });
+    const result = await agent.invoke(
+        { messages: [...history, freshTimeReminder, toolNudge, new HumanMessage(userQuery)] },
+        { recursionLimit: 150 }
+    );
 
     return result;
 }
@@ -1330,7 +1332,7 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         }
         const stream = agent.streamEvents(
             { messages: [...history, agentTimeReminder, toolNudge, new HumanMessage(userQuery)] },
-            { version: "v2" }
+            { version: "v2", recursionLimit: 150 }
         );
 
         let completeResponse = "";

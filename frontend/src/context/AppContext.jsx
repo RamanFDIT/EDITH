@@ -273,6 +273,9 @@ export const AppProvider = ({ children }) => {
     const [messages, setMessages] = useState([]);
     const [historyLoaded, setHistoryLoaded] = useState(false);
 
+    // --- Pending message (for sending from ProjectDashboard → Chat) ---
+    const [pendingMessage, setPendingMessage] = useState('');
+
     // --- Projects ---
     const [projects, setProjects] = useState([]);
     const [activeProjectId, setActiveProjectIdRaw] = useState(
@@ -415,6 +418,8 @@ export const AppProvider = ({ children }) => {
         setMessages,
         historyLoaded,
         setHistoryLoaded,
+        pendingMessage,
+        setPendingMessage,
         projects,
         projectsAvailable,
         activeProjectId,

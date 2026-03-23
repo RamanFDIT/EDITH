@@ -66,6 +66,24 @@
            text-sm cursor-pointer transition-all hover:opacity-90 active:scale-95;
 }
 
+/* Quick Chat */
+.quickChatContainer {
+    @apply mt-auto pt-6;
+}
+.quickChatForm {
+    @apply flex items-center gap-3 bg-bgComponents rounded-xl border border-bgHover
+           px-4 py-3;
+}
+.quickChatInput {
+    @apply flex-1 bg-transparent text-textPrimary font-fontBody text-sm
+           outline-none placeholder:text-textPrimary/30;
+}
+.quickChatSendBtn {
+    @apply p-2 rounded-lg text-textPrimary/40 hover:text-textPrimary
+           hover:bg-bgHover cursor-pointer transition-colors
+           disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent;
+}
+
 /* Mobile adjustments */
 @media (max-width: 768px) {
     .container,

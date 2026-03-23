@@ -124,7 +124,7 @@ export async function getJiraIssues(input) {
 export async function createJiraIssue(input) {
     console.log("📝 Jira Create Invoked:", JSON.stringify(input));
 
-    const { projectKey, summary, description, issueType } = input;
+    const { projectKey, summary, description, issueType, parent } = input;
 
     if (!projectKey || !summary) {
         throw new Error("Missing required fields: projectKey and summary are mandatory.");
@@ -154,9 +154,14 @@ export async function createJiraIssue(input) {
             project: { key: projectKey },
             summary: summary,
             description: adfDescription,
-            issuetype: { name: issueType || "Task" } 
+            issuetype: { name: issueType || "Task" }
         }
     };
+
+    // Add parent link for hierarchy (Stories under Epics, Tasks under Stories, etc.)
+    if (parent) {
+        bodyData.fields.parent = { key: parent };
+    }
 
     try {
         const response = await fetch(url, {
