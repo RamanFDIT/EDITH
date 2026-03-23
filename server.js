@@ -559,10 +559,13 @@ app.get('/api/projects/:id/github-stats', extractUser, async (req, res) => {
         if (!project.githubRepo) return res.json({ error: 'no_repo_configured' });
 
         let token = await getValidToken(req.user._id, 'github');
+        let tokenSource = 'oauth';
         if (!token) {
             // Fallback to env PAT (same token the agent uses)
             token = (process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || process.env.GITHUB_PERSONAL_ACCESS_TOKEN || '').trim() || null;
+            if (token) tokenSource = 'env_pat';
         }
+        console.log(`[Projects] GitHub stats — token source: ${token ? tokenSource : 'NONE'}, repo: ${project.githubRepo}`);
         if (!token) return res.json({ error: 'not_connected' });
 
         const [owner, repo] = project.githubRepo.split('/');
@@ -579,6 +582,7 @@ app.get('/api/projects/:id/github-stats', extractUser, async (req, res) => {
         ]);
 
         if (!prsRes.ok || !issuesRes.ok) {
+            console.error(`[Projects] GitHub API failed — PRs: ${prsRes.status} ${prsRes.statusText}, Issues: ${issuesRes.status} ${issuesRes.statusText}`);
             return res.status(502).json({ error: 'Failed to fetch GitHub data' });
         }
 
@@ -616,6 +620,7 @@ app.get('/api/projects/:id/jira-stats', extractUser, async (req, res) => {
 
         // Use getValidToken to auto-refresh expired tokens
         const accessToken = await getValidToken(req.user._id, 'jira');
+        console.log(`[Projects] Jira stats — token: ${accessToken ? 'obtained' : 'null'}, key: ${project.jiraProjectKey}`);
         if (!accessToken) return res.json({ error: 'not_connected' });
 
         // Still need stored tokens for cloud_id/cloud_url metadata
@@ -640,6 +645,10 @@ app.get('/api/projects/:id/jira-stats', extractUser, async (req, res) => {
         if (!jiraRes.ok) {
             const errBody = await jiraRes.text();
             console.error('[Projects] Jira API error:', jiraRes.status, errBody);
+            // If 401, the token is invalid/expired even after refresh — prompt re-auth
+            if (jiraRes.status === 401) {
+                return res.json({ error: 'not_connected' });
+            }
             return res.status(502).json({ error: 'Failed to fetch Jira data' });
         }
 

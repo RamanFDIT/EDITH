@@ -79,8 +79,7 @@ const ProjectDashboard = () => {
       const res = await fetch(`${API_URL}/api/projects/${id}/github-stats`, {
         headers: { 'X-User-Email': userEmail },
       });
-      if (!res.ok) { setGithubError('fetch_failed'); return; }
-      const data = await res.json();
+      const data = await res.json().catch(() => ({ error: 'fetch_failed' }));
       if (data.error === 'not_connected') {
         setGithubError('not_connected');
       } else if (data.error === 'no_repo_configured') {
@@ -105,8 +104,7 @@ const ProjectDashboard = () => {
       const res = await fetch(`${API_URL}/api/projects/${id}/jira-stats`, {
         headers: { 'X-User-Email': userEmail },
       });
-      if (!res.ok) { setJiraError('fetch_failed'); return; }
-      const data = await res.json();
+      const data = await res.json().catch(() => ({ error: 'fetch_failed' }));
       if (data.error === 'not_connected') {
         setJiraError('not_connected');
       } else if (data.error === 'no_key_configured') {
