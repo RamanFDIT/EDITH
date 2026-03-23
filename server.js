@@ -633,7 +633,7 @@ app.get('/api/projects/:id/jira-stats', extractUser, async (req, res) => {
 
         const jql = encodeURIComponent(`project = "${project.jiraProjectKey}" ORDER BY created DESC`);
         const jiraRes = await fetch(
-            `${baseUrl}/rest/api/3/search?jql=${jql}&fields=status&maxResults=100`,
+            `${baseUrl}/rest/api/3/search/jql?jql=${jql}&fields=status&maxResults=100`,
             {
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
