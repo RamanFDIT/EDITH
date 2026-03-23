@@ -39,6 +39,7 @@ const NavBar = ({ onNewProject }) => {
     activeProjectId,
     setActiveProjectId,
     deleteProject,
+    projectsAvailable,
   } = useApp();
   const navigate = useNavigate();
   const location = useLocation();
@@ -142,11 +143,11 @@ const NavBar = ({ onNewProject }) => {
   const navContent = (isMobile = false) => (
     <>
       <div className={styles.activeToolContainer}>
-        {/* Project list */}
-        {projectList(isMobile)}
+        {/* Project list (hidden if API unavailable) */}
+        {projectsAvailable && projectList(isMobile)}
 
         {/* Divider */}
-        <div className={styles.divider} />
+        {projectsAvailable && <div className={styles.divider} />}
 
         {/* Connected tools */}
         <div className={toggle || isMobile ? styles.toolsContainer : styles.toolsContainerCompact}>

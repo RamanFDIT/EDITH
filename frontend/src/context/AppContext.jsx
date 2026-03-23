@@ -297,14 +297,20 @@ export const AppProvider = ({ children }) => {
         setHistoryLoaded(false);
     }, []);
 
+    const [projectsAvailable, setProjectsAvailable] = useState(true);
+
     const loadProjects = useCallback(async () => {
         if (!userEmail) return;
         try {
             const res = await fetch(`${API_URL}/api/projects`, {
                 headers: { 'X-User-Email': userEmail }
             });
-            if (!res.ok) return;
+            if (!res.ok) {
+                setProjectsAvailable(false);
+                return;
+            }
             const data = await res.json();
+            setProjectsAvailable(true);
             setProjects(data.projects || []);
 
             // If no active project set, default to the General project
@@ -319,6 +325,7 @@ export const AppProvider = ({ children }) => {
             }
         } catch (err) {
             console.error('[Projects] Load error:', err);
+            setProjectsAvailable(false);
         }
     }, [userEmail]);
 
@@ -405,6 +412,7 @@ export const AppProvider = ({ children }) => {
         historyLoaded,
         setHistoryLoaded,
         projects,
+        projectsAvailable,
         activeProjectId,
         activeProject,
         activeSessionId,
