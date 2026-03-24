@@ -35,7 +35,7 @@ const voiceUpload = multer({ storage: multer.memoryStorage() });
 
 // --- Middlewares ---
 app.use(express.json({ limit: '1mb' }));
-const FRONTEND_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:5173';
+const FRONTEND_ORIGIN = process.env.CORS_ORIGIN || process.env.APP_URL || 'http://localhost:5173';
 const allowedOrigins = [
   FRONTEND_ORIGIN,
   'http://localhost:5173',
