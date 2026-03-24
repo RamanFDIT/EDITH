@@ -977,6 +977,16 @@ wss.on('connection', (ws) => {
     ws.on('close', () => { if (deepgramWs?.readyState === WebSocket.OPEN) deepgramWs.close(); });
 });
 
+// --- SPA Fallback: serve index.html for all non-API routes ---
+const frontendIndex = path.join(process.cwd(), 'frontend', 'dist', 'index.html');
+app.get('*', (req, res) => {
+    if (fs.existsSync(frontendIndex)) {
+        res.sendFile(frontendIndex);
+    } else {
+        res.status(404).send('Frontend not built. Run: npm run build');
+    }
+});
+
 // --- Start Server ---
 const server = app.listen(port, () => console.log(`Server is listening at http://localhost:${port}`));
 server.on('error', (e) => {
