@@ -38,12 +38,9 @@ const Auth = () => {
         setLoading(true);
         try {
             await signInWithGoogle();
-            navigate('/home');
+            // Page will redirect to Google — no need to navigate
         } catch (err) {
-            if (err.message !== 'Sign-in window closed') {
-                setError('Google sign-in failed. Please try again.');
-            }
-        } finally {
+            setError('Google sign-in failed. Please try again.');
             setLoading(false);
         }
     };

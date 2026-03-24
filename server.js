@@ -293,35 +293,15 @@ app.get('/api/oauth/callback', async (req, res) => {
             // Auth tokens only have basic scopes (openid, email, profile)
             // Calendar/Gmail tokens are stored when user connects tools in Settings
 
-            const safeEmail = userInfo.email.replace(/'/g, "\\'");
-            const safeName = (userInfo.name || '').replace(/'/g, "\\'");
-            const safePreferredName = (user.preferredName || '').replace(/'/g, "\\'");
-            const safeTitlePref = (user.titlePreference || 'Sir').replace(/'/g, "\\'");
-
-            res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
-            res.send(`
-                <html>
-                    <body style="font-family:sans-serif;text-align:center;padding:50px;background:#0a0a0a;color:#00ff88">
-                        <h2>Signed In Successfully!</h2>
-                        <p>You can close this tab and return to EDITH.</p>
-                        <script>
-                            try {
-                                if (window.opener) {
-                                    window.opener.postMessage({
-                                        type: 'AUTH_COMPLETE',
-                                        email: '${safeEmail}',
-                                        name: '${safeName}',
-                                        preferredName: '${safePreferredName}',
-                                        titlePreference: '${safeTitlePref}'
-                                    }, '${FRONTEND_ORIGIN}');
-                                }
-                            } catch (e) {}
-                            setTimeout(() => window.close(), 2000);
-                        </script>
-                    </body>
-                </html>
-            `);
-            return;
+            // Redirect back to frontend with auth data in URL params
+            // This avoids postMessage/window.opener issues across browsers
+            const params = new URLSearchParams({
+                email: userInfo.email,
+                name: userInfo.name || '',
+                preferredName: user.preferredName || '',
+                titlePreference: user.titlePreference || 'Sir',
+            });
+            return res.redirect(`${FRONTEND_ORIGIN}/#/auth/callback?${params.toString()}`);
         }
 
         // --- TOOL-CONNECTION FLOW ---

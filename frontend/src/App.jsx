@@ -7,6 +7,7 @@ import { AppProvider, useApp } from './context/AppContext.jsx';
 import Settings from './Pages/Settings/Settings.jsx';
 import Intro from './Pages/Intro/Intro.jsx';
 import Auth from './Pages/Auth/Auth.jsx';
+import AuthCallback from './Pages/Auth/AuthCallback.jsx';
 import Home from './Pages/Home/Home.jsx';
 import ProjectDashboard from './Pages/ProjectDashboard/ProjectDashboard.jsx';
 import ProjectModal from './components/ProjectModal/ProjectModal.jsx';
@@ -14,7 +15,7 @@ import NotFound from './Pages/NotFound/NotFound.jsx';
 import { ProtectedRoute } from './components/Navigation/ProtectedRoute.jsx';
 import { PublicOnlyRoute } from './components/Navigation/PublicOnlyRoute.jsx';
 
-const hideNavBarRoutes = ['/', '/auth'];
+const hideNavBarRoutes = ['/', '/auth', '/auth/callback'];
 
 function AppContent() {
   const location = useLocation();
@@ -29,6 +30,7 @@ function AppContent() {
           <Routes>
             <Route path="/" element={<PublicOnlyRoute><Intro /></PublicOnlyRoute>} />
             <Route path="/auth" element={<PublicOnlyRoute><Auth /></PublicOnlyRoute>} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
 
             <Route path="/home" element={<ProtectedRoute><HomeRedirect /></ProtectedRoute>} />
             <Route path="/project/:id" element={<ProtectedRoute><ProjectDashboard /></ProtectedRoute>} />
