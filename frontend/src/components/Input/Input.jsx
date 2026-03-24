@@ -79,6 +79,31 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVo
     };
   }, []);
 
+  // Auto-focus textarea when user types anywhere on the page
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      // Skip if modifier keys are held (don't hijack Ctrl+C, etc.)
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+      // Skip non-printable keys (arrows, Escape, Tab, function keys, etc.)
+      if (e.key.length !== 1) return;
+
+      // Skip if textarea is disabled
+      if (textareaRef.current?.disabled) return;
+
+      // Skip if user is already typing in another input/textarea
+      const active = document.activeElement;
+      const tag = active?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || active?.isContentEditable) return;
+
+      // Focus the textarea — the browser will naturally insert the character
+      textareaRef.current?.focus();
+    };
+
+    document.addEventListener('keydown', handleGlobalKeyDown);
+    return () => document.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
+
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !disabled) {
       e.preventDefault();
