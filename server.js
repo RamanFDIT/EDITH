@@ -8,6 +8,24 @@ import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// --- Boot diagnostics (remove after debugging) ---
+console.log('[BOOT] __dirname:', __dirname);
+console.log('[BOOT] cwd:', process.cwd());
+const _distPath = path.join(__dirname, 'frontend', 'dist');
+console.log('[BOOT] dist path:', _distPath);
+console.log('[BOOT] dist exists:', fs.existsSync(_distPath));
+console.log('[BOOT] index.html exists:', fs.existsSync(path.join(_distPath, 'index.html')));
+if (fs.existsSync(_distPath)) {
+    console.log('[BOOT] dist contents:', fs.readdirSync(_distPath).join(', '));
+} else {
+    const _frontendPath = path.join(__dirname, 'frontend');
+    console.log('[BOOT] frontend exists:', fs.existsSync(_frontendPath));
+    if (fs.existsSync(_frontendPath)) {
+        console.log('[BOOT] frontend contents:', fs.readdirSync(_frontendPath).join(', '));
+    }
+}
+
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import os from 'os';
