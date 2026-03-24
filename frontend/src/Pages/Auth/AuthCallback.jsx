@@ -14,14 +14,22 @@ const AuthCallback = () => {
             return;
         }
 
+        const preferredName = searchParams.get('preferredName') || '';
+        const titlePreference = searchParams.get('titlePreference') || 'Sir';
+
         completeGoogleSignIn({
             email,
             name: searchParams.get('name') || '',
-            preferredName: searchParams.get('preferredName') || '',
-            titlePreference: searchParams.get('titlePreference') || 'Sir',
+            preferredName,
+            titlePreference,
         });
 
-        navigate('/home', { replace: true });
+        // New users (no preferred name set yet) go through setup first
+        if (!preferredName) {
+            navigate('/setup', { replace: true });
+        } else {
+            navigate('/home', { replace: true });
+        }
     }, [searchParams, completeGoogleSignIn, navigate]);
 
     return null;

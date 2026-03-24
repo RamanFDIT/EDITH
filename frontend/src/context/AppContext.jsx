@@ -214,8 +214,11 @@ export const AppProvider = ({ children }) => {
             localStorage.setItem('edith_title_preference', tPref);
         }
 
-        setOnboardingComplete(true);
-        localStorage.setItem('edith_onboarding_complete', 'true');
+        // Only mark onboarding complete for returning users who have a preferred name
+        if (pName) {
+            setOnboardingComplete(true);
+            localStorage.setItem('edith_onboarding_complete', 'true');
+        }
     }, []);
 
     // --- Sign Out ---

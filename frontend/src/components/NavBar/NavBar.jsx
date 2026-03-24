@@ -21,7 +21,7 @@ const toolIcons = {
   github: Github,
   slack: MessageSquare,
   figma: Figma,
-  jira: Plus,
+  jira: ({ size, className }) => <JiraIcon size={size} className={className} />,
 };
 
 // Jira icon — used both as tool sidebar icon and small project indicator

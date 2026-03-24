@@ -15,7 +15,7 @@ const TITLE_OPTIONS = [
 
 const UserSetup = () => {
     const navigate = useNavigate();
-    const { updateUserPreferences } = useApp();
+    const { updateUserPreferences, setOnboardingComplete } = useApp();
     const [name, setName] = useState('');
     const [title, setTitle] = useState(null);
     const [error, setError] = useState(null);
@@ -41,7 +41,8 @@ const UserSetup = () => {
     const handleNext = async () => {
         if (!isValid) return;
         await updateUserPreferences(name.trim(), title);
-        navigate('/onboarding');
+        setOnboardingComplete(true);
+        navigate('/home');
     };
 
     return (
