@@ -979,7 +979,7 @@ wss.on('connection', (ws) => {
 
 // --- SPA Fallback: serve index.html for all non-API routes ---
 const frontendIndex = path.join(process.cwd(), 'frontend', 'dist', 'index.html');
-app.get('*', (req, res) => {
+app.use((req, res) => {
     if (fs.existsSync(frontendIndex)) {
         res.sendFile(frontendIndex);
     } else {
