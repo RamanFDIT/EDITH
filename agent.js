@@ -15,7 +15,7 @@ import { getValidToken } from "./oauthService.js";
 
 import { EDITH_SYSTEM_PROMPT, getSystemPrompt } from "./systemPrompt.js";
 import { generateImage } from "./imageTool.js";
-import { getJiraIssues, createJiraIssue, updateJiraIssue, deleteJiraIssue, createJiraProject, listJiraProjects, createJiraSprint, updateJiraSprint, addIssuesToSprint } from "./jiraTool.js";
+import { getJiraIssues, createJiraIssue, updateJiraIssue, deleteJiraIssue, createJiraProject, listJiraProjects, createJiraSprint, updateJiraSprint, addIssuesToSprint, listJiraSprints } from "./jiraTool.js";
 import { getCalendarEvents, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent, findFreeTime } from "./calendarTool.js";
 import { sendSlackMessage, sendSlackAnnouncement, sendSlackLink } from "./slackTool.js";
 import { createRepository, getRepoIssues, createRepoIssue, listCommits, listPullRequests, getPullRequest, getCommit, getRepoChecks, listBranches, getRepoInfo } from "./githubTool.js";
@@ -205,6 +205,15 @@ function createToolsForUser(userId) {
       description: "List all Jira projects the user has access to. Returns each project's key, name, and type. Use this when the user asks to find a project, check if a project exists, or list all projects/spaces.",
       schema: z.object({}),
       func: (input) => listJiraProjects(input, userId),
+    }),
+    new DynamicStructuredTool({
+      name: "list_jira_sprints",
+      description: "List all sprints for a given Jira project. Returns each sprint's ID, name, state (active, future, closed), and dates. Use this when the user asks 'what sprint is active', 'show the backlog', or 'list sprints'.",
+      schema: z.object({
+        projectKey: z.string().describe("REQUIRED: The Project Key (e.g., 'FDIT')."),
+        state: z.string().optional().describe("Optional filter for sprint state: 'active', 'future', or 'closed'.")
+      }),
+      func: (input) => listJiraSprints(input, userId),
     }),
   ];
 

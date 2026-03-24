@@ -569,3 +569,53 @@ export async function addIssuesToSprint(input, userId) {
         return JSON.stringify({ status: "error", message: `Error adding issues to sprint: ${error.message}` });
     }
 }
+
+// --- TOOL 10: LIST JIRA SPRINTS ---
+export async function listJiraSprints(input, userId) {
+    console.log("📋 Jira List Sprints Invoked:", JSON.stringify(input));
+    const { projectKey, state } = input;
+
+    if (!projectKey) throw new Error("Project Key (e.g., 'FDIT') is required.");
+
+    const { accessToken, cloudId } = await getJiraCredentials(userId);
+
+    try {
+        const boardId = await getBoardIdForProject(projectKey, accessToken, cloudId);
+        
+        let url = `${getJiraBaseUrl(cloudId)}/rest/agile/1.0/board/${boardId}/sprint`;
+        if (state) {
+            url += `?state=${encodeURIComponent(state)}`;
+        }
+
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Authorization': getAuthHeader(accessToken),
+                'Accept': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            const txt = await response.text();
+            throw new Error(`Failed to list sprints: ${response.status} - ${txt}`);
+        }
+
+        const data = await response.json();
+        if (!data.values || data.values.length === 0) {
+            return JSON.stringify({ status: "no_results_found", message: `No sprints found for project ${projectKey}${state ? ` in state '${state}'` : ''}.` });
+        }
+
+        const sprints = data.values.map(s => ({
+            id: s.id,
+            name: s.name,
+            state: s.state,
+            startDate: s.startDate,
+            endDate: s.endDate,
+            goal: s.goal
+        }));
+        
+        return JSON.stringify(sprints);
+    } catch (error) {
+        return JSON.stringify({ status: "error", message: `Error listing sprints: ${error.message}` });
+    }
+}
