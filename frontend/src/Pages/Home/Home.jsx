@@ -228,9 +228,15 @@ const Home = () => {
     return data.files; // [{ originalName, path, size }]
   };
 
+  const isSubmittingRef = useRef(false);
+
   const handleSubmit = async (overrideText) => {
+    if (isSubmittingRef.current) return;
+    
     const question = typeof overrideText === 'string' ? overrideText.trim() : input.trim();
     if (!question || isStreaming) return;
+
+    isSubmittingRef.current = true;
 
     const attachedFiles = [...files];
     const fileNames = attachedFiles.map(f => f.name);
@@ -363,6 +369,7 @@ const Home = () => {
       clearTimeout(inactivityTimer);
       setIsStreaming(false);
       setIsThinking(false);
+      isSubmittingRef.current = false;
     }
   };
 
