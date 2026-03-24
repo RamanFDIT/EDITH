@@ -1,5 +1,5 @@
 import express from 'express';
-import { streamWithSemanticRouting } from './agent.js';
+import { streamWithSemanticRouting, clearLLMCacheForUser } from './agent.js';
 import cors from 'cors';
 import multer from 'multer';
 import path from 'path';
@@ -400,6 +400,7 @@ app.post('/api/oauth/disconnect/:provider', extractUser, async (req, res) => {
     try {
         const { provider } = req.params;
         await clearTokens(req.user._id, provider);
+        clearLLMCacheForUser(req.user._id);
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ error: error.message });

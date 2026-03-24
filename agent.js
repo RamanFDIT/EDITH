@@ -57,6 +57,17 @@ const LLM_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const blockedProviders = new Map(); // userId → { providers: Set, createdAt: number }
 const BLOCKED_TTL = 30 * 60 * 1000; // 30 minutes — re-check occasionally in case user enrolls
 
+export function clearLLMCacheForUser(userId) {
+    const idStr = userId.toString();
+    for (const key of llmCache.keys()) {
+        if (key.startsWith(`${idStr}:`)) {
+            llmCache.delete(key);
+        }
+    }
+    blockedProviders.delete(idStr);
+    console.log(`[LLM] Cleared cache and blocked providers for user ${idStr}`);
+}
+
 // Periodic cleanup of expired cache entries (every 10 minutes)
 setInterval(() => {
     const now = Date.now();
@@ -1476,16 +1487,17 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
             const is401 = error.message?.includes('401') || error.status === 401;
             const is403 = error.message?.includes('403') || error.status === 403;
             const is413 = error.message?.includes('413') || error.status === 413;
+            const is429 = error.message?.includes('429') || error.status === 429;
             const isGitHubProvider = !excludeProviders.has('github');
 
-            if ((is401 || is403 || is413) && isGitHubProvider && attempt < MAX_ATTEMPTS - 1) {
-                console.warn(`[LLM] GitHub Models returned ${is401 ? '401' : is413 ? '413' : '403'} for user ${userId}. Falling back to next provider...`);
+            if ((is401 || is403 || is413 || is429) && isGitHubProvider && attempt < MAX_ATTEMPTS - 1) {
+                console.warn(`[LLM] GitHub Models returned ${is401 ? '401' : is413 ? '413' : is429 ? '429' : '403'} for user ${userId}. Falling back to next provider...`);
                 // Evict cached GitHub LLM so subsequent requests don't retry it
                 const providerKey = (process.env.LLM_PROVIDER || 'auto').toLowerCase();
                 llmCache.delete(`${userId}:${providerKey}:`);
                 excludeProviders.add('github');
 
-                // Permanently block for 401/403 (token invalid or account not enrolled), not 413 (request-specific)
+                // Permanently block for 401/403 (token invalid or account not enrolled), not 413 or 429 (request-specific)
                 if (is401 || is403) {
                     blockedProviders.set(userId, {
                         providers: new Set(['github']),
