@@ -3,7 +3,11 @@ import { streamWithSemanticRouting } from './agent.js';
 import cors from 'cors';
 import multer from 'multer';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import fs from 'fs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import os from 'os';
@@ -58,7 +62,7 @@ app.use(cors({
   }, 
   credentials: true 
 }));
-app.use(express.static(path.join(process.cwd(), 'frontend', 'dist'))); // Only serve built frontend
+app.use(express.static(path.join(__dirname, 'frontend', 'dist'))); // Only serve built frontend
 app.use('/uploads', express.static(uploadDir)); // Serve uploaded files under /uploads
 
 // --- Global Request Logger ---
@@ -988,7 +992,12 @@ app.use((req, res) => {
 });
 
 // --- Start Server ---
-const server = app.listen(port, () => console.log(`Server is listening at http://localhost:${port}`));
+const frontendDistPath = path.join(__dirname, 'frontend', 'dist');
+const server = app.listen(port, () => {
+    console.log(`Server is listening at http://localhost:${port}`);
+    console.log(`[Static] Serving frontend from: ${frontendDistPath}`);
+    console.log(`[Static] index.html exists: ${fs.existsSync(path.join(frontendDistPath, 'index.html'))}`);
+});
 server.on('error', (e) => {
     if (e.code === 'EADDRINUSE') {
         console.error(`\n[CRITICAL] Port ${port} is already in use!`);
