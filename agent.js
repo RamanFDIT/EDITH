@@ -1361,7 +1361,7 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         );
 
         let completeResponse = "";
-        const STREAM_TIMEOUT_MS = 30000;
+        const STREAM_TIMEOUT_MS = 90000;
 
         // Repeated tool call detector — catches hallucination loops
         const MAX_REPEATED_CALLS = 3;
