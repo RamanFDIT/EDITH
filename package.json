@@ -9,7 +9,7 @@
     "start": "node server.js",
     "dev:backend": "node --watch server.js",
     "dev:frontend": "cd frontend && npm run dev",
-    "build": "cd frontend && npm run build"
+    "build": "cd frontend && npm install --legacy-peer-deps && npm run build"
   },
   "keywords": [],
   "author": "Ramandeep Singh",
