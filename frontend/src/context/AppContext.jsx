@@ -189,62 +189,34 @@ export const AppProvider = ({ children }) => {
         return data;
     }, []);
 
-    // --- Sign In with Google ---
-    const signInWithGoogle = useCallback(() => {
-        return new Promise(async (resolve, reject) => {
-            try {
-                const res = await fetch(`${API_URL}/api/auth/google`);
-                const { url } = await res.json();
-                const authWindow = window.open(url, '_blank', 'width=600,height=700');
+    // --- Sign In with Google (redirect-based, no popup) ---
+    const signInWithGoogle = useCallback(async () => {
+        const res = await fetch(`${API_URL}/api/auth/google`);
+        const { url } = await res.json();
+        // Redirect current page to Google OAuth — callback redirects back to /#/auth/callback
+        window.location.href = url;
+    }, []);
 
-                const handleMessage = (event) => {
-                    if (event.data?.type === 'AUTH_COMPLETE') {
-                        window.removeEventListener('message', handleMessage);
-                        const { email, name, preferredName: pName, titlePreference: tPref } = event.data;
+    // Complete Google sign-in from callback URL params
+    const completeGoogleSignIn = useCallback(({ email, name, preferredName: pName, titlePreference: tPref }) => {
+        localStorage.setItem('edith_auth_email', email);
+        localStorage.setItem('edith_auth_name', name || '');
+        setUserEmail(email);
+        setGoogleName(name || '');
+        setIsAuthenticated(true);
 
-                        localStorage.setItem('edith_auth_email', email);
-                        localStorage.setItem('edith_auth_name', name || '');
-                        setUserEmail(email);
-                        setGoogleName(name || '');
-                        setIsAuthenticated(true);
+        if (pName) {
+            setPreferredName(pName);
+            localStorage.setItem('edith_preferred_name', pName);
+        }
+        if (tPref) {
+            setTitlePreference(tPref);
+            localStorage.setItem('edith_title_preference', tPref);
+        }
 
-                        if (pName) {
-                            setPreferredName(pName);
-                            localStorage.setItem('edith_preferred_name', pName);
-                        }
-                        if (tPref) {
-                            setTitlePreference(tPref);
-                            localStorage.setItem('edith_title_preference', tPref);
-                        }
-
-                        setOnboardingComplete(true);
-                        localStorage.setItem('edith_onboarding_complete', 'true');
-
-                        // Auth sign-in only grants basic scopes — Google tools
-                        // (Calendar/Gmail) must be connected separately in Settings
-
-                        resolve({ email, name, preferredName: pName, titlePreference: tPref });
-                    }
-                };
-
-                window.addEventListener('message', handleMessage);
-
-                // Cleanup if window is closed without completing
-                const checkClosed = setInterval(() => {
-                    if (authWindow?.closed) {
-                        clearInterval(checkClosed);
-                        window.removeEventListener('message', handleMessage);
-                        // Only reject if we haven't resolved yet
-                        if (!isAuthenticated) {
-                            reject(new Error('Sign-in window closed'));
-                        }
-                    }
-                }, 1000);
-            } catch (err) {
-                reject(err);
-            }
-        });
-    }, [refreshOauthStatus, isAuthenticated]);
+        setOnboardingComplete(true);
+        localStorage.setItem('edith_onboarding_complete', 'true');
+    }, []);
 
     // --- Sign Out ---
     const signOut = useCallback(() => {
@@ -405,6 +377,7 @@ export const AppProvider = ({ children }) => {
         signIn,
         register,
         signInWithGoogle,
+        completeGoogleSignIn,
         signOut,
         onboardingComplete,
         setOnboardingComplete: updateOnboardingComplete,

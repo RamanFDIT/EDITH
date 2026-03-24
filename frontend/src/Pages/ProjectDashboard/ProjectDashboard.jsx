@@ -26,12 +26,12 @@ const JIRA_STATUS_COLORS = {
 
 // Assign colors dynamically for Jira statuses we haven't predefined
 const FALLBACK_COLORS = ['#f97316', '#06b6d4', '#ec4899', '#84cc16', '#d946ef'];
-let colorIndex = 0;
-function getJiraColor(status) {
+function getJiraColor(status, dynamicMap) {
   if (JIRA_STATUS_COLORS[status]) return JIRA_STATUS_COLORS[status];
-  const color = FALLBACK_COLORS[colorIndex % FALLBACK_COLORS.length];
-  colorIndex++;
-  return color;
+  if (!dynamicMap.has(status)) {
+    dynamicMap.set(status, FALLBACK_COLORS[dynamicMap.size % FALLBACK_COLORS.length]);
+  }
+  return dynamicMap.get(status);
 }
 
 const ProjectDashboard = () => {
@@ -177,11 +177,14 @@ const ProjectDashboard = () => {
     { label: 'Closed Issues', value: githubStats.issues.closed, color: GITHUB_COLORS['Closed Issues'] },
   ] : [];
 
-  const jiraSegments = jiraStats ? Object.entries(jiraStats.statuses).map(([status, count]) => ({
-    label: status,
-    value: count,
-    color: getJiraColor(status),
-  })) : [];
+  const jiraSegments = jiraStats ? (() => {
+    const dynamicColorMap = new Map();
+    return Object.entries(jiraStats.statuses).map(([status, count]) => ({
+      label: status,
+      value: count,
+      color: getJiraColor(status, dynamicColorMap),
+    }));
+  })() : [];
 
   return (
     <div className={containerClass}>

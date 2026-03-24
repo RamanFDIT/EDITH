@@ -57,6 +57,17 @@ const LLM_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const blockedProviders = new Map(); // userId → { providers: Set, createdAt: number }
 const BLOCKED_TTL = 30 * 60 * 1000; // 30 minutes — re-check occasionally in case user enrolls
 
+// Periodic cleanup of expired cache entries (every 10 minutes)
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of llmCache) {
+        if (now - entry.createdAt >= LLM_CACHE_TTL) llmCache.delete(key);
+    }
+    for (const [userId, entry] of blockedProviders) {
+        if (now - entry.createdAt >= BLOCKED_TTL) blockedProviders.delete(userId);
+    }
+}, 10 * 60 * 1000);
+
 async function getLLMForUser(userId, excludeProviders = new Set()) {
   // Merge caller exclusions with any providers blocked due to prior 403s
   const blocked = blockedProviders.get(userId);
@@ -68,9 +79,12 @@ async function getLLMForUser(userId, excludeProviders = new Set()) {
 
   const cacheKey = `${userId}:${provider}:${[...excludeProviders].sort().join(',')}`;
   const cached = llmCache.get(cacheKey);
-  if (cached && (Date.now() - cached.createdAt < LLM_CACHE_TTL)) {
-    console.log(`[LLM] Cache hit for user ${userId} (${cached.provider})`);
-    return { llm: cached.llm, classifier: cached.classifier, provider: cached.provider };
+  if (cached) {
+    if (Date.now() - cached.createdAt < LLM_CACHE_TTL) {
+      console.log(`[LLM] Cache hit for user ${userId} (${cached.provider})`);
+      return { llm: cached.llm, classifier: cached.classifier, provider: cached.provider };
+    }
+    llmCache.delete(cacheKey);
   }
 
   // 1. GITHUB (GitHub Models via standard OAuth - PRIORITY)
@@ -145,381 +159,386 @@ async function getLLMForUser(userId, excludeProviders = new Set()) {
 // CUSTOM TOOL DEFINITIONS
 // =============================================================================
 
-const imageTools = [
-  new DynamicStructuredTool({
-    name: "generate_image_nano_banana",
-    description: "Generate an image from a text description using Google's Nano Banana (Gemini 2.5 Flash Image). Use this when the user asks to create, generate, draw, design, or visualise an image, picture, illustration, graphic, logo, or artwork. Returns the local URL path of the generated image.",
-    schema: z.object({
-      prompt: z.string().describe("REQUIRED: A detailed description of the image to generate. Be as descriptive as possible for best results."),
-      aspectRatio: z.enum(['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']).optional().describe("Aspect ratio. '1:1' (square), '9:16' (portrait/phone), '16:9' (landscape/widescreen), '3:2' (photo), etc. Default is '1:1'."),
-    }),
-    func: generateImage,
-  }),
-];
+// ---------------------------------------------------------------------------
+// Per-user tool factory.
+// Each tool's `func` is wrapped to inject `userId` as the second argument,
+// ensuring every API call uses the correct user's OAuth tokens from the DB.
+// Tools that don't need userId (image, file) are left unwrapped.
+// ---------------------------------------------------------------------------
 
-// --- JIRA TOOLS ---
-const jiraReadTools = [
-  new DynamicStructuredTool({
-    name: "search_jira_issues",
-    description: "Search Jira issues using JQL. For FASTER searches, include the project key in the JQL (e.g., 'project = FDIT'). If user doesn't specify a project, call list_jira_projects first to discover available projects, then construct the JQL with the correct project key. Do NOT ask the user for the project key. Example JQL: 'project = FDIT AND status = Open'.",
-    schema: z.object({
-      jql: z.string().describe("REQUIRED: The JQL query string. Should include 'project = KEY' for faster results. Use list_jira_projects to discover the key if not provided by the user."),
+function createToolsForUser(userId) {
+  const imageTools = [
+    new DynamicStructuredTool({
+      name: "generate_image_nano_banana",
+      description: "Generate an image from a text description using Google's Nano Banana (Gemini 2.5 Flash Image). Use this when the user asks to create, generate, draw, design, or visualise an image, picture, illustration, graphic, logo, or artwork. Returns the local URL path of the generated image.",
+      schema: z.object({
+        prompt: z.string().describe("REQUIRED: A detailed description of the image to generate. Be as descriptive as possible for best results."),
+        aspectRatio: z.enum(['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']).optional().describe("Aspect ratio. '1:1' (square), '9:16' (portrait/phone), '16:9' (landscape/widescreen), '3:2' (photo), etc. Default is '1:1'."),
+      }),
+      func: generateImage,
     }),
-    func: getJiraIssues,
-  }),
-  new DynamicStructuredTool({
-    name: "list_jira_projects",
-    description: "List all Jira projects the user has access to. Returns each project's key, name, and type. Use this when the user asks to find a project, check if a project exists, or list all projects/spaces.",
-    schema: z.object({}),
-    func: listJiraProjects,
-  }),
-];
+  ];
 
-const jiraWriteTools = [
-  new DynamicStructuredTool({
-    name: "create_jira_issue",
-    description: "Create a Jira ticket. REQUIRES 'projectKey'. If user doesn't specify which project/space, use list_jira_projects to find the correct project key. Only ask the user if multiple projects exist and the correct one is ambiguous. For WBS/hierarchy: create Epics first, then pass the Epic's key as 'parent' when creating Stories/Tasks underneath.",
-    schema: z.object({
-      projectKey: z.string().describe("REQUIRED: Project Key (e.g., 'FDIT'). Use list_jira_projects to discover if not provided by the user."),
-      summary: z.string().describe("REQUIRED: Ticket title"),
-      description: z.string().optional(),
-      issueType: z.string().optional().describe("Issue type: 'Epic', 'Story', 'Task', 'Sub-task', or 'Bug'. Default: 'Task'."),
-      parent: z.string().optional().describe("Parent issue key (e.g., 'PROJ-1') to create this issue under. Use for hierarchy: Stories under Epics, Tasks under Stories, Sub-tasks under Tasks."),
+  // --- JIRA TOOLS ---
+  const jiraReadTools = [
+    new DynamicStructuredTool({
+      name: "search_jira_issues",
+      description: "Search Jira issues using JQL. For FASTER searches, include the project key in the JQL (e.g., 'project = FDIT'). If user doesn't specify a project, call list_jira_projects first to discover available projects, then construct the JQL with the correct project key. Do NOT ask the user for the project key. Example JQL: 'project = FDIT AND status = Open'.",
+      schema: z.object({
+        jql: z.string().describe("REQUIRED: The JQL query string. Should include 'project = KEY' for faster results. Use list_jira_projects to discover the key if not provided by the user."),
+      }),
+      func: (input) => getJiraIssues(input, userId),
     }),
-    func: createJiraIssue,
-  }),
-  new DynamicStructuredTool({
-    name: "update_jira_issue",
-    description: "Update a Jira ticket's fields. REQUIRES 'issueKey' (e.g., 'FDIT-12'). If user doesn't specify the ticket key, search for it first using search_jira_issues. Only ask the user if the search returns multiple ambiguous matches. Supports: Status, Priority, Summary, Description, Assignee, Due Date, Labels, and Parent. Do NOT change the summary unless explicitly asked.",
-    schema: z.object({
-      issueKey: z.string().describe("REQUIRED: The ticket key (e.g., 'FDIT-12'). Use search_jira_issues to find it if not provided by the user."),
-      summary: z.string().optional().describe("New title for the ticket."),
-      description: z.string().optional().describe("New description text."),
-      status: z.string().optional().describe("Target status to move to (e.g., 'In Progress', 'Done')."),
-      priority: z.string().optional().describe("Target priority. MUST be one of: 'Highest', 'High', 'Medium', 'Low', 'Lowest'."),
-      assignee: z.string().optional().describe("Account ID of the user to assign to."),
-      duedate: z.string().optional().describe("Due date in 'YYYY-MM-DD' format."),
-      labels: z.array(z.string()).optional().describe("Array of label strings."),
-      parent: z.string().optional().describe("Key of the parent issue (e.g. for subtasks)."),
+    new DynamicStructuredTool({
+      name: "list_jira_projects",
+      description: "List all Jira projects the user has access to. Returns each project's key, name, and type. Use this when the user asks to find a project, check if a project exists, or list all projects/spaces.",
+      schema: z.object({}),
+      func: (input) => listJiraProjects(input, userId),
     }),
-    func: updateJiraIssue,
-  }),
-  new DynamicStructuredTool({
-    name: "delete_jira_issue",
-    description: "Delete a Jira ticket by its key. REQUIRES 'issueKey' (e.g., 'FDIT-123'). If user doesn't specify the ticket key, search for it first using search_jira_issues. Only ask the user if the search returns multiple ambiguous matches.",
-    schema: z.object({
-        issueKey: z.string().describe("REQUIRED: The ticket key to delete (e.g., 'FDIT-123'). Use search_jira_issues to find it if not provided by the user."),
-    }),
-    func: deleteJiraIssue,
-  }),
-  new DynamicStructuredTool({
-    name: "create_jira_project",
-    description: "Create a new Jira Project (sometimes referred to as a Space). REQUIRES ADMIN RIGHTS. REQUIRES 'key' and 'name'. If the user provides a name but not a key, generate a reasonable uppercase key from the name (e.g., 'My Project' → 'MP'). Only ask the user if neither name nor key is provided.",
-    schema: z.object({
-        key: z.string().describe("REQUIRED: The Project Key (e.g., 'NEWPROJ'). Must be unique and uppercase. Derive from project name if not explicitly provided."),
-        name: z.string().describe("REQUIRED: The name of the project. Ask the user if not provided."),
-        description: z.string().optional().describe("Project description."),
-        templateKey: z.string().optional().describe("Template key (default: 'com.pyxis.greenhopper.jira:gh-simplified-kanban-classic')."),
-        projectTypeKey: z.string().optional().describe("Type key (default: 'software')."),
-    }),
-    func: createJiraProject,
-  }),
-];
+  ];
 
-// --- SLACK TOOLS ---
-const slackCustomTools = [
-  new DynamicStructuredTool({
-    name: "send_slack_message",
-    description: "Send a message to a Slack channel. Use for team notifications, updates, or announcements.",
-    schema: z.object({
-      channel: z.string().optional().describe("Channel name (with or without #) or channel ID. Defaults to SLACK_DEFAULT_CHANNEL."),
-      message: z.string().describe("The message text to send."),
+  const jiraWriteTools = [
+    new DynamicStructuredTool({
+      name: "create_jira_issue",
+      description: "Create a Jira ticket. REQUIRES 'projectKey'. If user doesn't specify which project/space, use list_jira_projects to find the correct project key. Only ask the user if multiple projects exist and the correct one is ambiguous. For WBS/hierarchy: create Epics first, then pass the Epic's key as 'parent' when creating Stories/Tasks underneath.",
+      schema: z.object({
+        projectKey: z.string().describe("REQUIRED: Project Key (e.g., 'FDIT'). Use list_jira_projects to discover if not provided by the user."),
+        summary: z.string().describe("REQUIRED: Ticket title"),
+        description: z.string().optional(),
+        issueType: z.string().optional().describe("Issue type: 'Epic', 'Story', 'Task', 'Sub-task', or 'Bug'. Default: 'Task'."),
+        parent: z.string().optional().describe("Parent issue key (e.g., 'PROJ-1') to create this issue under. Use for hierarchy: Stories under Epics, Tasks under Stories, Sub-tasks under Tasks."),
+      }),
+      func: (input) => createJiraIssue(input, userId),
     }),
-    func: sendSlackMessage,
-  }),
-  new DynamicStructuredTool({
-    name: "send_slack_announcement",
-    description: "Post a formatted announcement with title, body, and optional footer using Slack Block Kit. Great for deployment notices or status reports.",
-    schema: z.object({
-      channel: z.string().optional().describe("Channel name or ID. Defaults to SLACK_DEFAULT_CHANNEL."),
-      title: z.string().describe("Announcement headline."),
-      body: z.string().describe("Main content of the announcement."),
-      footer: z.string().optional().describe("Optional footer text."),
-      type: z.enum(['info', 'success', 'warning', 'error']).optional().describe("Type of announcement for emoji styling."),
+    new DynamicStructuredTool({
+      name: "update_jira_issue",
+      description: "Update a Jira ticket's fields. REQUIRES 'issueKey' (e.g., 'FDIT-12'). If user doesn't specify the ticket key, search for it first using search_jira_issues. Only ask the user if the search returns multiple ambiguous matches. Supports: Status, Priority, Summary, Description, Assignee, Due Date, Labels, and Parent. Do NOT change the summary unless explicitly asked.",
+      schema: z.object({
+        issueKey: z.string().describe("REQUIRED: The ticket key (e.g., 'FDIT-12'). Use search_jira_issues to find it if not provided by the user."),
+        summary: z.string().optional().describe("New title for the ticket."),
+        description: z.string().optional().describe("New description text."),
+        status: z.string().optional().describe("Target status to move to (e.g., 'In Progress', 'Done')."),
+        priority: z.string().optional().describe("Target priority. MUST be one of: 'Highest', 'High', 'Medium', 'Low', 'Lowest'."),
+        assignee: z.string().optional().describe("Account ID of the user to assign to."),
+        duedate: z.string().optional().describe("Due date in 'YYYY-MM-DD' format."),
+        labels: z.array(z.string()).optional().describe("Array of label strings."),
+        parent: z.string().optional().describe("Key of the parent issue (e.g. for subtasks)."),
+      }),
+      func: (input) => updateJiraIssue(input, userId),
     }),
-    func: sendSlackAnnouncement,
-  }),
-  new DynamicStructuredTool({
-    name: "send_slack_link",
-    description: "Share a URL with contextual message in a Slack channel. Perfect for sharing Jira tickets, GitHub PRs, or docs.",
-    schema: z.object({
-      channel: z.string().optional().describe("Channel name or ID. Defaults to SLACK_DEFAULT_CHANNEL."),
-      url: z.string().describe("The URL to share."),
-      context: z.string().optional().describe("Contextual message to accompany the link."),
+    new DynamicStructuredTool({
+      name: "delete_jira_issue",
+      description: "Delete a Jira ticket by its key. REQUIRES 'issueKey' (e.g., 'FDIT-123'). If user doesn't specify the ticket key, search for it first using search_jira_issues. Only ask the user if the search returns multiple ambiguous matches.",
+      schema: z.object({
+          issueKey: z.string().describe("REQUIRED: The ticket key to delete (e.g., 'FDIT-123'). Use search_jira_issues to find it if not provided by the user."),
+      }),
+      func: (input) => deleteJiraIssue(input, userId),
     }),
-    func: sendSlackLink,
-  }),
-];
+    new DynamicStructuredTool({
+      name: "create_jira_project",
+      description: "Create a new Jira Project (sometimes referred to as a Space). REQUIRES ADMIN RIGHTS. REQUIRES 'key' and 'name'. If the user provides a name but not a key, generate a reasonable uppercase key from the name (e.g., 'My Project' → 'MP'). Only ask the user if neither name nor key is provided.",
+      schema: z.object({
+          key: z.string().describe("REQUIRED: The Project Key (e.g., 'NEWPROJ'). Must be unique and uppercase. Derive from project name if not explicitly provided."),
+          name: z.string().describe("REQUIRED: The name of the project. Ask the user if not provided."),
+          description: z.string().optional().describe("Project description."),
+          templateKey: z.string().optional().describe("Template key (default: 'com.pyxis.greenhopper.jira:gh-simplified-kanban-classic')."),
+          projectTypeKey: z.string().optional().describe("Type key (default: 'software')."),
+      }),
+      func: (input) => createJiraProject(input, userId),
+    }),
+  ];
 
-// --- CALENDAR TOOLS ---
-const calendarTools = [
-  new DynamicStructuredTool({
-    name: "get_calendar_events",
-    description: "Get upcoming events from Google Calendar. Use this to check what meetings or events are scheduled.",
-    schema: z.object({
-      maxResults: z.number().optional().describe("Maximum number of events to return. Default is 10."),
-      timeMin: z.string().optional().describe("Start time for events query in ISO format (e.g., 2026-01-15T09:00:00). Defaults to now."),
-      timeMax: z.string().optional().describe("End time for events query in ISO format. Optional."),
-      calendarId: z.string().optional().describe("Calendar ID to query. Defaults to 'primary'."),
+  // --- SLACK TOOLS ---
+  const slackCustomTools = [
+    new DynamicStructuredTool({
+      name: "send_slack_message",
+      description: "Send a message to a Slack channel. Use for team notifications, updates, or announcements.",
+      schema: z.object({
+        channel: z.string().optional().describe("Channel name (with or without #) or channel ID. Defaults to SLACK_DEFAULT_CHANNEL."),
+        message: z.string().describe("The message text to send."),
+      }),
+      func: (input) => sendSlackMessage(input, userId),
     }),
-    func: getCalendarEvents,
-  }),
-  new DynamicStructuredTool({
-    name: "create_calendar_event",
-    description: "Create a new event on Google Calendar. Use this to schedule meetings, appointments, or reminders. YOU must calculate ISO timestamps from natural language dates.",
-    schema: z.object({
-      summary: z.string().describe("Title of the event"),
-      description: z.string().optional().describe("Description or notes for the event"),
-      startDateTime: z.string().describe("Start date and time in ISO format (e.g., 2026-01-15T14:00:00). Calculate this from user's natural language like 'next Tuesday at 2pm'."),
-      endDateTime: z.string().describe("End date and time in ISO format (e.g., 2026-01-15T15:00:00). Default to 1 hour after start if not specified."),
-      location: z.string().optional().describe("Location of the event"),
-      attendees: z.array(z.string()).optional().describe("Array of email addresses to invite"),
-      timeZone: z.string().optional().describe("Timezone for the event. Defaults to system timezone."),
+    new DynamicStructuredTool({
+      name: "send_slack_announcement",
+      description: "Post a formatted announcement with title, body, and optional footer using Slack Block Kit. Great for deployment notices or status reports.",
+      schema: z.object({
+        channel: z.string().optional().describe("Channel name or ID. Defaults to SLACK_DEFAULT_CHANNEL."),
+        title: z.string().describe("Announcement headline."),
+        body: z.string().describe("Main content of the announcement."),
+        footer: z.string().optional().describe("Optional footer text."),
+        type: z.enum(['info', 'success', 'warning', 'error']).optional().describe("Type of announcement for emoji styling."),
+      }),
+      func: (input) => sendSlackAnnouncement(input, userId),
     }),
-    func: createCalendarEvent,
-  }),
-  new DynamicStructuredTool({
-    name: "update_calendar_event",
-    description: "Update an existing event on Google Calendar. Use this to change meeting details.",
-    schema: z.object({
-      eventId: z.string().describe("The ID of the event to update"),
-      summary: z.string().optional().describe("New title for the event"),
-      description: z.string().optional().describe("New description for the event"),
-      startDateTime: z.string().optional().describe("New start date and time in ISO format"),
-      endDateTime: z.string().optional().describe("New end date and time in ISO format"),
-      location: z.string().optional().describe("New location for the event"),
+    new DynamicStructuredTool({
+      name: "send_slack_link",
+      description: "Share a URL with contextual message in a Slack channel. Perfect for sharing Jira tickets, GitHub PRs, or docs.",
+      schema: z.object({
+        channel: z.string().optional().describe("Channel name or ID. Defaults to SLACK_DEFAULT_CHANNEL."),
+        url: z.string().describe("The URL to share."),
+        context: z.string().optional().describe("Contextual message to accompany the link."),
+      }),
+      func: (input) => sendSlackLink(input, userId),
     }),
-    func: updateCalendarEvent,
-  }),
-  new DynamicStructuredTool({
-    name: "delete_calendar_event",
-    description: "Delete an event from Google Calendar.",
-    schema: z.object({
-      eventId: z.string().describe("The ID of the event to delete"),
-    }),
-    func: deleteCalendarEvent,
-  }),
-  new DynamicStructuredTool({
-    name: "find_free_time",
-    description: "Check for free/busy time in a given time range. Use this to find available slots for scheduling.",
-    schema: z.object({
-      timeMin: z.string().describe("Start of time range to check in ISO format"),
-      timeMax: z.string().describe("End of time range to check in ISO format"),
-    }),
-    func: findFreeTime,
-  }),
-];
+  ];
 
-// --- GITHUB TOOLS (custom) ---
-const githubReadTools = [
-  new DynamicStructuredTool({
-    name: "get_repo_issues",
-    description: "List issues for a GitHub repository. Requires owner and repo name.",
-    schema: z.object({
-      owner: z.string().describe("Repository owner (e.g., 'octocat')."),
-      repo: z.string().describe("Repository name (e.g., 'Hello-World')."),
+  // --- CALENDAR TOOLS ---
+  const calendarTools = [
+    new DynamicStructuredTool({
+      name: "get_calendar_events",
+      description: "Get upcoming events from Google Calendar. Use this to check what meetings or events are scheduled.",
+      schema: z.object({
+        maxResults: z.number().optional().describe("Maximum number of events to return. Default is 10."),
+        timeMin: z.string().optional().describe("Start time for events query in ISO format (e.g., 2026-01-15T09:00:00). Defaults to now."),
+        timeMax: z.string().optional().describe("End time for events query in ISO format. Optional."),
+        calendarId: z.string().optional().describe("Calendar ID to query. Defaults to 'primary'."),
+      }),
+      func: (input) => getCalendarEvents(input, userId),
     }),
-    func: getRepoIssues,
-  }),
-  new DynamicStructuredTool({
-    name: "list_commits",
-    description: "List recent commits for a GitHub repository.",
-    schema: z.object({
-      owner: z.string().describe("Repository owner."),
-      repo: z.string().describe("Repository name."),
-      limit: z.number().optional().describe("Number of commits to return. Default 5."),
+    new DynamicStructuredTool({
+      name: "create_calendar_event",
+      description: "Create a new event on Google Calendar. Use this to schedule meetings, appointments, or reminders. YOU must calculate ISO timestamps from natural language dates.",
+      schema: z.object({
+        summary: z.string().describe("Title of the event"),
+        description: z.string().optional().describe("Description or notes for the event"),
+        startDateTime: z.string().describe("Start date and time in ISO format (e.g., 2026-01-15T14:00:00). Calculate this from user's natural language like 'next Tuesday at 2pm'."),
+        endDateTime: z.string().describe("End date and time in ISO format (e.g., 2026-01-15T15:00:00). Default to 1 hour after start if not specified."),
+        location: z.string().optional().describe("Location of the event"),
+        attendees: z.array(z.string()).optional().describe("Array of email addresses to invite"),
+        timeZone: z.string().optional().describe("Timezone for the event. Defaults to system timezone."),
+      }),
+      func: (input) => createCalendarEvent(input, userId),
     }),
-    func: listCommits,
-  }),
-  new DynamicStructuredTool({
-    name: "list_pull_requests",
-    description: "List pull requests for a GitHub repository.",
-    schema: z.object({
-      owner: z.string().describe("Repository owner."),
-      repo: z.string().describe("Repository name."),
-      state: z.string().optional().describe("PR state: 'open', 'closed', or 'all'. Default 'open'."),
+    new DynamicStructuredTool({
+      name: "update_calendar_event",
+      description: "Update an existing event on Google Calendar. Use this to change meeting details.",
+      schema: z.object({
+        eventId: z.string().describe("The ID of the event to update"),
+        summary: z.string().optional().describe("New title for the event"),
+        description: z.string().optional().describe("New description for the event"),
+        startDateTime: z.string().optional().describe("New start date and time in ISO format"),
+        endDateTime: z.string().optional().describe("New end date and time in ISO format"),
+        location: z.string().optional().describe("New location for the event"),
+      }),
+      func: (input) => updateCalendarEvent(input, userId),
     }),
-    func: listPullRequests,
-  }),
-  new DynamicStructuredTool({
-    name: "get_pull_request",
-    description: "Get details of a specific pull request.",
-    schema: z.object({
-      owner: z.string().describe("Repository owner."),
-      repo: z.string().describe("Repository name."),
-      pullNumber: z.number().describe("The pull request number."),
+    new DynamicStructuredTool({
+      name: "delete_calendar_event",
+      description: "Delete an event from Google Calendar.",
+      schema: z.object({
+        eventId: z.string().describe("The ID of the event to delete"),
+      }),
+      func: (input) => deleteCalendarEvent(input, userId),
     }),
-    func: getPullRequest,
-  }),
-  new DynamicStructuredTool({
-    name: "get_commit",
-    description: "Get details of a specific commit by SHA.",
-    schema: z.object({
-      owner: z.string().describe("Repository owner."),
-      repo: z.string().describe("Repository name."),
-      sha: z.string().describe("The commit SHA."),
+    new DynamicStructuredTool({
+      name: "find_free_time",
+      description: "Check for free/busy time in a given time range. Use this to find available slots for scheduling.",
+      schema: z.object({
+        timeMin: z.string().describe("Start of time range to check in ISO format"),
+        timeMax: z.string().describe("End of time range to check in ISO format"),
+      }),
+      func: (input) => findFreeTime(input, userId),
     }),
-    func: getCommit,
-  }),
-  new DynamicStructuredTool({
-    name: "get_repo_checks",
-    description: "Get check runs for a specific git ref (branch, tag, or SHA).",
-    schema: z.object({
-      owner: z.string().describe("Repository owner."),
-      repo: z.string().describe("Repository name."),
-      ref: z.string().describe("Git ref (branch name, tag, or commit SHA)."),
-    }),
-    func: getRepoChecks,
-  }),
-  new DynamicStructuredTool({
-    name: "list_branches",
-    description: "List all branches for a GitHub repository, including which is the default branch and whether each is protected.",
-    schema: z.object({
-      owner: z.string().describe("Repository owner (e.g., 'octocat')."),
-      repo: z.string().describe("Repository name (e.g., 'Hello-World')."),
-    }),
-    func: listBranches,
-  }),
-  new DynamicStructuredTool({
-    name: "get_repo_info",
-    description: "Get detailed information about a GitHub repository including default branch, description, stars, forks, open issues, visibility, language, and topics.",
-    schema: z.object({
-      owner: z.string().describe("Repository owner."),
-      repo: z.string().describe("Repository name."),
-    }),
-    func: getRepoInfo,
-  }),
-];
+  ];
 
-const githubWriteTools = [
-  new DynamicStructuredTool({
-    name: "create_repository",
-    description: "Create a new GitHub repository for the authenticated user.",
-    schema: z.object({
-      name: z.string().describe("Repository name."),
-      description: z.string().optional().describe("Repository description."),
-      isPrivate: z.boolean().optional().describe("Whether the repo should be private. Default false."),
+  // --- GITHUB TOOLS (custom) ---
+  const githubReadTools = [
+    new DynamicStructuredTool({
+      name: "get_repo_issues",
+      description: "List issues for a GitHub repository. Requires owner and repo name.",
+      schema: z.object({
+        owner: z.string().describe("Repository owner (e.g., 'octocat')."),
+        repo: z.string().describe("Repository name (e.g., 'Hello-World')."),
+      }),
+      func: (input) => getRepoIssues(input, userId),
     }),
-    func: createRepository,
-  }),
-  new DynamicStructuredTool({
-    name: "create_repo_issue",
-    description: "Create a new issue on a GitHub repository.",
-    schema: z.object({
-      owner: z.string().describe("Repository owner."),
-      repo: z.string().describe("Repository name."),
-      title: z.string().describe("Issue title."),
-      body: z.string().optional().describe("Issue body/description."),
+    new DynamicStructuredTool({
+      name: "list_commits",
+      description: "List recent commits for a GitHub repository.",
+      schema: z.object({
+        owner: z.string().describe("Repository owner."),
+        repo: z.string().describe("Repository name."),
+        limit: z.number().optional().describe("Number of commits to return. Default 5."),
+      }),
+      func: (input) => listCommits(input, userId),
     }),
-    func: createRepoIssue,
-  }),
-];
+    new DynamicStructuredTool({
+      name: "list_pull_requests",
+      description: "List pull requests for a GitHub repository.",
+      schema: z.object({
+        owner: z.string().describe("Repository owner."),
+        repo: z.string().describe("Repository name."),
+        state: z.string().optional().describe("PR state: 'open', 'closed', or 'all'. Default 'open'."),
+      }),
+      func: (input) => listPullRequests(input, userId),
+    }),
+    new DynamicStructuredTool({
+      name: "get_pull_request",
+      description: "Get details of a specific pull request.",
+      schema: z.object({
+        owner: z.string().describe("Repository owner."),
+        repo: z.string().describe("Repository name."),
+        pullNumber: z.number().describe("The pull request number."),
+      }),
+      func: (input) => getPullRequest(input, userId),
+    }),
+    new DynamicStructuredTool({
+      name: "get_commit",
+      description: "Get details of a specific commit by SHA.",
+      schema: z.object({
+        owner: z.string().describe("Repository owner."),
+        repo: z.string().describe("Repository name."),
+        sha: z.string().describe("The commit SHA."),
+      }),
+      func: (input) => getCommit(input, userId),
+    }),
+    new DynamicStructuredTool({
+      name: "get_repo_checks",
+      description: "Get check runs for a specific git ref (branch, tag, or SHA).",
+      schema: z.object({
+        owner: z.string().describe("Repository owner."),
+        repo: z.string().describe("Repository name."),
+        ref: z.string().describe("Git ref (branch name, tag, or commit SHA)."),
+      }),
+      func: (input) => getRepoChecks(input, userId),
+    }),
+    new DynamicStructuredTool({
+      name: "list_branches",
+      description: "List all branches for a GitHub repository, including which is the default branch and whether each is protected.",
+      schema: z.object({
+        owner: z.string().describe("Repository owner (e.g., 'octocat')."),
+        repo: z.string().describe("Repository name (e.g., 'Hello-World')."),
+      }),
+      func: (input) => listBranches(input, userId),
+    }),
+    new DynamicStructuredTool({
+      name: "get_repo_info",
+      description: "Get detailed information about a GitHub repository including default branch, description, stars, forks, open issues, visibility, language, and topics.",
+      schema: z.object({
+        owner: z.string().describe("Repository owner."),
+        repo: z.string().describe("Repository name."),
+      }),
+      func: (input) => getRepoInfo(input, userId),
+    }),
+  ];
 
-// --- FIGMA TOOLS (custom) ---
-const figmaTools = [
-  new DynamicStructuredTool({
-    name: "get_figma_file_structure",
-    description: "Get the structure (pages and frames) of a Figma design file. Requires the file key from the Figma URL.",
-    schema: z.object({
-      fileKey: z.string().describe("The Figma file key (from the URL: figma.com/file/KEY/Name)."),
+  const githubWriteTools = [
+    new DynamicStructuredTool({
+      name: "create_repository",
+      description: "Create a new GitHub repository for the authenticated user.",
+      schema: z.object({
+        name: z.string().describe("Repository name."),
+        description: z.string().optional().describe("Repository description."),
+        isPrivate: z.boolean().optional().describe("Whether the repo should be private. Default false."),
+      }),
+      func: (input) => createRepository(input, userId),
     }),
-    func: getFigmaFileStructure,
-  }),
-  new DynamicStructuredTool({
-    name: "get_figma_comments",
-    description: "Get comments on a Figma file.",
-    schema: z.object({
-      fileKey: z.string().describe("The Figma file key."),
+    new DynamicStructuredTool({
+      name: "create_repo_issue",
+      description: "Create a new issue on a GitHub repository.",
+      schema: z.object({
+        owner: z.string().describe("Repository owner."),
+        repo: z.string().describe("Repository name."),
+        title: z.string().describe("Issue title."),
+        body: z.string().optional().describe("Issue body/description."),
+      }),
+      func: (input) => createRepoIssue(input, userId),
     }),
-    func: getFigmaComments,
-  }),
-  new DynamicStructuredTool({
-    name: "post_figma_comment",
-    description: "Post a comment on a Figma file.",
-    schema: z.object({
-      fileKey: z.string().describe("The Figma file key."),
-      message: z.string().describe("The comment message to post."),
-      node_id: z.string().optional().describe("Optional node ID to attach the comment to a specific element."),
-    }),
-    func: postFigmaComment,
-  }),
-];
+  ];
 
-// --- GMAIL TOOLS ---
-const gmailTools = [
-  new DynamicStructuredTool({
-    name: "send_gmail",
-    description: "Send an email via Gmail. Use this when the user wants to email someone. ALWAYS confirm the recipient email, subject, and body with the user before sending. If the user refers to a person by name, use search_gmail_contacts FIRST to resolve their email address.",
-    schema: z.object({
-      to: z.string().describe("REQUIRED: Recipient email address."),
-      subject: z.string().describe("REQUIRED: Email subject line."),
-      body: z.string().describe("REQUIRED: Email body text."),
-      cc: z.string().optional().describe("CC email address (comma-separated for multiple)."),
-      bcc: z.string().optional().describe("BCC email address (comma-separated for multiple)."),
+  // --- FIGMA TOOLS (custom) ---
+  const figmaTools = [
+    new DynamicStructuredTool({
+      name: "get_figma_file_structure",
+      description: "Get the structure (pages and frames) of a Figma design file. Requires the file key from the Figma URL.",
+      schema: z.object({
+        fileKey: z.string().describe("The Figma file key (from the URL: figma.com/file/KEY/Name)."),
+      }),
+      func: (input) => getFigmaFileStructure(input, userId),
     }),
-    func: sendGmail,
-  }),
-  new DynamicStructuredTool({
-    name: "search_gmail_contacts",
-    description: "Search the user's email history to find someone's email address by name. Use this when the user says 'email John' or 'send it to Sarah' — resolve the name to an email address before sending. Returns matching contacts from sent/received emails.",
-    schema: z.object({
-      query: z.string().describe("REQUIRED: Person's name or partial email address to search for."),
+    new DynamicStructuredTool({
+      name: "get_figma_comments",
+      description: "Get comments on a Figma file.",
+      schema: z.object({
+        fileKey: z.string().describe("The Figma file key."),
+      }),
+      func: (input) => getFigmaComments(input, userId),
     }),
-    func: searchGmailContacts,
-  }),
-  new DynamicStructuredTool({ 
-    name: "get_recent_emails",
-    description: "Get recent emails from the user's Gmail inbox. Use to check inbox, find specific emails, or summarize recent mail.",
-    schema: z.object({
-      maxResults: z.number().optional().describe("Maximum number of emails to return. Default 10, max 50."),
-      query: z.string().optional().describe("Optional Gmail search query to filter emails (e.g., 'from:john', 'subject:meeting', 'is:unread')."),
+    new DynamicStructuredTool({
+      name: "post_figma_comment",
+      description: "Post a comment on a Figma file.",
+      schema: z.object({
+        fileKey: z.string().describe("The Figma file key."),
+        message: z.string().describe("The comment message to post."),
+        node_id: z.string().optional().describe("Optional node ID to attach the comment to a specific element."),
+      }),
+      func: (input) => postFigmaComment(input, userId),
     }),
-    func: getRecentEmails,
-  }),
-];
+  ];
 
-// --- FILE TOOLS ---
-const fileTools = [
-  new DynamicStructuredTool({
-    name: "read_file",
-    description: "Read an uploaded file — auto-detects type (.pdf, .docx, .txt, .md, .json, etc.) and extracts content. Use when the user has attached a file.",
-    schema: z.object({
-      filePath: z.string().describe("The server path to the uploaded file."),
+  // --- GMAIL TOOLS ---
+  const gmailTools = [
+    new DynamicStructuredTool({
+      name: "send_gmail",
+      description: "Send an email via Gmail. Use this when the user wants to email someone. ALWAYS confirm the recipient email, subject, and body with the user before sending. If the user refers to a person by name, use search_gmail_contacts FIRST to resolve their email address.",
+      schema: z.object({
+        to: z.string().describe("REQUIRED: Recipient email address."),
+        subject: z.string().describe("REQUIRED: Email subject line."),
+        body: z.string().describe("REQUIRED: Email body text."),
+        cc: z.string().optional().describe("CC email address (comma-separated for multiple)."),
+        bcc: z.string().optional().describe("BCC email address (comma-separated for multiple)."),
+      }),
+      func: (input) => sendGmail(input, userId),
     }),
-    func: readFile,
-  }),
-];
+    new DynamicStructuredTool({
+      name: "search_gmail_contacts",
+      description: "Search the user's email history to find someone's email address by name. Use this when the user says 'email John' or 'send it to Sarah' — resolve the name to an email address before sending. Returns matching contacts from sent/received emails.",
+      schema: z.object({
+        query: z.string().describe("REQUIRED: Person's name or partial email address to search for."),
+      }),
+      func: (input) => searchGmailContacts(input, userId),
+    }),
+    new DynamicStructuredTool({
+      name: "get_recent_emails",
+      description: "Get recent emails from the user's Gmail inbox. Use to check inbox, find specific emails, or summarize recent mail.",
+      schema: z.object({
+        maxResults: z.number().optional().describe("Maximum number of emails to return. Default 10, max 50."),
+        query: z.string().optional().describe("Optional Gmail search query to filter emails (e.g., 'from:john', 'subject:meeting', 'is:unread')."),
+      }),
+      func: (input) => getRecentEmails(input, userId),
+    }),
+  ];
 
-// =============================================================================
-// TOOL CATEGORY MAP
-// =============================================================================
+  // --- FILE TOOLS ---
+  const fileTools = [
+    new DynamicStructuredTool({
+      name: "read_file",
+      description: "Read an uploaded file — auto-detects type (.pdf, .docx, .txt, .md, .json, etc.) and extracts content. Use when the user has attached a file.",
+      schema: z.object({
+        filePath: z.string().describe("The server path to the uploaded file."),
+      }),
+      func: readFile,
+    }),
+  ];
 
-const toolsByCategory = {
-  jira_read:    jiraReadTools,
-  jira_write:   jiraWriteTools,
-  github_read:  githubReadTools,
-  github_write: githubWriteTools,
-  figma:        figmaTools,
-  calendar:     calendarTools,
-  slack:        slackCustomTools,
-  gmail:        gmailTools,
-  image:        imageTools,
-  files:        fileTools,
-  general:      [...calendarTools],
-};
+  // Category map for this user's tools
+  const toolsByCategory = {
+    jira_read:    jiraReadTools,
+    jira_write:   jiraWriteTools,
+    github_read:  githubReadTools,
+    github_write: githubWriteTools,
+    figma:        figmaTools,
+    calendar:     calendarTools,
+    slack:        slackCustomTools,
+    gmail:        gmailTools,
+    image:        imageTools,
+    files:        fileTools,
+    general:      [...calendarTools],
+  };
 
-// All tools combined (for fallback or multi-category queries)
-const allTools = [...imageTools, ...jiraReadTools, ...jiraWriteTools, ...githubReadTools, ...githubWriteTools, ...figmaTools, ...calendarTools, ...slackCustomTools, ...gmailTools, ...fileTools];
+  return toolsByCategory;
+}
 
 // =============================================================================
 // SEMANTIC CLASSIFIER (The Traffic Cop)
@@ -824,7 +843,11 @@ async function classifyIntent(userMessage, chatHistory = [], classifier) {
 
         const response = await classifier.invoke(prompt + userMessage);
         const categories = response.content.toLowerCase().trim().split(',').map(c => c.trim());
-        const validCategories = categories.filter(c => toolsByCategory.hasOwnProperty(c));
+        const VALID_CATEGORIES = new Set([
+            'jira_read', 'jira_write', 'github_read', 'github_write',
+            'figma', 'calendar', 'slack', 'gmail', 'image', 'files', 'general'
+        ]);
+        const validCategories = categories.filter(c => VALID_CATEGORIES.has(c));
 
         if (validCategories.length === 0) return { categories: ['general'], isConfirmation: false };
 
@@ -836,14 +859,14 @@ async function classifyIntent(userMessage, chatHistory = [], classifier) {
     }
 }
 
-function getToolsForCategories(categories) {
+function getToolsForCategories(categories, toolsByCategory) {
     const tools = new Set();
-    
+
     for (const category of categories) {
         const categoryTools = toolsByCategory[category] || [];
         categoryTools.forEach(tool => tools.add(tool));
     }
-    
+
     // If no tools selected (general conversation), return empty array
     return Array.from(tools);
 }
@@ -1083,8 +1106,9 @@ async function processWithSemanticRouting(input) {
     // Step 1: Classify intent using the Traffic Cop (now with context)
     const { categories, isConfirmation } = await classifyIntent(userQuery, history, classifier);
 
-    // Step 2: Get the appropriate tools for the classified categories
-    const selectedTools = getToolsForCategories(categories);
+    // Step 2: Get the appropriate tools for the classified categories (per-user)
+    const userToolsByCategory = createToolsForUser(userId);
+    const selectedTools = getToolsForCategories(categories, userToolsByCategory);
 
     console.log(`[Traffic Cop] Selected ${selectedTools.length} tools for categories: ${categories.join(', ')}${isConfirmation ? ' (confirmation)' : ''}`);
 
@@ -1213,8 +1237,9 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
             }
         }
 
-        // Step 2: Get the appropriate tools for the classified categories
-        const selectedTools = getToolsForCategories(categories);
+        // Step 2: Get the appropriate tools for the classified categories (per-user)
+        const userToolsByCategory = createToolsForUser(userId);
+        const selectedTools = getToolsForCategories(categories, userToolsByCategory);
 
         console.log(`[Traffic Cop] Selected ${selectedTools.length} tools for categories: ${categories.join(', ')}${isConfirmation ? ' (confirmation)' : ''}`);
 
@@ -1337,15 +1362,28 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
 
         let completeResponse = "";
         const STREAM_TIMEOUT_MS = 30000;
-        let lastEventTime = Date.now();
 
         // Repeated tool call detector — catches hallucination loops
         const MAX_REPEATED_CALLS = 3;
         let lastToolCall = null;
         let repeatCount = 0;
 
-        for await (const event of stream) {
-            lastEventTime = Date.now();
+        // Wrap stream with inactivity timeout
+        async function* withTimeout(source, timeoutMs) {
+            const iterator = source[Symbol.asyncIterator]();
+            while (true) {
+                const raceResult = await Promise.race([
+                    iterator.next(),
+                    new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('Stream inactivity timeout')), timeoutMs)
+                    ),
+                ]);
+                if (raceResult.done) break;
+                yield raceResult.value;
+            }
+        }
+
+        for await (const event of withTimeout(stream, STREAM_TIMEOUT_MS)) {
 
             // Track tool calls to detect hallucination loops
             if (event.event === "on_tool_start") {

@@ -1,16 +1,17 @@
 import fetch from 'node-fetch';
 import './envConfig.js';
+import { getValidToken } from './oauthService.js';
 
-// Lazy credential helper — read from process.env at call-time so tokens
-// injected by oauthService.js or electron-store work without restarting.
-function getGitHubToken() {
-    return (process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || process.env.GITHUB_PERSONAL_ACCESS_TOKEN || '').trim();
+// Per-user token helper
+async function getGitHubToken(userId) {
+    const token = await getValidToken(userId, 'github');
+    if (!token) throw new Error('GitHub is not connected. Please click "Connect" next to GitHub in Settings.');
+    return token;
 }
 
 // --- HELPER: Generic Fetcher ---
-async function githubFetch(url) {
-    const token = getGitHubToken();
-    if (!token) throw new Error('GitHub Token not found in .env');
+async function githubFetch(url, userId) {
+    const token = await getGitHubToken(userId);
     
     console.log(`🔍 Accessing GitHub: ${url}`);
     const response = await fetch(url, {
@@ -30,12 +31,11 @@ async function githubFetch(url) {
 }
 
 // --- REPOSITORY MANAGEMENT (NEW) ---
-export async function createRepository(args) {
+export async function createRepository(args, userId) {
     console.log("📝 GitHub Create Repo Invoked:", JSON.stringify(args));
     const { name, description, isPrivate } = args;
 
-    const token = getGitHubToken();
-    if (!token) throw new Error('GitHub Token not found.');
+    const token = await getGitHubToken(userId);
     if (!name) throw new Error('Repository name is required.');
 
     try {
@@ -72,11 +72,11 @@ export async function createRepository(args) {
 }
 
 // --- ISSUES ---
-export async function getRepoIssues(args) {
+export async function getRepoIssues(args, userId) {
   const { owner, repo } = args;
   if (!owner || !repo) throw new Error('Owner and Repo required.');
   try {
-    const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/issues`);
+    const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/issues`, userId);
     if (!data || data.length === 0) {
         return JSON.stringify({ status: "no_results_found", message: `No issues found for ${owner}/${repo}.` });
     }
@@ -92,12 +92,11 @@ export async function getRepoIssues(args) {
   }
 }
 
-export async function createRepoIssue(args) {
+export async function createRepoIssue(args, userId) {
     console.log("📝 GitHub Create Issue Invoked:", JSON.stringify(args));
     const { owner, repo, title, body } = args;
 
-    const token = getGitHubToken();
-    if (!token) throw new Error('GitHub Token not found.');
+    const token = await getGitHubToken(userId);
     if (!owner || !repo || !title) throw new Error('Owner, Repo, and Title are required.');
 
     try {
@@ -126,10 +125,10 @@ export async function createRepoIssue(args) {
 }
 
 // --- COMMITS & PRs ---
-export async function listCommits(args) {
+export async function listCommits(args, userId) {
     const { owner, repo, limit = 5 } = args;
     try {
-        const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/commits?per_page=${limit}`);
+        const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/commits?per_page=${limit}`, userId);
         if (!data || data.length === 0) {
             return JSON.stringify({ status: "no_results_found", message: `No commits found for ${owner}/${repo}.` });
         }
@@ -145,10 +144,10 @@ export async function listCommits(args) {
     }
 }
 
-export async function listPullRequests(args) {
+export async function listPullRequests(args, userId) {
     const { owner, repo, state = 'open' } = args;
     try {
-        const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/pulls?state=${state}`);
+        const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/pulls?state=${state}`, userId);
         if (!data || data.length === 0) {
             return JSON.stringify({ status: "no_results_found", message: `No ${state} pull requests found for ${owner}/${repo}.` });
         }
@@ -165,10 +164,10 @@ export async function listPullRequests(args) {
     }
 }
 
-export async function getPullRequest(args) {
+export async function getPullRequest(args, userId) {
     const { owner, repo, pullNumber } = args;
     try {
-        const pr = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${pullNumber}`);
+        const pr = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${pullNumber}`, userId);
         return JSON.stringify({
             status: "success",
             pullRequest: {
@@ -187,10 +186,10 @@ export async function getPullRequest(args) {
     }
 }
 
-export async function getCommit(args) {
+export async function getCommit(args, userId) {
     const { owner, repo, sha } = args;
     try {
-        const c = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/commits/${sha}`);
+        const c = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/commits/${sha}`, userId);
         return JSON.stringify({
             status: "success",
             commit: {
@@ -206,23 +205,23 @@ export async function getCommit(args) {
     }
 }
 
-export async function getRepoChecks(args) {
+export async function getRepoChecks(args, userId) {
     const { owner, repo, ref } = args;
     if (!owner || !repo || !ref) throw new Error('Owner, Repo, and Ref are required.');
     try {
-        const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/commits/${ref}/check-runs`);
+        const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/commits/${ref}/check-runs`, userId);
         return JSON.stringify({ status: "success", checks: data });
     } catch (error) {
         return JSON.stringify({ status: "error", message: `Error getting checks for ${ref}: ${error.message}` });
     }
 }
 
-export async function listBranches(args) {
+export async function listBranches(args, userId) {
     const { owner, repo } = args;
     if (!owner || !repo) throw new Error('Owner and Repo are required.');
     try {
-        const branches = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/branches?per_page=100`);
-        const repoData = await githubFetch(`https://api.github.com/repos/${owner}/${repo}`);
+        const branches = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/branches?per_page=100`, userId);
+        const repoData = await githubFetch(`https://api.github.com/repos/${owner}/${repo}`, userId);
         const defaultBranch = repoData.default_branch;
 
         return JSON.stringify({
@@ -241,11 +240,11 @@ export async function listBranches(args) {
     }
 }
 
-export async function getRepoInfo(args) {
+export async function getRepoInfo(args, userId) {
     const { owner, repo } = args;
     if (!owner || !repo) throw new Error('Owner and Repo are required.');
     try {
-        const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}`);
+        const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}`, userId);
         return JSON.stringify({
             status: "success",
             repo: {

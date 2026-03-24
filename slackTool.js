@@ -1,5 +1,6 @@
 import fetch from 'node-fetch';
 import './envConfig.js';
+import { getValidToken } from './oauthService.js';
 
 // =============================================================================
 // SLACK PROTOCOL - Write-Only Announcement System
@@ -9,13 +10,18 @@ import './envConfig.js';
 // =============================================================================
 
 // ---------------------------------------------------------------------------
-// Lazy credential helpers — read from process.env at call-time so tokens
-// injected by oauthService.js (after user clicks "Connect → Slack") work
-// without restarting the app.
+// Per-user credential helpers.
+// Uses getValidToken(userId, 'slack') for the access token.
 // ---------------------------------------------------------------------------
 
-function getSlackToken() {
-    return (process.env.SLACK_BOT_TOKEN || '').trim();
+async function getSlackToken(userId) {
+    const token = await getValidToken(userId, 'slack');
+    if (!token) {
+        throw new Error(
+            'Slack is not connected. Please click "Connect" next to Slack in Settings.'
+        );
+    }
+    return token;
 }
 
 function getDefaultChannel() {
@@ -23,50 +29,14 @@ function getDefaultChannel() {
 }
 
 /**
- * Validates that Slack credentials are configured
- */
-let _tokenChecked = false;
-function validateCredentials() {
-    const token = getSlackToken();
-    if (!token) {
-        throw new Error(
-            'Slack is not connected. Please click "Connect" next to Slack in Settings, or add SLACK_BOT_TOKEN to your .env file.'
-        );
-    }
-
-    // One-time diagnostic: check the token's actual scopes
-    if (!_tokenChecked) {
-        _tokenChecked = true;
-        const tokenPreview = token.substring(0, 20) + '...';
-        console.log(`[Slack] Using bot token: ${tokenPreview}`);
-        // Fire-and-forget scope check
-        fetch('https://slack.com/api/auth.test', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
-            },
-            body: '{}',
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (data.ok) {
-                console.log(`[Slack] ✅ Token valid — Team: ${data.team}, Bot: ${data.user}, User ID: ${data.user_id}`);
-            } else {
-                console.warn(`[Slack] ⚠️ Token check failed: ${data.error}`);
-            }
-        })
-        .catch(err => console.warn(`[Slack] Token check error: ${err.message}`));
-    }
-}
-
-/**
  * Get authorization headers for Slack API
  */
-const getAuthHeader = () => ({
-    'Authorization': `Bearer ${getSlackToken()}`,
-    'Content-Type': 'application/json; charset=utf-8'
-});
+function getAuthHeader(token) {
+    return {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json; charset=utf-8'
+    };
+}
 
 // =============================================================================
 // CHANNEL RESOLUTION & AUTO-JOIN HELPERS
@@ -75,9 +45,11 @@ const getAuthHeader = () => ({
 /**
  * Authorization-only header for GET requests (no Content-Type needed).
  */
-const getAuthOnlyHeader = () => ({
-    'Authorization': `Bearer ${getSlackToken()}`,
-});
+function getAuthOnlyHeader(token) {
+    return {
+        'Authorization': `Bearer ${token}`,
+    };
+}
 
 /**
  * Lists ALL channels visible to the bot (public + private it's been invited to).
@@ -90,7 +62,7 @@ let _channelListFailed = false;
 let _channelListFailReason = null;
 const CHANNEL_CACHE_TTL = 60_000; // 60 seconds
 
-async function listAllChannels() {
+async function listAllChannels(token) {
     // Return cached result if fresh
     if (_channelCache && Date.now() - _channelCacheTime < CHANNEL_CACHE_TTL) {
         return { channels: _channelCache, failed: _channelListFailed, failReason: _channelListFailReason };
@@ -111,7 +83,7 @@ async function listAllChannels() {
 
         try {
             const res = await fetch(`https://slack.com/api/conversations.list?${qs}`, {
-                headers: getAuthOnlyHeader(),
+                headers: getAuthOnlyHeader(token),
             });
             const data = await res.json();
 
@@ -156,7 +128,7 @@ async function listAllChannels() {
  * @param {string} channelNameOrId - Channel name (with/without #) or ID
  * @returns {Promise<{id: string, name: string} | null>} - Resolved channel info or null
  */
-async function resolveChannelId(channelNameOrId) {
+async function resolveChannelId(channelNameOrId, token) {
     // Strip leading #
     const cleaned = (channelNameOrId || '').replace(/^#/, '');
 
@@ -166,7 +138,7 @@ async function resolveChannelId(channelNameOrId) {
     }
 
     // Try to look up via channel list
-    const { channels, failed } = await listAllChannels();
+    const { channels, failed } = await listAllChannels(token);
 
     // If we could list channels, look for a match
     if (!failed && channels.size > 0) {
@@ -190,11 +162,11 @@ async function resolveChannelId(channelNameOrId) {
  * Returns true on success, false otherwise.
  * (Private channels require an invite — this only works for public ones.)
  */
-async function joinChannel(channelId) {
+async function joinChannel(channelId, token) {
     try {
         const res = await fetch('https://slack.com/api/conversations.join', {
             method: 'POST',
-            headers: getAuthHeader(),
+            headers: getAuthHeader(token),
             body: JSON.stringify({ channel: channelId }),
         });
         const data = await res.json();
@@ -215,12 +187,12 @@ async function joinChannel(channelId) {
  * Falls back gracefully when API scopes are missing.
  * Returns { id, name }.
  */
-async function resolveAndEnsureChannel(channelInput) {
-    const resolved = await resolveChannelId(channelInput);
+async function resolveAndEnsureChannel(channelInput, token) {
+    const resolved = await resolveChannelId(channelInput, token);
 
     // resolved is never null now — worst case it returns { id: name, name: name }
     // Try to pre-emptively join the channel (best effort — may fail if missing channels:join scope)
-    await joinChannel(resolved.id);
+    await joinChannel(resolved.id, token);
 
     return resolved;
 }
@@ -229,13 +201,13 @@ async function resolveAndEnsureChannel(channelInput) {
  * Internal helper that POSTs to chat.postMessage, automatically joining the
  * channel on a `not_in_channel` error and retrying once.
  */
-async function postWithAutoJoin(channelId, payload) {
+async function postWithAutoJoin(channelId, payload, token) {
     const url = 'https://slack.com/api/chat.postMessage';
     const body = { ...payload, channel: channelId };
 
     let response = await fetch(url, {
         method: 'POST',
-        headers: getAuthHeader(),
+        headers: getAuthHeader(token),
         body: JSON.stringify(body),
     });
     let data = await response.json();
@@ -243,11 +215,11 @@ async function postWithAutoJoin(channelId, payload) {
     // Auto-join and retry on "not_in_channel" or "channel_not_found"
     if (!data.ok && (data.error === 'not_in_channel' || data.error === 'channel_not_found')) {
         console.log(`[Slack] Post failed (${data.error}) — attempting to join channel ${channelId}…`);
-        const joined = await joinChannel(channelId);
+        const joined = await joinChannel(channelId, token);
         if (joined) {
             response = await fetch(url, {
                 method: 'POST',
-                headers: getAuthHeader(),
+                headers: getAuthHeader(token),
                 body: JSON.stringify(body),
             });
             data = await response.json();
@@ -267,17 +239,17 @@ async function postWithAutoJoin(channelId, payload) {
  * @param {string} input.message - The message text to send
  * @returns {Promise<string>} - Result of the operation
  */
-export async function sendSlackMessage(input) {
+export async function sendSlackMessage(input, userId) {
     console.log("📢 Slack Message Invoked:", JSON.stringify(input));
-    
-    validateCredentials();
-    
+
+    const token = await getSlackToken(userId);
+
     let { channel, message } = input;
-    
+
     if (!message) {
         throw new Error("Message content is required.");
     }
-    
+
     // Use default channel if none specified
     if (!channel) {
         const defaultCh = getDefaultChannel();
@@ -286,15 +258,15 @@ export async function sendSlackMessage(input) {
         }
         channel = defaultCh;
     }
-    
+
     // Resolve to channel ID, join the channel, and get available channels on error
-    const { id: channelId, name: channelName } = await resolveAndEnsureChannel(channel);
-    
+    const { id: channelId, name: channelName } = await resolveAndEnsureChannel(channel, token);
+
     try {
         const data = await postWithAutoJoin(channelId, {
             text: message,
             mrkdwn: true,
-        });
+        }, token);
         
         if (!data.ok) {
             throw new Error(`Slack API Error: ${data.error}`);
@@ -329,17 +301,17 @@ export async function sendSlackMessage(input) {
  * @param {string} [input.type] - Type of announcement: 'info', 'success', 'warning', 'error'
  * @returns {Promise<string>} - Result of the operation
  */
-export async function sendSlackAnnouncement(input) {
+export async function sendSlackAnnouncement(input, userId) {
     console.log("📣 Slack Announcement Invoked:", JSON.stringify(input));
-    
-    validateCredentials();
-    
+
+    const token = await getSlackToken(userId);
+
     let { channel, title, body, footer, type } = input;
-    
+
     if (!title || !body) {
         throw new Error("Both 'title' and 'body' are required for announcements.");
     }
-    
+
     // Use default channel if none specified
     if (!channel) {
         const defaultCh = getDefaultChannel();
@@ -348,9 +320,9 @@ export async function sendSlackAnnouncement(input) {
         }
         channel = defaultCh;
     }
-    
+
     // Resolve to channel ID, join the channel, and get available channels on error
-    const { id: channelId, name: channelName } = await resolveAndEnsureChannel(channel);
+    const { id: channelId, name: channelName } = await resolveAndEnsureChannel(channel, token);
     
     // Emoji based on announcement type
     const typeEmoji = {
@@ -399,7 +371,7 @@ export async function sendSlackAnnouncement(input) {
         const data = await postWithAutoJoin(channelId, {
             text: `${emoji} ${title}`, // Fallback for notifications
             blocks: blocks,
-        });
+        }, token);
         
         if (!data.ok) {
             throw new Error(`Slack API Error: ${data.error}`);
@@ -432,17 +404,17 @@ export async function sendSlackAnnouncement(input) {
  * @param {string} input.context - Contextual message to accompany the link
  * @returns {Promise<string>} - Result of the operation
  */
-export async function sendSlackLink(input) {
+export async function sendSlackLink(input, userId) {
     console.log("🔗 Slack Link Share Invoked:", JSON.stringify(input));
-    
-    validateCredentials();
-    
+
+    const token = await getSlackToken(userId);
+
     let { channel, url: linkUrl, context } = input;
-    
+
     if (!linkUrl) {
         throw new Error("URL is required.");
     }
-    
+
     // Use default channel if none specified
     if (!channel) {
         const defaultCh = getDefaultChannel();
@@ -451,9 +423,9 @@ export async function sendSlackLink(input) {
         }
         channel = defaultCh;
     }
-    
+
     // Resolve to channel ID, join the channel, and get available channels on error
-    const { id: channelId, name: channelName } = await resolveAndEnsureChannel(channel);
+    const { id: channelId, name: channelName } = await resolveAndEnsureChannel(channel, token);
     
     // Compose message with context and link
     const message = context 
@@ -465,7 +437,7 @@ export async function sendSlackLink(input) {
             text: message,
             unfurl_links: true,
             unfurl_media: true,
-        });
+        }, token);
         
         if (!data.ok) {
             throw new Error(`Slack API Error: ${data.error}`);

@@ -3,7 +3,29 @@ import { streamWithSemanticRouting } from './agent.js';
 import cors from 'cors';
 import multer from 'multer';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import fs from 'fs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// --- Boot diagnostics (remove after debugging) ---
+console.log('[BOOT] __dirname:', __dirname);
+console.log('[BOOT] cwd:', process.cwd());
+const _distPath = path.join(__dirname, 'frontend', 'dist');
+console.log('[BOOT] dist path:', _distPath);
+console.log('[BOOT] dist exists:', fs.existsSync(_distPath));
+console.log('[BOOT] index.html exists:', fs.existsSync(path.join(_distPath, 'index.html')));
+if (fs.existsSync(_distPath)) {
+    console.log('[BOOT] dist contents:', fs.readdirSync(_distPath).join(', '));
+} else {
+    const _frontendPath = path.join(__dirname, 'frontend');
+    console.log('[BOOT] frontend exists:', fs.existsSync(_frontendPath));
+    if (fs.existsSync(_frontendPath)) {
+        console.log('[BOOT] frontend contents:', fs.readdirSync(_frontendPath).join(', '));
+    }
+}
+
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import os from 'os';
@@ -34,9 +56,32 @@ const upload = multer({ storage: storage });
 const voiceUpload = multer({ storage: multer.memoryStorage() });
 
 // --- Middlewares ---
-app.use(express.json());
-app.use(cors()); 
-app.use(express.static('.')); // Serve static files from current directory
+app.use(express.json({ limit: '1mb' }));
+const FRONTEND_ORIGIN = process.env.CORS_ORIGIN || process.env.APP_URL || 'http://localhost:5173';
+const allowedOrigins = [
+  FRONTEND_ORIGIN,
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://edith-1-2sxz.onrender.com'
+];
+
+app.use(cors({ 
+  origin: function (origin, callback) {
+    // allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    // Allow any Render frontend just to be safe
+    if (origin.endsWith('.onrender.com')) {
+      return callback(null, true);
+    }
+    return callback(new Error('CORS blocked origin: ' + origin), false);
+  }, 
+  credentials: true 
+}));
+app.use(express.static(path.join(__dirname, 'frontend', 'dist'))); // Only serve built frontend
+app.use('/uploads', express.static(uploadDir)); // Serve uploaded files under /uploads
 
 // --- Global Request Logger ---
 app.use((req, res, next) => {
@@ -270,35 +315,15 @@ app.get('/api/oauth/callback', async (req, res) => {
             // Auth tokens only have basic scopes (openid, email, profile)
             // Calendar/Gmail tokens are stored when user connects tools in Settings
 
-            const safeEmail = userInfo.email.replace(/'/g, "\\'");
-            const safeName = (userInfo.name || '').replace(/'/g, "\\'");
-            const safePreferredName = (user.preferredName || '').replace(/'/g, "\\'");
-            const safeTitlePref = (user.titlePreference || 'Sir').replace(/'/g, "\\'");
-
-            res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
-            res.send(`
-                <html>
-                    <body style="font-family:sans-serif;text-align:center;padding:50px;background:#0a0a0a;color:#00ff88">
-                        <h2>Signed In Successfully!</h2>
-                        <p>You can close this tab and return to EDITH.</p>
-                        <script>
-                            try {
-                                if (window.opener) {
-                                    window.opener.postMessage({
-                                        type: 'AUTH_COMPLETE',
-                                        email: '${safeEmail}',
-                                        name: '${safeName}',
-                                        preferredName: '${safePreferredName}',
-                                        titlePreference: '${safeTitlePref}'
-                                    }, '*');
-                                }
-                            } catch (e) {}
-                            setTimeout(() => window.close(), 2000);
-                        </script>
-                    </body>
-                </html>
-            `);
-            return;
+            // Redirect back to frontend with auth data in URL params
+            // This avoids postMessage/window.opener issues across browsers
+            const params = new URLSearchParams({
+                email: userInfo.email,
+                name: userInfo.name || '',
+                preferredName: user.preferredName || '',
+                titlePreference: user.titlePreference || 'Sir',
+            });
+            return res.redirect(`${FRONTEND_ORIGIN}/#/auth/callback?${params.toString()}`);
         }
 
         // --- TOOL-CONNECTION FLOW ---
@@ -346,7 +371,7 @@ app.get('/api/oauth/callback', async (req, res) => {
                     <script>
                         try {
                             if (window.opener) {
-                                window.opener.postMessage({ type: 'OAUTH_COMPLETE', provider: '${provider}' }, '*');
+                                window.opener.postMessage({ type: 'OAUTH_COMPLETE', provider: '${provider}' }, '${FRONTEND_ORIGIN}');
                             }
                         } catch (e) {}
                         setTimeout(() => window.close(), 3000);
@@ -705,9 +730,16 @@ app.post('/api/ask', extractUser, async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
+    // Detect client disconnect to stop processing
+    let clientDisconnected = false;
+    req.on('close', () => {
+        clientDisconnected = true;
+        console.log(`[Server] Client disconnected during stream`);
+    });
+
     const userPrefs = { preferredName: req.user.preferredName || '', titlePreference: req.user.titlePreference || 'Sir' };
     const stream = streamWithSemanticRouting(fullQuestion, req.user._id.toString(), timezone, userPrefs, sessionId, projectContext);
-    
+
     let sentenceBuffer = "";
 
     // --- Audio Generation Logic (only when voice is enabled) ---
@@ -745,6 +777,7 @@ app.post('/api/ask', extractUser, async (req, res) => {
     }
 
     for await (const event of stream) {
+        if (clientDisconnected) break;
         const eventType = event.event;
 
         if (eventType === "on_chat_model_stream") {
@@ -966,8 +999,23 @@ wss.on('connection', (ws) => {
     ws.on('close', () => { if (deepgramWs?.readyState === WebSocket.OPEN) deepgramWs.close(); });
 });
 
+// --- SPA Fallback: serve index.html for all non-API routes ---
+const frontendIndex = path.join(process.cwd(), 'frontend', 'dist', 'index.html');
+app.use((req, res) => {
+    if (fs.existsSync(frontendIndex)) {
+        res.sendFile(frontendIndex);
+    } else {
+        res.status(404).send('Frontend not built. Run: npm run build');
+    }
+});
+
 // --- Start Server ---
-const server = app.listen(port, () => console.log(`Server is listening at http://localhost:${port}`));
+const frontendDistPath = path.join(__dirname, 'frontend', 'dist');
+const server = app.listen(port, () => {
+    console.log(`Server is listening at http://localhost:${port}`);
+    console.log(`[Static] Serving frontend from: ${frontendDistPath}`);
+    console.log(`[Static] index.html exists: ${fs.existsSync(path.join(frontendDistPath, 'index.html'))}`);
+});
 server.on('error', (e) => {
     if (e.code === 'EADDRINUSE') {
         console.error(`\n[CRITICAL] Port ${port} is already in use!`);

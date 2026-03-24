@@ -1,35 +1,25 @@
 import { google } from 'googleapis';
 import './envConfig.js';
+import { getValidToken } from './oauthService.js';
 
 // ---------------------------------------------------------------------------
-// Lazy-initialized OAuth2 client.
-// Credentials are read from process.env at call-time so that tokens injected
-// by oauthService.js (after the user clicks "Connect → Google") are picked up
-// without restarting the app.
+// Per-user OAuth2 client for Google Calendar.
+// Uses getValidToken(userId, 'google') to fetch the user's own access token.
 // ---------------------------------------------------------------------------
-let _oauth2Client = null;
-let _calendar = null;
+async function getCalendarClient(userId) {
+    const clientId     = (process.env.OAUTH_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '').trim();
+    const clientSecret = (process.env.OAUTH_GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || '').trim();
+    const accessToken  = await getValidToken(userId, 'google');
 
-function getCalendarClient() {
-    const clientId     = (process.env.GOOGLE_CLIENT_ID     || '').trim();
-    const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || '').trim();
-    const refreshToken = (process.env.GOOGLE_REFRESH_TOKEN || '').trim();
-
-    if (!clientId || !clientSecret || !refreshToken) {
+    if (!clientId || !clientSecret || !accessToken) {
         throw new Error(
-            'Google Calendar is not connected. Please click "Connect" next to Google in Settings, or set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN in your .env file.'
+            'Google Calendar is not connected. Please click "Connect" next to Google in Settings.'
         );
     }
 
-    // Rebuild the client whenever the refresh token changes (e.g. after OAuth)
-    if (!_oauth2Client || _oauth2Client._refreshToken !== refreshToken) {
-        _oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
-        _oauth2Client.setCredentials({ refresh_token: refreshToken });
-        _oauth2Client._refreshToken = refreshToken;          // stash for change-detection
-        _calendar = google.calendar({ version: 'v3', auth: _oauth2Client });
-    }
-
-    return _calendar;
+    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+    oauth2Client.setCredentials({ access_token: accessToken });
+    return google.calendar({ version: 'v3', auth: oauth2Client });
 }
 
 /**
@@ -40,34 +30,25 @@ function formatRFC3339(input, defaultValue = undefined) {
     if (!input) return defaultValue;
     const date = new Date(input);
     if (isNaN(date.getTime())) {
-        console.warn(`[calendarTool] Invalid date input: ${input}. Using original or default.`);
-        return input;
+        console.warn(`[calendarTool] Invalid date input: ${input}. Using default.`);
+        return defaultValue;
     }
     return date.toISOString();
 }
 
-/**
- * Check if calendar is configured (kept for call-sites that reference it)
- */
-function checkConfig() {
-    // getCalendarClient() throws if credentials are missing — call it to validate
-    getCalendarClient();
-}
-
 // --- TOOL 1: GET UPCOMING EVENTS ---
-export async function getCalendarEvents(input) {
+export async function getCalendarEvents(input, userId) {
     console.log("📅 Calendar Get Events Invoked:", JSON.stringify(input));
-    checkConfig();
-    
-    const { 
-        maxResults = 10, 
-        timeMin, 
+
+    const {
+        maxResults = 10,
+        timeMin,
         timeMax,
         calendarId = 'primary'
     } = input;
 
     try {
-        const cal = getCalendarClient();
+        const cal = await getCalendarClient(userId);
         const response = await cal.events.list({
             calendarId: calendarId,
             timeMin: formatRFC3339(timeMin, new Date().toISOString()),
@@ -106,9 +87,8 @@ export async function getCalendarEvents(input) {
 }
 
 // --- TOOL 2: CREATE EVENT ---
-export async function createCalendarEvent(input) {
+export async function createCalendarEvent(input, userId) {
     console.log("📅 Calendar Create Event Invoked:", JSON.stringify(input));
-    checkConfig();
 
     const {
         summary,
@@ -145,7 +125,7 @@ export async function createCalendarEvent(input) {
             event.attendees = attendees.map(email => ({ email }));
         }
 
-        const cal = getCalendarClient();
+        const cal = await getCalendarClient(userId);
         const response = await cal.events.insert({
             calendarId: calendarId,
             resource: event,
@@ -170,9 +150,8 @@ export async function createCalendarEvent(input) {
 }
 
 // --- TOOL 3: UPDATE EVENT ---
-export async function updateCalendarEvent(input) {
+export async function updateCalendarEvent(input, userId) {
     console.log("📅 Calendar Update Event Invoked:", JSON.stringify(input));
-    checkConfig();
 
     const {
         eventId,
@@ -191,7 +170,7 @@ export async function updateCalendarEvent(input) {
 
     try {
         // First get the existing event
-        const cal = getCalendarClient();
+        const cal = await getCalendarClient(userId);
         const existingEvent = await cal.events.get({
             calendarId: calendarId,
             eventId: eventId,
@@ -234,9 +213,8 @@ export async function updateCalendarEvent(input) {
 }
 
 // --- TOOL 4: DELETE EVENT ---
-export async function deleteCalendarEvent(input) {
+export async function deleteCalendarEvent(input, userId) {
     console.log("📅 Calendar Delete Event Invoked:", JSON.stringify(input));
-    checkConfig();
 
     const { eventId, calendarId = 'primary' } = input;
 
@@ -245,7 +223,7 @@ export async function deleteCalendarEvent(input) {
     }
 
     try {
-        const cal = getCalendarClient();
+        const cal = await getCalendarClient(userId);
         await cal.events.delete({
             calendarId: calendarId,
             eventId: eventId,
@@ -262,9 +240,8 @@ export async function deleteCalendarEvent(input) {
 }
 
 // --- TOOL 5: FIND FREE TIME ---
-export async function findFreeTime(input) {
+export async function findFreeTime(input, userId) {
     console.log("📅 Calendar Find Free Time Invoked:", JSON.stringify(input));
-    checkConfig();
 
     const {
         timeMin,
@@ -278,7 +255,7 @@ export async function findFreeTime(input) {
     }
 
     try {
-        const cal = getCalendarClient();
+        const cal = await getCalendarClient(userId);
         const response = await cal.freebusy.query({
             resource: {
                 timeMin: formatRFC3339(timeMin),

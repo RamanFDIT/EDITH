@@ -1,93 +1,52 @@
 import fetch from 'node-fetch';
 import './envConfig.js';
+import { getValidToken, getStoredTokens } from './oauthService.js';
 
 // ---------------------------------------------------------------------------
-// Lazy credential helpers — read from process.env at call-time so tokens
-// injected by oauthService.js (after user clicks "Connect → Jira") work
-// without restarting the app.
+// Per-user Jira credential helpers.
+// Uses getValidToken(userId, 'jira') for the access token and
+// getStoredTokens(userId, 'jira') for cloud_id/cloud_url metadata.
 // ---------------------------------------------------------------------------
 
-function getJiraDomain() {
-    let domain = (process.env.JIRA_DOMAIN || '').trim();
-    if (domain) {
-        domain = domain.replace(/^https?:\/\//, '').replace(/\/$/, '');
+async function getJiraCredentials(userId) {
+    const accessToken = await getValidToken(userId, 'jira');
+    if (!accessToken) {
+        throw new Error('Jira is not connected. Please click "Connect" next to Jira in Settings.');
     }
-    return domain;
+    const tokens = await getStoredTokens(userId, 'jira');
+    const cloudId = tokens?.cloud_id || '';
+    const cloudUrl = tokens?.cloud_url || '';
+    return { accessToken, cloudId, cloudUrl };
 }
 
-function getJiraCloudId() {
-    return (process.env.JIRA_CLOUD_ID || '').trim();
-}
-
-function getOAuthToken() {
-    return (process.env.JIRA_OAUTH_TOKEN || '').trim();
-}
-
-function getApiToken() {
-    return (process.env.JIRA_API_TOKEN || process.env.JIRA_TOKEN || '').trim();
-}
-
-function getEmail() {
-    return (process.env.JIRA_EMAIL || '').trim();
-}
-
-// Helper for Auth Header — supports both OAuth2 Bearer and legacy Basic auth
-const getAuthHeader = () => {
-    const oauthToken = getOAuthToken();
-    if (oauthToken) {
-        // OAuth2.0 Bearer token (from oauthService.js)
-        return `Bearer ${oauthToken}`;
-    }
-    // Legacy: Basic auth with email + API token
-    const email = getEmail();
-    const apiToken = getApiToken();
-    return 'Basic ' + Buffer.from(`${email}:${apiToken}`).toString('base64');
-};
-
-/**
- * Get the correct Jira API base URL.
- * OAuth tokens are scoped to api.atlassian.com and require the cloud ID path.
- * Legacy Basic auth tokens go directly to the site domain.
- */
-function getJiraBaseUrl() {
-    const cloudId = getJiraCloudId();
-    const oauthToken = getOAuthToken();
-    if (oauthToken && cloudId) {
+function getJiraBaseUrl(cloudId) {
+    if (cloudId) {
         return `https://api.atlassian.com/ex/jira/${cloudId}`;
     }
-    return `https://${getJiraDomain()}`;
+    // Fallback to env-based domain for legacy setups
+    let domain = (process.env.JIRA_DOMAIN || '').trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+    return `https://${domain}`;
 }
 
-/**
- * Check if Jira credentials are available (either OAuth or legacy)
- */
-function hasCredentials() {
-    const oauthToken = getOAuthToken();
-    const cloudId = getJiraCloudId();
-    if (oauthToken && cloudId) return true;
-    const domain = getJiraDomain();
-    if (getApiToken() && getEmail() && domain) return true;
-    return false;
+function getAuthHeader(accessToken) {
+    return `Bearer ${accessToken}`;
 }
 
 // --- TOOL 1: SEARCH (The Fixed Version) ---
-export async function getJiraIssues(input) {
+export async function getJiraIssues(input, userId) {
     console.log("🔍 Jira Search Invoked:", JSON.stringify(input));
-    
-    // Check for 'jql' or 'query' to be safe
-    const jql = input.jql || input.query || input.jqlQuery;
 
-    if(!hasCredentials() || !jql){
-        throw new Error("Missing Jira credentials or query. Connect Jira via OAuth in Settings, or set JIRA_API_TOKEN + JIRA_EMAIL + JIRA_DOMAIN.");
-    }
-    
-    const url = `${getJiraBaseUrl()}/rest/api/3/search/jql`;
+    const jql = input.jql || input.query || input.jqlQuery;
+    if (!jql) throw new Error("Missing JQL query.");
+
+    const { accessToken, cloudId } = await getJiraCredentials(userId);
+    const url = `${getJiraBaseUrl(cloudId)}/rest/api/3/search/jql`;
 
     try {
         const response = await fetch(url, {
             method: 'POST',
             headers: {
-                'Authorization': getAuthHeader(),
+                'Authorization': getAuthHeader(accessToken),
                 'Accept': 'application/json',
                 'Content-Type': 'application/json'
             },
@@ -121,7 +80,7 @@ export async function getJiraIssues(input) {
 };
 
 // --- TOOL 2: CREATE ISSUE ---
-export async function createJiraIssue(input) {
+export async function createJiraIssue(input, userId) {
     console.log("📝 Jira Create Invoked:", JSON.stringify(input));
 
     const { projectKey, summary, description, issueType, parent } = input;
@@ -130,7 +89,8 @@ export async function createJiraIssue(input) {
         throw new Error("Missing required fields: projectKey and summary are mandatory.");
     }
 
-    const url = `${getJiraBaseUrl()}/rest/api/3/issue`;
+    const { accessToken, cloudId } = await getJiraCredentials(userId);
+    const url = `${getJiraBaseUrl(cloudId)}/rest/api/3/issue`;
 
     // Jira Cloud requires "Atlassian Document Format" (ADF) for descriptions
     const adfDescription = {
@@ -167,7 +127,7 @@ export async function createJiraIssue(input) {
         const response = await fetch(url, {
             method: 'POST',
             headers: {
-                'Authorization': getAuthHeader(),
+                'Authorization': getAuthHeader(accessToken),
                 'Accept': 'application/json',
                 'Content-Type': 'application/json'
             },
@@ -181,12 +141,16 @@ export async function createJiraIssue(input) {
 
         const data = await response.json();
         console.log(`✅ Ticket Created: ${data.key}`);
+        const domain = (process.env.JIRA_DOMAIN || '').trim();
+        const link = domain
+            ? `https://${domain}/browse/${data.key}`
+            : (data.self ? data.self.replace(/\/rest\/api\/.*/, `/browse/${data.key}`) : data.key);
         return JSON.stringify({
             status: "success",
             message: `Created Jira Ticket: ${data.key}`,
             key: data.key,
             id: data.id,
-            link: `https://${getJiraDomain()}/browse/${data.key}`
+            link
         });
 
     } catch (error) {
@@ -195,13 +159,11 @@ export async function createJiraIssue(input) {
 }
 
 // --- TOOL 3: UPDATE ISSUE & STATUS ---
-export async function updateJiraIssue(input) {
+export async function updateJiraIssue(input, userId) {
     console.log("📝 Jira Update Invoked:", JSON.stringify(input));
     const { issueKey, summary, description, status, priority, assignee, duedate, labels, parent } = input;
 
-    if (!hasCredentials()) {
-        throw new Error("Missing Jira credentials. Connect Jira via OAuth in Settings.");
-    }
+    const { accessToken, cloudId } = await getJiraCredentials(userId);
     if (!issueKey) throw new Error("Issue Key (e.g., FDIT-1) is required.");
 
     if (!status && !summary && !description && !priority && !assignee && !duedate && !labels && !parent) {
@@ -215,10 +177,10 @@ export async function updateJiraIssue(input) {
     if (status) {
         try {
             // A. Get available transitions for this ticket
-            const transUrl = `${getJiraBaseUrl()}/rest/api/3/issue/${issueKey}/transitions`;
+            const transUrl = `${getJiraBaseUrl(cloudId)}/rest/api/3/issue/${issueKey}/transitions`;
             const transRes = await fetch(transUrl, {
                 method: 'GET',
-                headers: { 'Authorization': getAuthHeader(), 'Accept': 'application/json' }
+                headers: { 'Authorization': getAuthHeader(accessToken), 'Accept': 'application/json' }
             });
             
             if (!transRes.ok) {
@@ -241,7 +203,7 @@ export async function updateJiraIssue(input) {
                 const moveRes = await fetch(transUrl, {
                     method: 'POST',
                     headers: {
-                        'Authorization': getAuthHeader(),
+                        'Authorization': getAuthHeader(accessToken),
                         'Accept': 'application/json',
                         'Content-Type': 'application/json'
                     },
@@ -283,11 +245,11 @@ export async function updateJiraIssue(input) {
                 };
             }
 
-            const updateUrl = `${getJiraBaseUrl()}/rest/api/3/issue/${issueKey}`;
+            const updateUrl = `${getJiraBaseUrl(cloudId)}/rest/api/3/issue/${issueKey}`;
             const updateRes = await fetch(updateUrl, {
                 method: 'PUT',
                 headers: {
-                    'Authorization': getAuthHeader(),
+                    'Authorization': getAuthHeader(accessToken),
                     'Accept': 'application/json',
                     'Content-Type': 'application/json'
                 },
@@ -315,22 +277,20 @@ export async function updateJiraIssue(input) {
 }
 
 // --- TOOL 4: DELETE ISSUE ---
-export async function deleteJiraIssue(input) {
+export async function deleteJiraIssue(input, userId) {
     console.log("🗑️ Jira Delete Invoked:", JSON.stringify(input));
     const { issueKey } = input;
 
-    if (!hasCredentials()) {
-        throw new Error("Missing Jira credentials. Connect Jira via OAuth in Settings.");
-    }
+    const { accessToken, cloudId } = await getJiraCredentials(userId);
     if (!issueKey) throw new Error("Issue Key (e.g., FDIT-1) is required.");
 
-    const url = `${getJiraBaseUrl()}/rest/api/3/issue/${issueKey}`;
+    const url = `${getJiraBaseUrl(cloudId)}/rest/api/3/issue/${issueKey}`;
 
     try {
         const response = await fetch(url, {
             method: 'DELETE',
             headers: {
-                'Authorization': getAuthHeader(),
+                'Authorization': getAuthHeader(accessToken),
                 'Accept': 'application/json'
             }
         });
@@ -347,20 +307,17 @@ export async function deleteJiraIssue(input) {
 }
 
 // --- TOOL 5: LIST JIRA PROJECTS ---
-export async function listJiraProjects(input) {
+export async function listJiraProjects(input, userId) {
     console.log("📋 Jira List Projects Invoked");
 
-    if (!hasCredentials()) {
-        throw new Error("Missing Jira credentials. Connect Jira via OAuth in Settings, or set JIRA_API_TOKEN + JIRA_EMAIL + JIRA_DOMAIN.");
-    }
-
-    const url = `${getJiraBaseUrl()}/rest/api/3/project`;
+    const { accessToken, cloudId } = await getJiraCredentials(userId);
+    const url = `${getJiraBaseUrl(cloudId)}/rest/api/3/project`;
 
     try {
         const response = await fetch(url, {
             method: 'GET',
             headers: {
-                'Authorization': getAuthHeader(),
+                'Authorization': getAuthHeader(accessToken),
                 'Accept': 'application/json'
             }
         });
@@ -371,11 +328,11 @@ export async function listJiraProjects(input) {
         }
         const data = await response.json();
         const projects = data.map(p => ({ key: p.key, name: p.name, type: p.projectTypeKey }));
-        
+
         if (projects.length === 0) {
             return JSON.stringify({ status: "no_results_found", message: "No Jira projects found." });
         }
-        
+
         return JSON.stringify(projects);
     } catch (error) {
         return JSON.stringify({ status: "error", message: `Error listing Jira projects: ${error.message}` });
@@ -383,34 +340,32 @@ export async function listJiraProjects(input) {
 }
 
 // --- TOOL 6: CREATE JIRA PROJECT ---
-export async function createJiraProject(input) {
+export async function createJiraProject(input, userId) {
     console.log("🏗️ Jira Create Project Invoked:", JSON.stringify(input));
     const { key, name, templateKey, projectTypeKey, description } = input;
 
-    if (!hasCredentials()) {
-        throw new Error("Missing Jira credentials. Connect Jira via OAuth in Settings.");
-    }
+    const { accessToken, cloudId, cloudUrl } = await getJiraCredentials(userId);
     if (!key || !name) throw new Error("Project Key (e.g., 'TEST') and Name are required.");
 
     try {
         // 1. Fetch Current User to assign as Lead
-        const myselfUrl = `${getJiraBaseUrl()}/rest/api/3/myself`;
+        const myselfUrl = `${getJiraBaseUrl(cloudId)}/rest/api/3/myself`;
         const myselfRes = await fetch(myselfUrl, {
             method: 'GET',
-            headers: { 'Authorization': getAuthHeader(), 'Accept': 'application/json' }
+            headers: { 'Authorization': getAuthHeader(accessToken), 'Accept': 'application/json' }
         });
-        
+
         if (!myselfRes.ok) throw new Error("Could not fetch current user to assign as Project Lead.");
         const myself = await myselfRes.json();
         const leadAccountId = myself.accountId;
 
         // 2. Create Project
-        const url = `${getJiraBaseUrl()}/rest/api/3/project`;
+        const url = `${getJiraBaseUrl(cloudId)}/rest/api/3/project`;
         const bodyData = {
             key: key.toUpperCase(),
             name: name,
-            projectTypeKey: projectTypeKey || "software", // 'software' or 'business'
-            projectTemplateKey: templateKey || "com.pyxis.greenhopper.jira:gh-simplified-kanban-classic", 
+            projectTypeKey: projectTypeKey || "software",
+            projectTemplateKey: templateKey || "com.pyxis.greenhopper.jira:gh-simplified-kanban-classic",
             description: description || `Project created by EDITH for ${name}`,
             leadAccountId: leadAccountId,
             assigneeType: "PROJECT_LEAD"
@@ -419,7 +374,7 @@ export async function createJiraProject(input) {
         const response = await fetch(url, {
             method: 'POST',
             headers: {
-                'Authorization': getAuthHeader(),
+                'Authorization': getAuthHeader(accessToken),
                 'Accept': 'application/json',
                 'Content-Type': 'application/json'
             },
@@ -428,12 +383,14 @@ export async function createJiraProject(input) {
 
         if (response.status === 201) {
             const data = await response.json();
+            const domain = cloudUrl ? cloudUrl.replace(/^https?:\/\//, '') : (process.env.JIRA_DOMAIN || '').trim();
+            const link = domain ? `https://${domain}/browse/${data.key}` : data.key;
             return JSON.stringify({
                 status: "success",
                 message: `Successfully created project '${name}' (Key: ${data.key})`,
                 key: data.key,
                 id: data.id,
-                link: `https://${getJiraDomain()}/browse/${data.key}`
+                link
             });
         } else {
             const txt = await response.text();

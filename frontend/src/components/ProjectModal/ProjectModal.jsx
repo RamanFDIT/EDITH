@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext.jsx';
 import { API_URL } from '../../apiConfig.js';
@@ -18,6 +18,7 @@ const ProjectModal = ({ onClose, existingProject = null }) => {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [connecting, setConnecting] = useState('');
 
+  const deleteTimerRef = useRef(null);
   const isEdit = !!existingProject;
   const githubConnected = oauthStatus.github?.connected;
   const jiraConnected = oauthStatus.jira?.connected;
@@ -91,7 +92,8 @@ const ProjectModal = ({ onClose, existingProject = null }) => {
   const handleDelete = async () => {
     if (!deleteConfirm) {
       setDeleteConfirm(true);
-      setTimeout(() => setDeleteConfirm(false), 3000);
+      if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+      deleteTimerRef.current = setTimeout(() => setDeleteConfirm(false), 3000);
       return;
     }
     setDeleting(true);
@@ -105,11 +107,14 @@ const ProjectModal = ({ onClose, existingProject = null }) => {
     }
   };
 
-  // Close on Escape
+  // Close on Escape + cleanup timer
   useEffect(() => {
     const handleKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
+    return () => {
+      window.removeEventListener('keydown', handleKey);
+      if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+    };
   }, [onClose]);
 
   return (

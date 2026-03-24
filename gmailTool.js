@@ -1,35 +1,25 @@
 import { google } from 'googleapis';
 import './envConfig.js';
+import { getValidToken } from './oauthService.js';
 
 // ---------------------------------------------------------------------------
-// Lazy-initialized OAuth2 client for Gmail.
-// Credentials are read from process.env at call-time so that tokens injected
-// by oauthService.js (after the user clicks "Connect → Google") are picked up
-// without restarting the app.
+// Per-user OAuth2 client for Gmail.
+// Uses getValidToken(userId, 'google') to fetch the user's own access token.
 // ---------------------------------------------------------------------------
-let _oauth2Client = null;
-let _gmail = null;
+async function getGmailClient(userId) {
+    const clientId     = (process.env.OAUTH_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '').trim();
+    const clientSecret = (process.env.OAUTH_GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || '').trim();
+    const accessToken  = await getValidToken(userId, 'google');
 
-function getGmailClient() {
-    const clientId     = (process.env.GOOGLE_CLIENT_ID     || '').trim();
-    const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || '').trim();
-    const refreshToken = (process.env.GOOGLE_REFRESH_TOKEN || '').trim();
-
-    if (!clientId || !clientSecret || !refreshToken) {
+    if (!clientId || !clientSecret || !accessToken) {
         throw new Error(
-            'Gmail is not connected. Please click "Connect" next to Google in Settings, or set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN in your .env file.'
+            'Gmail is not connected. Please click "Connect" next to Google in Settings.'
         );
     }
 
-    // Rebuild the client whenever the refresh token changes (e.g. after OAuth)
-    if (!_oauth2Client || _oauth2Client._refreshToken !== refreshToken) {
-        _oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
-        _oauth2Client.setCredentials({ refresh_token: refreshToken });
-        _oauth2Client._refreshToken = refreshToken;
-        _gmail = google.gmail({ version: 'v1', auth: _oauth2Client });
-    }
-
-    return _gmail;
+    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+    oauth2Client.setCredentials({ access_token: accessToken });
+    return google.gmail({ version: 'v1', auth: oauth2Client });
 }
 
 // ---------------------------------------------------------------------------
@@ -66,7 +56,7 @@ function parseEmailHeader(value) {
 // ==========================================================================
 // TOOL 1: SEND GMAIL
 // ==========================================================================
-export async function sendGmail(input) {
+export async function sendGmail(input, userId) {
     console.log("📧 Gmail Send Invoked:", JSON.stringify(input));
     const { to, subject, body, cc, bcc } = input;
 
@@ -75,7 +65,7 @@ export async function sendGmail(input) {
     }
 
     try {
-        const gmail = getGmailClient();
+        const gmail = await getGmailClient(userId);
         const raw = buildRawEmail({ to, subject, body, cc, bcc });
 
         const response = await gmail.users.messages.send({
@@ -109,7 +99,7 @@ export async function sendGmail(input) {
 // ==========================================================================
 // TOOL 2: SEARCH GMAIL CONTACTS (resolves a name → email address)
 // ==========================================================================
-export async function searchGmailContacts(input) {
+export async function searchGmailContacts(input, userId) {
     console.log("📧 Gmail Contact Search Invoked:", JSON.stringify(input));
     const { query } = input;
 
@@ -118,7 +108,7 @@ export async function searchGmailContacts(input) {
     }
 
     try {
-        const gmail = getGmailClient();
+        const gmail = await getGmailClient(userId);
 
         // Search sent and received emails that mention the query in From/To headers
         const response = await gmail.users.messages.list({
@@ -197,12 +187,12 @@ export async function searchGmailContacts(input) {
 // ==========================================================================
 // TOOL 3: GET RECENT EMAILS
 // ==========================================================================
-export async function getRecentEmails(input) {
+export async function getRecentEmails(input, userId) {
     console.log("📧 Gmail Get Recent Emails Invoked:", JSON.stringify(input));
     const { maxResults = 10, query } = input;
 
     try {
-        const gmail = getGmailClient();
+        const gmail = await getGmailClient(userId);
 
         const listParams = {
             userId: 'me',

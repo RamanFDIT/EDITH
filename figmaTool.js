@@ -1,47 +1,45 @@
 import fetch from 'node-fetch';
 import './envConfig.js';
+import { getValidToken } from './oauthService.js';
 
 const BASE_URL = 'https://api.figma.com/v1';
 
 // ---------------------------------------------------------------------------
-// Lazy credential helper — read from process.env at call-time so tokens
-// injected by oauthService.js (after user clicks "Connect → Figma") work
-// without restarting the app.
+// Per-user credential helper.
+// Uses getValidToken(userId, 'figma') for the access token.
 // ---------------------------------------------------------------------------
 
-function getFigmaToken() {
-    return (process.env.FIGMA_TOKEN || '').trim();
-}
-
-function validateToken() {
-    if (!getFigmaToken()) {
+async function getFigmaToken(userId) {
+    const token = await getValidToken(userId, 'figma');
+    if (!token) {
         throw new Error(
-            'Figma is not connected. Please click "Connect" next to Figma in Settings, or add FIGMA_TOKEN to your .env file.'
+            'Figma is not connected. Please click "Connect" next to Figma in Settings.'
         );
     }
+    return token;
 }
 
-const getHeaders = () => {
+function getHeaders(token) {
     return {
-        'X-Figma-Token': getFigmaToken(),
+        'X-Figma-Token': token,
         'Content-Type': 'application/json'
     };
-};
+}
 
 // --- TOOL 1: GET FILE METADATA ---
 // We don't fetch the whole file (it's too big). We just get the structure.
-export async function getFigmaFileStructure(input) {
+export async function getFigmaFileStructure(input, userId) {
     console.log("🎨 Figma File Scan:", JSON.stringify(input));
     const { fileKey } = input; // The ID in the URL: figma.com/file/KEY/Name
 
     if (!fileKey) throw new Error("fileKey is required.");
-    validateToken();
+    const token = await getFigmaToken(userId);
 
     try {
         // depth=1 keeps it light (just pages and top-level frames)
         const response = await fetch(`${BASE_URL}/files/${fileKey}?depth=2`, {
             method: 'GET',
-            headers: getHeaders()
+            headers: getHeaders(token)
         });
 
         if (!response.ok) {
@@ -100,14 +98,15 @@ export async function getFigmaFileStructure(input) {
 }
 
 // --- TOOL 2: GET COMMENTS ---
-export async function getFigmaComments(input) {
+export async function getFigmaComments(input, userId) {
     console.log("💬 Checking Figma Comms:", JSON.stringify(input));
     const { fileKey } = input;
+    const token = await getFigmaToken(userId);
 
     try {
         const response = await fetch(`${BASE_URL}/files/${fileKey}/comments`, {
             method: 'GET',
-            headers: getHeaders()
+            headers: getHeaders(token)
         });
 
         if (!response.ok) throw new Error(`Figma API Error: ${response.status}`);
@@ -138,9 +137,10 @@ export async function getFigmaComments(input) {
 }
 
 // --- TOOL 3: POST COMMENT ---
-export async function postFigmaComment(input) {
+export async function postFigmaComment(input, userId) {
     console.log("📝 Posting Figma Directive:", JSON.stringify(input));
     const { fileKey, message, node_id } = input;
+    const token = await getFigmaToken(userId);
 
     if (!message) throw new Error("Message is required.");
 
@@ -168,7 +168,7 @@ export async function postFigmaComment(input) {
 
         const response = await fetch(`${BASE_URL}/files/${fileKey}/comments`, {
             method: 'POST',
-            headers: getHeaders(),
+            headers: getHeaders(token),
             body: JSON.stringify(body)
         });
 
