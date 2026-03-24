@@ -400,3 +400,172 @@ export async function createJiraProject(input, userId) {
         return JSON.stringify({ status: "error", message: `Error creating project: ${error.message}` });
     }
 }
+
+// ---------------------------------------------------------------------------
+// AGILE API (SPRINTS)
+// ---------------------------------------------------------------------------
+
+// Helper: Get the Board ID for a specific project
+async function getBoardIdForProject(projectKey, accessToken, cloudId) {
+    const url = `${getJiraBaseUrl(cloudId)}/rest/agile/1.0/board?projectKeyOrId=${projectKey}`;
+    const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+            'Authorization': getAuthHeader(accessToken),
+            'Accept': 'application/json'
+        }
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Failed to fetch boards for project ${projectKey}: ${response.status} - ${text}`);
+    }
+
+    const data = await response.json();
+    if (!data.values || data.values.length === 0) {
+        throw new Error(`No agile boards found for project ${projectKey}. A board is required to create a sprint.`);
+    }
+
+    // Return the first board ID associated with this project
+    return data.values[0].id;
+}
+
+// --- TOOL 7: CREATE SPRINT ---
+export async function createJiraSprint(input, userId) {
+    console.log("🏃‍♂️ Jira Create Sprint Invoked:", JSON.stringify(input));
+    const { name, projectKey, startDate, endDate, goal } = input;
+
+    if (!name || !projectKey) throw new Error("Sprint Name and Project Key are required.");
+
+    const { accessToken, cloudId } = await getJiraCredentials(userId);
+
+    try {
+        const originBoardId = await getBoardIdForProject(projectKey, accessToken, cloudId);
+
+        const url = `${getJiraBaseUrl(cloudId)}/rest/agile/1.0/sprint`;
+        const bodyData = {
+            name: name,
+            originBoardId: originBoardId,
+            goal: goal || ""
+        };
+
+        if (startDate) bodyData.startDate = startDate;
+        if (endDate) bodyData.endDate = endDate;
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': getAuthHeader(accessToken),
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(bodyData)
+        });
+
+        if (!response.ok) {
+            const txt = await response.text();
+            throw new Error(`Failed to create sprint: ${response.status} - ${txt}`);
+        }
+
+        const data = await response.json();
+        return JSON.stringify({
+            status: "success",
+            message: `Successfully created sprint '${data.name}' (ID: ${data.id}) on Board ${originBoardId}.`,
+            sprintId: data.id,
+            boardId: originBoardId
+        });
+    } catch (error) {
+        return JSON.stringify({ status: "error", message: `Error creating sprint: ${error.message}` });
+    }
+}
+
+// --- TOOL 8: UPDATE / START SPRINT ---
+export async function updateJiraSprint(input, userId) {
+    console.log("🏃‍♂️ Jira Update Sprint Invoked:", JSON.stringify(input));
+    const { sprintId, name, state, startDate, endDate, goal } = input;
+
+    if (!sprintId) throw new Error("Sprint ID is required.");
+    if (!name && !state && !startDate && !endDate && !goal) {
+        throw new Error("No update parameters provided (name, state, startDate, endDate, goal).");
+    }
+
+    const { accessToken, cloudId } = await getJiraCredentials(userId);
+
+    try {
+        const url = `${getJiraBaseUrl(cloudId)}/rest/agile/1.0/sprint/${sprintId}`;
+        const bodyData = {};
+        if (name) bodyData.name = name;
+        if (state) bodyData.state = state; // "active" (starts sprint), "closed" (completes sprint)
+        if (startDate) bodyData.startDate = startDate;
+        if (endDate) bodyData.endDate = endDate;
+        if (goal) bodyData.goal = goal;
+
+        const response = await fetch(url, {
+            method: 'POST', // The Agile API uses POST or PUT to update a sprint. POST is standard.
+            headers: {
+                'Authorization': getAuthHeader(accessToken),
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(bodyData)
+        });
+
+        if (!response.ok) {
+            const txt = await response.text();
+            throw new Error(`Failed to update sprint: ${response.status} - ${txt}`);
+        }
+
+        const data = await response.json();
+        return JSON.stringify({
+            status: "success",
+            message: `Successfully updated sprint ${sprintId} (State: ${data.state}).`,
+            sprintId: data.id,
+            state: data.state
+        });
+    } catch (error) {
+        return JSON.stringify({ status: "error", message: `Error updating sprint: ${error.message}` });
+    }
+}
+
+// --- TOOL 9: ADD ISSUES TO SPRINT ---
+export async function addIssuesToSprint(input, userId) {
+    console.log("📝 Jira Add Issues To Sprint Invoked:", JSON.stringify(input));
+    const { sprintId, issues } = input;
+
+    if (!sprintId || !issues || !Array.isArray(issues) || issues.length === 0) {
+        throw new Error("Sprint ID and an array of Issue keys are required.");
+    }
+
+    const { accessToken, cloudId } = await getJiraCredentials(userId);
+
+    try {
+        const url = `${getJiraBaseUrl(cloudId)}/rest/agile/1.0/sprint/${sprintId}/issue`;
+        const bodyData = {
+            issues: issues
+        };
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': getAuthHeader(accessToken),
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(bodyData)
+        });
+
+        if (!response.ok && response.status !== 204) {
+             const txt = await response.text();
+             throw new Error(`Failed to add issues to sprint: ${response.status} - ${txt}`);
+        }
+
+        return JSON.stringify({
+            status: "success",
+            message: `Successfully added ${issues.length} issue(s) to sprint ${sprintId}.`,
+            sprintId: sprintId,
+            issues: issues
+        });
+    } catch (error) {
+        return JSON.stringify({ status: "error", message: `Error adding issues to sprint: ${error.message}` });
+    }
+}

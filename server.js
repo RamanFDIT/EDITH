@@ -738,6 +738,56 @@ app.post('/api/ask', extractUser, async (req, res) => {
     });
 
     const userPrefs = { preferredName: req.user.preferredName || '', titlePreference: req.user.titlePreference || 'Sir' };
+
+    // --- /help INTERCEPTOR ---
+    if (question.trim().toLowerCase() === '/help') {
+        try {
+            const status = await getConnectionStatus(req.user._id);
+            
+            let helpText = "### 🛠️ E.D.I.T.H. Capabilities\nHere are some of the things you can ask me to do based on your current connections:\n\n";
+            
+            let hasIntegrations = false;
+            
+            if (status.jira?.connected) {
+                hasIntegrations = true;
+                helpText += "**Jira**\n- \"Create a new Task called Update README in project FDIT\"\n- \"Create a new project space called ALPHA\"\n- \"Search for bugs assigned to me\"\n- \"Plan a sprint and add issues to it\"\n\n";
+            }
+            if (status.github?.connected) {
+                hasIntegrations = true;
+                helpText += "**GitHub**\n- \"Show me my open PRs\"\n- \"Create an issue for the login bug\"\n- \"List recent commits\"\n\n";
+            }
+            if (status.calendar?.connected) {
+                hasIntegrations = true;
+                helpText += "**Google Calendar**\n- \"What meetings do I have today?\"\n- \"Schedule a design review for tomorrow at 2pm\"\n\n";
+            }
+            if (status.gmail?.connected) {
+                hasIntegrations = true;
+                helpText += "**Gmail**\n- \"Read my recent unread emails\"\n- \"Email John about the project update\"\n\n";
+            }
+            if (status.slack?.connected) {
+                hasIntegrations = true;
+                helpText += "**Slack**\n- \"Tell the #dev-team I fixed the login bug\"\n\n";
+            }
+            if (status.figma?.connected) {
+                hasIntegrations = true;
+                helpText += "**Figma**\n- \"What are the latest comments on the design file?\"\n\n";
+            }
+            
+            if (!hasIntegrations) {
+                helpText += "*You haven't connected any integrations yet!* Click the **Connections** icon (the plug) in the sidebar to link Jira, GitHub, Slack, Figma, Google.\n\n";
+            }
+
+            helpText += "**System & Local**\n- \"Open Chrome\"\n- \"Check my CPU and RAM usage\"\n- \"Generate an image of a cybernetic butler\"\n- \"Create a new folder in my Downloads\"";
+
+            res.write(`data: ${JSON.stringify({ type: "token", content: helpText })}\n\n`);
+            res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+            return res.end();
+        } catch (e) {
+            console.error('[Server] /help Interceptor Error:', e);
+        }
+    }
+    // --- END /help INTERCEPTOR ---
+
     const stream = streamWithSemanticRouting(fullQuestion, req.user._id.toString(), timezone, userPrefs, sessionId, projectContext);
 
     let sentenceBuffer = "";

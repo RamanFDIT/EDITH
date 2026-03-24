@@ -15,7 +15,7 @@ import { getValidToken } from "./oauthService.js";
 
 import { EDITH_SYSTEM_PROMPT, getSystemPrompt } from "./systemPrompt.js";
 import { generateImage } from "./imageTool.js";
-import { getJiraIssues, createJiraIssue, updateJiraIssue, deleteJiraIssue, createJiraProject, listJiraProjects } from "./jiraTool.js";
+import { getJiraIssues, createJiraIssue, updateJiraIssue, deleteJiraIssue, createJiraProject, listJiraProjects, createJiraSprint, updateJiraSprint, addIssuesToSprint } from "./jiraTool.js";
 import { getCalendarEvents, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent, findFreeTime } from "./calendarTool.js";
 import { sendSlackMessage, sendSlackAnnouncement, sendSlackLink } from "./slackTool.js";
 import { createRepository, getRepoIssues, createRepoIssue, listCommits, listPullRequests, getPullRequest, getCommit, getRepoChecks, listBranches, getRepoInfo } from "./githubTool.js";
@@ -245,6 +245,40 @@ function createToolsForUser(userId) {
           projectTypeKey: z.string().optional().describe("Type key (default: 'software')."),
       }),
       func: (input) => createJiraProject(input, userId),
+    }),
+    new DynamicStructuredTool({
+      name: "create_jira_sprint",
+      description: "Create a new Jira Sprint on a project's Agile board. REQUIRES 'projectKey' and 'name'. Can optionally supply startDate, endDate, and goal.",
+      schema: z.object({
+          projectKey: z.string().describe("REQUIRED: The Project Key (e.g., 'FDIT') where the sprint should be created."),
+          name: z.string().describe("REQUIRED: The name of the sprint (e.g., 'Sprint 1')."),
+          goal: z.string().optional().describe("Goal of the sprint."),
+          startDate: z.string().optional().describe("Start date in ISO 8601 format (e.g., '2026-03-24T15:00:00.000Z')."),
+          endDate: z.string().optional().describe("End date in ISO 8601 format (e.g., '2026-04-07T15:00:00.000Z')."),
+      }),
+      func: (input) => createJiraSprint(input, userId),
+    }),
+    new DynamicStructuredTool({
+      name: "update_jira_sprint",
+      description: "Update an existing Jira Sprint or start/close it. REQUIRES 'sprintId'. Use this to start a sprint by setting state to 'active', close it with 'closed', or change its name/dates/goal.",
+      schema: z.object({
+          sprintId: z.number().describe("REQUIRED: The numeric ID of the sprint."),
+          name: z.string().optional().describe("New name for the sprint."),
+          state: z.string().optional().describe("State to change the sprint to: 'active' (to start it) or 'closed' (to end it)."),
+          goal: z.string().optional().describe("New goal for the sprint."),
+          startDate: z.string().optional().describe("New start date in ISO 8601 format."),
+          endDate: z.string().optional().describe("New end date in ISO 8601 format."),
+      }),
+      func: (input) => updateJiraSprint(input, userId),
+    }),
+    new DynamicStructuredTool({
+      name: "add_issues_to_sprint",
+      description: "Add one or more Jira issues/tickets to a specific sprint. REQUIRES 'sprintId' and an array of 'issues' (keys or IDs).",
+      schema: z.object({
+          sprintId: z.number().describe("REQUIRED: The numeric ID of the sprint."),
+          issues: z.array(z.string()).describe("REQUIRED: Array of issue keys to add (e.g., ['FDIT-1', 'FDIT-2'])."),
+      }),
+      func: (input) => addIssuesToSprint(input, userId),
     }),
   ];
 
@@ -606,13 +640,15 @@ const KEYWORD_MAP = {
         'list projects', 'show projects', 'find project', 'what projects', 'jira projects',
         'list spaces', 'show spaces', 'find space', 'what spaces', 'my spaces',
         'check space', 'check project', 'does project exist', 'does space exist',
-        'look for project', 'look for space', 'which projects', 'which spaces'
+        'look for project', 'look for space', 'which projects', 'which spaces',
+        'list sprints', 'show sprints', 'find sprint'
     ],
     jira_write: [
         'create ticket', 'make ticket', 'new ticket', 'update ticket', 'delete ticket',
         'mark as done', 'change status', 'assign to', 'set priority', 'create issue',
         'create epic', 'create project', 'create space', 'new project', 'new space',
-        'make task', 'create task', 'new task'
+        'make task', 'create task', 'new task', 'create sprint', 'new sprint',
+        'start sprint', 'end sprint', 'close sprint', 'update sprint', 'add to sprint', 'sprint planning'
     ],
     github_read: [
         'list commits', 'show commits', 'check pr', 'list pr', 'show pull requests',
@@ -628,7 +664,7 @@ const KEYWORD_MAP = {
     ],
     system: [
         'open app', 'open application', 'launch', 'open ', 'start ', 'run command', 'terminal', 'cpu usage',
-        'memory usage', 'system status', 'disk space', 'battery'
+        'memory usage', 'system status', 'disk space', 'battery', 'connect', 'how do i connect'
     ],
     calendar: [
         'schedule', 'meeting', 'meetings', 'appointment', 'calendar', 'event', 'events',
@@ -753,6 +789,13 @@ async function classifyIntent(userMessage, chatHistory = [], classifier) {
         }
 
         return { categories: ['general'], isConfirmation: true };
+    }
+
+    // 0.5 GREETING CHECK: If the user just says hello, don't drag in 16 tools
+    const isGreeting = /^(hi|hello|hey|yo|greetings|good morning|good afternoon|good evening|sup)\s*([.!?]*)$/i.test(lowerMsg);
+    if (isGreeting) {
+        console.log("[Traffic Cop] 👋 Greeting detected. Routing to General directly.");
+        return { categories: ['general'], isConfirmation: false };
     }
 
     // 1. FAST PASS: Check specific keywords first (< 1ms)

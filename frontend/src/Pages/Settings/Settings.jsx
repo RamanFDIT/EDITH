@@ -7,12 +7,18 @@ import BackButton from '../../components/BackButton/BackButton.jsx';
 import { useApp } from '../../context/AppContext.jsx';
 import { API_URL } from '../../apiConfig.js';
 
+const JiraIcon = ({ size = 24, className }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
+    <path d="M11.53 2c0 2.4 1.97 4.35 4.35 4.35h1.78v1.7c0 2.4 1.94 4.34 4.34 4.35V2.84a.84.84 0 00-.84-.84H11.53zM6.77 6.8a4.36 4.36 0 004.34 4.34h1.78v1.72a4.36 4.36 0 004.34 4.34V7.63a.84.84 0 00-.83-.83H6.77zM2 11.6a4.35 4.35 0 004.34 4.34h1.78v1.72c0 2.4 1.94 4.34 4.34 4.34v-9.57a.84.84 0 00-.84-.83H2z"/>
+  </svg>
+);
+
 const providers = [
   { key: 'google', label: 'Google', description: 'Calendar & Gmail', icon: Calendar, },
   { key: 'github', label: 'GitHub', description: 'Repos, PRs, commits, issues', icon: Github },
   { key: 'slack', label: 'Slack', description: 'Send messages, post announcements', icon: MessageSquare },
   { key: 'figma', label: 'Figma', description: 'Read designs, post comments', icon: Figma },
-  { key: 'jira', label: 'Jira', description: 'Tickets, epics, sprints, projects', icon: CheckCircle2 },
+  { key: 'jira', label: 'Jira', description: 'Tickets, epics, sprints, projects', icon: JiraIcon },
 ];
 
 const Settings = () => {

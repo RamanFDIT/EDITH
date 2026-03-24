@@ -229,6 +229,19 @@ const ProjectDashboard = () => {
         <div className={styles.chartCard}>
           {githubLoading ? (
             <p className={styles.loading}>Loading GitHub data...</p>
+          ) : !oauthStatus.github?.connected ? (
+            <div className={styles.connectCard}>
+              <Github size={32} className={styles.connectIcon} />
+              <p className={styles.connectText}>Connect GitHub to see repository insights</p>
+              <button className={styles.connectBtn} onClick={() => handleConnect('github')}>
+                Connect GitHub
+              </button>
+            </div>
+          ) : !project.githubRepo ? (
+            <div className={styles.connectCard}>
+              <Github size={32} className={styles.connectIcon} />
+              <p className={styles.connectText}>Add a GitHub repository to this project to see insights</p>
+            </div>
           ) : githubError === 'not_connected' ? (
             <div className={styles.connectCard}>
               <Github size={32} className={styles.connectIcon} />
@@ -237,7 +250,7 @@ const ProjectDashboard = () => {
                 Connect GitHub
               </button>
             </div>
-          ) : githubError === 'no_repo' || !project.githubRepo ? (
+          ) : githubError === 'no_repo' ? (
             <div className={styles.connectCard}>
               <Github size={32} className={styles.connectIcon} />
               <p className={styles.connectText}>Add a GitHub repository to this project to see insights</p>
@@ -260,6 +273,19 @@ const ProjectDashboard = () => {
         <div className={styles.chartCard}>
           {jiraLoading ? (
             <p className={styles.loading}>Loading Jira data...</p>
+          ) : !oauthStatus.jira?.connected ? (
+            <div className={styles.connectCard}>
+              <ExternalLink size={32} className={styles.connectIcon} />
+              <p className={styles.connectText}>Connect Jira to see ticket breakdown</p>
+              <button className={styles.connectBtn} onClick={() => handleConnect('jira')}>
+                Connect Jira
+              </button>
+            </div>
+          ) : !project.jiraProjectKey ? (
+            <div className={styles.connectCard}>
+              <ExternalLink size={32} className={styles.connectIcon} />
+              <p className={styles.connectText}>Add a Jira project key to this project to see insights</p>
+            </div>
           ) : jiraError === 'not_connected' ? (
             <div className={styles.connectCard}>
               <ExternalLink size={32} className={styles.connectIcon} />
@@ -268,7 +294,7 @@ const ProjectDashboard = () => {
                 Connect Jira
               </button>
             </div>
-          ) : jiraError === 'no_key' || !project.jiraProjectKey ? (
+          ) : jiraError === 'no_key' ? (
             <div className={styles.connectCard}>
               <ExternalLink size={32} className={styles.connectIcon} />
               <p className={styles.connectText}>Add a Jira project key to this project to see insights</p>

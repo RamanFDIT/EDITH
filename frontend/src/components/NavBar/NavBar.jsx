@@ -4,7 +4,7 @@ import styles from "./NavBar.module.css";
 import Logo from '../../assets/EDITH.svg?react';
 import settings from '../../assets/settings.svg';
 import hamburger from '../../assets/hamburger.svg';
-import { Github, Figma, Calendar, MessageSquare, Plus, LogOut, Menu, X, FolderOpen, Trash2 } from 'lucide-react';
+import { Github, Figma, Calendar, MessageSquare, Plus, LogOut, Menu, X, FolderOpen, Trash2, Plug } from 'lucide-react';
 import { useNavBar } from './NavBarContext.jsx';
 import { useApp } from '../../context/AppContext.jsx';
 
@@ -179,8 +179,8 @@ const NavBar = ({ onNewProject }) => {
             to="/settings"
             onClick={isMobile ? closeMobile : undefined}
           >
-            <img src={settings} className={styles.settings} alt="settings" />
-            <p className={(!toggle && !isMobile) ? styles.displayNone : undefined}>Settings</p>
+            <Plug size={20} className={styles.settings} />
+            <p className={(!toggle && !isMobile) ? styles.displayNone : undefined}>Connections</p>
           </NavLink>
           <button
             className={(toggle || isMobile) ? styles.logoutButton : styles.logoutButtonCompact}

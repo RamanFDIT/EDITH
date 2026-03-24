@@ -62,9 +62,18 @@ const ProjectModal = ({ onClose, existingProject = null }) => {
       return;
     }
 
-    if (githubRepo && !/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(githubRepo)) {
-      setError('GitHub repo must be in owner/repo format');
-      return;
+    let finalGithubRepo = githubRepo.trim();
+    if (finalGithubRepo) {
+      // Extract owner/repo from full URL if provided (e.g. https://github.com/RamanFDIT/EDITH)
+      const urlMatch = finalGithubRepo.match(/(?:https?:\/\/)?(?:www\.)?github\.com\/([a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+)\/?/i);
+      if (urlMatch) {
+        finalGithubRepo = urlMatch[1];
+      }
+
+      if (!/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(finalGithubRepo)) {
+        setError('GitHub repo must be in owner/repo format or a valid GitHub URL');
+        return;
+      }
     }
 
     if (jiraProjectKey && !/^[A-Z][A-Z0-9_]{1,9}$/.test(jiraProjectKey)) {
@@ -75,9 +84,9 @@ const ProjectModal = ({ onClose, existingProject = null }) => {
     setSaving(true);
     try {
       if (isEdit) {
-        await updateProject(existingProject._id, { name: name.trim(), jiraProjectKey, githubRepo });
+        await updateProject(existingProject._id, { name: name.trim(), jiraProjectKey, githubRepo: finalGithubRepo });
       } else {
-        const project = await createProject({ name: name.trim(), jiraProjectKey, githubRepo });
+        const project = await createProject({ name: name.trim(), jiraProjectKey, githubRepo: finalGithubRepo });
         setActiveProjectId(project._id);
         navigate(`/project/${project._id}`);
       }
