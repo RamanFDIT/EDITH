@@ -30,6 +30,17 @@ async function githubFetch(url, userId) {
     return await response.json();
 }
 
+// --- AUTO-OWNER: Fetch authenticated user's GitHub username ---
+async function resolveOwner(owner, userId) {
+    if (owner) return owner;
+    try {
+        const data = await githubFetch('https://api.github.com/user', userId);
+        return data.login;
+    } catch {
+        throw new Error('Owner is required. Connect GitHub or specify the repository owner.');
+    }
+}
+
 // --- REPOSITORY MANAGEMENT (NEW) ---
 export async function createRepository(args, userId) {
     console.log("📝 GitHub Create Repo Invoked:", JSON.stringify(args));
@@ -73,8 +84,9 @@ export async function createRepository(args, userId) {
 
 // --- ISSUES ---
 export async function getRepoIssues(args, userId) {
-  const { owner, repo } = args;
-  if (!owner || !repo) throw new Error('Owner and Repo required.');
+  let { owner, repo } = args;
+  owner = await resolveOwner(owner, userId);
+  if (!repo) throw new Error('Repo name is required.');
   try {
     const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/issues`, userId);
     if (!data || data.length === 0) {
@@ -94,10 +106,11 @@ export async function getRepoIssues(args, userId) {
 
 export async function createRepoIssue(args, userId) {
     console.log("📝 GitHub Create Issue Invoked:", JSON.stringify(args));
-    const { owner, repo, title, body } = args;
+    let { owner, repo, title, body } = args;
 
     const token = await getGitHubToken(userId);
-    if (!owner || !repo || !title) throw new Error('Owner, Repo, and Title are required.');
+    owner = await resolveOwner(owner, userId);
+    if (!repo || !title) throw new Error('Repo and Title are required.');
 
     try {
         const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues`, {
@@ -126,7 +139,9 @@ export async function createRepoIssue(args, userId) {
 
 // --- COMMITS & PRs ---
 export async function listCommits(args, userId) {
-    const { owner, repo, limit = 5 } = args;
+    let { owner, repo, limit = 5 } = args;
+    owner = await resolveOwner(owner, userId);
+    if (!repo) throw new Error('Repo name is required.');
     try {
         const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/commits?per_page=${limit}`, userId);
         if (!data || data.length === 0) {
@@ -145,7 +160,9 @@ export async function listCommits(args, userId) {
 }
 
 export async function listPullRequests(args, userId) {
-    const { owner, repo, state = 'open' } = args;
+    let { owner, repo, state = 'open' } = args;
+    owner = await resolveOwner(owner, userId);
+    if (!repo) throw new Error('Repo name is required.');
     try {
         const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/pulls?state=${state}`, userId);
         if (!data || data.length === 0) {
@@ -165,7 +182,8 @@ export async function listPullRequests(args, userId) {
 }
 
 export async function getPullRequest(args, userId) {
-    const { owner, repo, pullNumber } = args;
+    let { owner, repo, pullNumber } = args;
+    owner = await resolveOwner(owner, userId);
     try {
         const pr = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${pullNumber}`, userId);
         return JSON.stringify({
@@ -187,7 +205,8 @@ export async function getPullRequest(args, userId) {
 }
 
 export async function getCommit(args, userId) {
-    const { owner, repo, sha } = args;
+    let { owner, repo, sha } = args;
+    owner = await resolveOwner(owner, userId);
     try {
         const c = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/commits/${sha}`, userId);
         return JSON.stringify({
@@ -206,8 +225,9 @@ export async function getCommit(args, userId) {
 }
 
 export async function getRepoChecks(args, userId) {
-    const { owner, repo, ref } = args;
-    if (!owner || !repo || !ref) throw new Error('Owner, Repo, and Ref are required.');
+    let { owner, repo, ref } = args;
+    owner = await resolveOwner(owner, userId);
+    if (!repo || !ref) throw new Error('Repo and Ref are required.');
     try {
         const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/commits/${ref}/check-runs`, userId);
         return JSON.stringify({ status: "success", checks: data });
@@ -217,8 +237,9 @@ export async function getRepoChecks(args, userId) {
 }
 
 export async function listBranches(args, userId) {
-    const { owner, repo } = args;
-    if (!owner || !repo) throw new Error('Owner and Repo are required.');
+    let { owner, repo } = args;
+    owner = await resolveOwner(owner, userId);
+    if (!repo) throw new Error('Repo name is required.');
     try {
         const branches = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/branches?per_page=100`, userId);
         const repoData = await githubFetch(`https://api.github.com/repos/${owner}/${repo}`, userId);
@@ -241,8 +262,9 @@ export async function listBranches(args, userId) {
 }
 
 export async function getRepoInfo(args, userId) {
-    const { owner, repo } = args;
-    if (!owner || !repo) throw new Error('Owner and Repo are required.');
+    let { owner, repo } = args;
+    owner = await resolveOwner(owner, userId);
+    if (!repo) throw new Error('Repo name is required.');
     try {
         const data = await githubFetch(`https://api.github.com/repos/${owner}/${repo}`, userId);
         return JSON.stringify({

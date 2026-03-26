@@ -22,10 +22,15 @@ const Auth = () => {
         try {
             if (isSignUp) {
                 await register(email, password);
+                navigate('/setup');
             } else {
-                await signIn(email, password);
+                const data = await signIn(email, password);
+                if (!data.preferredName) {
+                    navigate('/setup');
+                } else {
+                    navigate('/home');
+                }
             }
-            navigate('/home');
         } catch (err) {
             setError(err.message || 'Authentication failed');
         } finally {
@@ -92,6 +97,19 @@ const Auth = () => {
                             </button>
                         </div>
                     </div>
+
+                    {!isSignUp && (
+                        <div style={{ textAlign: 'right', marginTop: '-8px' }}>
+                            <button
+                                type="button"
+                                className={styles.switchButton}
+                                onClick={() => navigate('/reset-password')}
+                                style={{ fontSize: '13px' }}
+                            >
+                                Forgot Password?
+                            </button>
+                        </div>
+                    )}
 
                     {error && <p className={styles.error}>{error}</p>}
 

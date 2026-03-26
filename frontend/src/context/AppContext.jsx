@@ -156,8 +156,10 @@ export const AppProvider = ({ children }) => {
         setUserEmail(data.email);
         setGoogleName(data.name || '');
         setIsAuthenticated(true);
-        setOnboardingComplete(true);
-        localStorage.setItem('edith_onboarding_complete', 'true');
+        if (data.preferredName) {
+            setOnboardingComplete(true);
+            localStorage.setItem('edith_onboarding_complete', 'true');
+        }
 
         if (data.preferredName) {
             setPreferredName(data.preferredName);

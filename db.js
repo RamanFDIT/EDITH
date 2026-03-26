@@ -24,6 +24,15 @@ const userSchema = new mongoose.Schema({
       cloud_url: String
     }
   },
+  resetToken: String,
+  resetTokenExpires: Date,
+  oauthUsernames: {
+    google: String,
+    github: String,
+    slack: String,
+    figma: String,
+    jira: String,
+  },
   preferredName: { type: String, default: '' },
   titlePreference: { type: String, enum: ['Sir', "Ma'am", 'name'], default: 'Sir' },
   settings: {

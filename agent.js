@@ -402,7 +402,7 @@ function createToolsForUser(userId) {
       name: "get_repo_issues",
       description: "List issues for a GitHub repository. Requires owner and repo name.",
       schema: z.object({
-        owner: z.string().describe("Repository owner (e.g., 'octocat')."),
+        owner: z.string().optional().describe("Repository owner. Defaults to the authenticated user's GitHub username."),
         repo: z.string().describe("Repository name (e.g., 'Hello-World')."),
       }),
       func: (input) => getRepoIssues(input, userId),
@@ -411,7 +411,7 @@ function createToolsForUser(userId) {
       name: "list_commits",
       description: "List recent commits for a GitHub repository.",
       schema: z.object({
-        owner: z.string().describe("Repository owner."),
+        owner: z.string().optional().describe("Repository owner. Defaults to the authenticated user's GitHub username."),
         repo: z.string().describe("Repository name."),
         limit: z.number().optional().describe("Number of commits to return. Default 5."),
       }),
@@ -421,7 +421,7 @@ function createToolsForUser(userId) {
       name: "list_pull_requests",
       description: "List pull requests for a GitHub repository.",
       schema: z.object({
-        owner: z.string().describe("Repository owner."),
+        owner: z.string().optional().describe("Repository owner. Defaults to the authenticated user's GitHub username."),
         repo: z.string().describe("Repository name."),
         state: z.string().optional().describe("PR state: 'open', 'closed', or 'all'. Default 'open'."),
       }),
@@ -431,7 +431,7 @@ function createToolsForUser(userId) {
       name: "get_pull_request",
       description: "Get details of a specific pull request.",
       schema: z.object({
-        owner: z.string().describe("Repository owner."),
+        owner: z.string().optional().describe("Repository owner. Defaults to the authenticated user's GitHub username."),
         repo: z.string().describe("Repository name."),
         pullNumber: z.number().describe("The pull request number."),
       }),
@@ -441,7 +441,7 @@ function createToolsForUser(userId) {
       name: "get_commit",
       description: "Get details of a specific commit by SHA.",
       schema: z.object({
-        owner: z.string().describe("Repository owner."),
+        owner: z.string().optional().describe("Repository owner. Defaults to the authenticated user's GitHub username."),
         repo: z.string().describe("Repository name."),
         sha: z.string().describe("The commit SHA."),
       }),
@@ -451,7 +451,7 @@ function createToolsForUser(userId) {
       name: "get_repo_checks",
       description: "Get check runs for a specific git ref (branch, tag, or SHA).",
       schema: z.object({
-        owner: z.string().describe("Repository owner."),
+        owner: z.string().optional().describe("Repository owner. Defaults to the authenticated user's GitHub username."),
         repo: z.string().describe("Repository name."),
         ref: z.string().describe("Git ref (branch name, tag, or commit SHA)."),
       }),
@@ -461,7 +461,7 @@ function createToolsForUser(userId) {
       name: "list_branches",
       description: "List all branches for a GitHub repository, including which is the default branch and whether each is protected.",
       schema: z.object({
-        owner: z.string().describe("Repository owner (e.g., 'octocat')."),
+        owner: z.string().optional().describe("Repository owner. Defaults to the authenticated user's GitHub username."),
         repo: z.string().describe("Repository name (e.g., 'Hello-World')."),
       }),
       func: (input) => listBranches(input, userId),
@@ -470,7 +470,7 @@ function createToolsForUser(userId) {
       name: "get_repo_info",
       description: "Get detailed information about a GitHub repository including default branch, description, stars, forks, open issues, visibility, language, and topics.",
       schema: z.object({
-        owner: z.string().describe("Repository owner."),
+        owner: z.string().optional().describe("Repository owner. Defaults to the authenticated user's GitHub username."),
         repo: z.string().describe("Repository name."),
       }),
       func: (input) => getRepoInfo(input, userId),
@@ -492,7 +492,7 @@ function createToolsForUser(userId) {
       name: "create_repo_issue",
       description: "Create a new issue on a GitHub repository.",
       schema: z.object({
-        owner: z.string().describe("Repository owner."),
+        owner: z.string().optional().describe("Repository owner. Defaults to the authenticated user's GitHub username."),
         repo: z.string().describe("Repository name."),
         title: z.string().describe("Issue title."),
         body: z.string().optional().describe("Issue body/description."),
@@ -694,7 +694,10 @@ const KEYWORD_MAP = {
         'what\'s on my', 'what is on my', 'check my calendar', 'show my calendar',
         'my schedule', 'my agenda', 'upcoming', 'plans for', 'what\'s happening',
         'this evening', 'this morning', 'this afternoon',
-        'any tasks', 'any events', 'any meetings'
+        'any tasks', 'any events', 'any meetings',
+        'schedule a task', 'schedule task', 'add to calendar', 'put on calendar',
+        'create an event', 'create event', 'book a meeting', 'set a reminder',
+        'add a meeting', 'block out time', 'schedule for'
     ],
     files: [
         'document', 'pdf', 'docx', 'word doc', 'file',
@@ -736,7 +739,7 @@ const KEYWORD_MAP = {
 
 // Fallback keywords that map to both read and write
 const FALLBACK_KEYWORD_MAP = {
-    jira: ['jira', 'ticket', 'sprint', 'epic', 'kanban', 'issue', 'bug', 'board', 'space', 'task'],
+    jira: ['jira', 'ticket', 'sprint', 'epic', 'kanban', 'issue', 'bug', 'board', 'space'],
     github: ['github', 'repo', 'pr', 'pull request', 'commit', 'branch', 'push', 'merge', 'clone', 'check', 'code'],
 };
 
@@ -831,6 +834,27 @@ async function classifyIntent(userMessage, chatHistory = [], classifier) {
         if (keywords.some(k => lowerMsg.includes(k))) {
             detectedCategories.add(`${service}_read`);
             detectedCategories.add(`${service}_write`);
+        }
+    }
+
+    // TIME-CONTEXT DISAMBIGUATION: If both Jira and Calendar detected, prefer Calendar when time context present
+    if (detectedCategories.size > 0) {
+        const hasJira = [...detectedCategories].some(c => c.startsWith('jira'));
+        const hasCalendar = detectedCategories.has('calendar');
+        const hasTimeContext = /\b(\d{1,2}[:\s]?\d{0,2}\s*(am|pm)|at\s+\d|tomorrow|tonight|this\s+(morning|afternoon|evening)|next\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)|on\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/i.test(lowerMsg);
+
+        if (hasJira && hasTimeContext) {
+            if (hasCalendar) {
+                // Both detected + time context → remove Jira, keep Calendar
+                for (const cat of [...detectedCategories]) {
+                    if (cat.startsWith('jira')) detectedCategories.delete(cat);
+                }
+                console.log(`[Traffic Cop] 📅 Time-context disambiguation: preferring Calendar over Jira`);
+            } else {
+                // Only Jira detected but time context → add Calendar so LLM can decide
+                detectedCategories.add('calendar');
+                console.log(`[Traffic Cop] 📅 Time-context detected with Jira: adding Calendar tools`);
+            }
         }
     }
 
@@ -1447,7 +1471,7 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         }
 
         for await (const event of withTimeout(stream, STREAM_TIMEOUT_MS)) {
-
+          try {
             // Track tool calls to detect hallucination loops
             if (event.event === "on_tool_start") {
                 const toolName = event.name || '';
@@ -1480,6 +1504,10 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
                     completeResponse += content;
                 }
             }
+          } catch (eventErr) {
+            console.error('[Agent] Error processing stream event:', eventErr.message);
+            // Continue processing — don't break the stream for a single event error
+          }
         }
 
         // Save to history after streaming completes

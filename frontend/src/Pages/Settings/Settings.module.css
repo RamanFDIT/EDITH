@@ -72,6 +72,9 @@
 .connectedBadge {
     @apply flex items-center gap-1 text-colorSuccess font-fontBody text-xs;
 }
+.connectedUsername {
+    @apply text-textPrimary/50 font-fontBody text-xs;
+}
 .connectButton {
     @apply bg-bgCTA text-textCTA font-fontDisplay font-semibold text-sm px-5 py-2 rounded-sm
            hover:bg-bgHover hover:text-bgCTA hover:cursor-pointer

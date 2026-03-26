@@ -248,7 +248,7 @@ const Home = () => {
     setIsThinking(true);
 
     const streamAbort = new AbortController();
-    const STREAM_INACTIVITY_MS = 30000;
+    const STREAM_INACTIVITY_MS = 60000;
     let inactivityTimer = setTimeout(() => streamAbort.abort(), STREAM_INACTIVITY_MS);
 
     try {
@@ -342,6 +342,8 @@ const Home = () => {
               }
               return updated;
             });
+          } else if (data.type === 'heartbeat') {
+            // Keepalive from server — inactivity timer already reset by resetInactivity() above
           } else if (data.type === 'done') {
             // Unblock UI immediately — audio may still arrive after this
             setIsStreaming(false);

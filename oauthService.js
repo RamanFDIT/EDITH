@@ -186,7 +186,7 @@ function getOAuthProviders() {
       clientSecret: process.env.OAUTH_JIRA_CLIENT_SECRET || '',
       scopes: [
         'read:jira-work', 'write:jira-work', 'read:jira-user',
-        'manage:jira-project', 'manage:jira-configuration',
+        'manage:jira-project',
         'read:sprint:jira-software', 'write:sprint:jira-software',
         'read:board-scope:jira-software', 'write:board-scope:jira-software',
         'offline_access'
@@ -244,14 +244,57 @@ export async function clearTokens(userId, provider) {
   console.log(`[OAuth] Cleared tokens for user ${userId}, provider ${provider}`);
 }
 
+export async function fetchProviderUsername(provider, accessToken, cloudId) {
+  try {
+    let url, headers, extractUsername;
+    switch (provider) {
+      case 'google':
+        url = 'https://www.googleapis.com/oauth2/v2/userinfo';
+        headers = { Authorization: `Bearer ${accessToken}` };
+        extractUsername = (data) => data.email;
+        break;
+      case 'github':
+        url = 'https://api.github.com/user';
+        headers = { Authorization: `Bearer ${accessToken}`, Accept: 'application/vnd.github.v3+json' };
+        extractUsername = (data) => data.login;
+        break;
+      case 'slack':
+        url = 'https://slack.com/api/auth.test';
+        headers = { Authorization: `Bearer ${accessToken}` };
+        extractUsername = (data) => data.user;
+        break;
+      case 'figma':
+        url = 'https://api.figma.com/v1/me';
+        headers = { Authorization: `Bearer ${accessToken}` };
+        extractUsername = (data) => data.handle;
+        break;
+      case 'jira':
+        if (!cloudId) return null;
+        url = `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/myself`;
+        headers = { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' };
+        extractUsername = (data) => data.displayName;
+        break;
+      default:
+        return null;
+    }
+    const res = await fetch(url, { headers });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return extractUsername(data) || null;
+  } catch (err) {
+    console.warn(`[OAuth] Failed to fetch ${provider} username:`, err.message);
+    return null;
+  }
+}
+
 export async function getConnectionStatus(userId) {
   const user = await User.findById(userId);
   const status = {};
   const providers = getOAuthProviders();
-  
+
   for (const provider of Object.keys(providers)) {
     const tokens = user?.tokens?.[provider];
-    
+
     // Test decryption to ensure key matches
     let isValid = false;
     if (tokens?.access_token) {
@@ -263,6 +306,7 @@ export async function getConnectionStatus(userId) {
       connected: isValid,
       expired: tokens ? isTokenExpired(tokens) : true,
       hasRefreshToken: !!tokens?.refresh_token,
+      username: user?.oauthUsernames?.[provider] || null,
     };
   }
   return status;

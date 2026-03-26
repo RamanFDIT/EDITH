@@ -269,6 +269,9 @@ const Settings = () => {
                   {isConnected && (
                     <span className={styles.connectedBadge}>
                       <Wifi size={12} /> Connected
+                      {oauthStatus[key]?.username && (
+                        <span className={styles.connectedUsername}> ({oauthStatus[key].username})</span>
+                      )}
                     </span>
                   )}
                   {isConnected ? (

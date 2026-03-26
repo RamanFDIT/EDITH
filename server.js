@@ -157,7 +157,8 @@ import {
     getConnectionStatus,
     clearTokens,
     discoverJiraCloudId,
-    fetchGoogleUserInfo
+    fetchGoogleUserInfo,
+    fetchProviderUsername
 } from './oauthService.js';
 import crypto from 'crypto';
 
@@ -234,6 +235,64 @@ app.post('/api/auth/login', async (req, res) => {
     } catch (error) {
         console.error('[Auth Login] Error:', error);
         res.status(500).json({ error: 'Login failed' });
+    }
+});
+
+// --- Password Reset ---
+app.post('/api/auth/forgot-password', async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email) return res.status(400).json({ error: 'Email is required' });
+
+        const user = await User.findOne({ email: email.toLowerCase() });
+        if (!user || !user.password) {
+            // Don't reveal whether email exists — return success either way
+            return res.json({ success: true });
+        }
+
+        // Generate 6-digit reset code
+        const resetCode = crypto.randomInt(100000, 999999).toString();
+        user.resetToken = resetCode;
+        user.resetTokenExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+        await user.save();
+
+        console.log(`[Auth] Password reset code generated for ${email}: ${resetCode}`);
+        // In production, this would be sent via email. For capstone demo, return in response.
+        res.json({ success: true, resetCode });
+    } catch (error) {
+        console.error('[Auth Forgot Password] Error:', error);
+        res.status(500).json({ error: 'Failed to process request' });
+    }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+    try {
+        const { email, resetCode, newPassword } = req.body;
+        if (!email || !resetCode || !newPassword) {
+            return res.status(400).json({ error: 'Email, reset code, and new password are required' });
+        }
+        if (newPassword.length < 6) {
+            return res.status(400).json({ error: 'Password must be at least 6 characters' });
+        }
+
+        const user = await User.findOne({ email: email.toLowerCase() });
+        if (!user || user.resetToken !== resetCode) {
+            return res.status(400).json({ error: 'Invalid reset code' });
+        }
+        if (!user.resetTokenExpires || user.resetTokenExpires < new Date()) {
+            return res.status(400).json({ error: 'Reset code has expired. Please request a new one.' });
+        }
+
+        user.password = await bcrypt.hash(newPassword, 10);
+        user.resetToken = undefined;
+        user.resetTokenExpires = undefined;
+        await user.save();
+
+        console.log(`[Auth] Password reset successful for ${email}`);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[Auth Reset Password] Error:', error);
+        res.status(500).json({ error: 'Failed to reset password' });
     }
 });
 
@@ -361,6 +420,17 @@ app.get('/api/oauth/callback', async (req, res) => {
         }
 
         await storeTokens(user._id, provider, tokenData);
+
+        // Fetch and store the connected account's username
+        try {
+            const username = await fetchProviderUsername(provider, tokenData.access_token, tokenData.cloud_id);
+            if (username) {
+                await User.findByIdAndUpdate(user._id, { $set: { [`oauthUsernames.${provider}`]: username } });
+                console.log(`[OAuth] Stored ${provider} username: ${username}`);
+            }
+        } catch (e) {
+            console.warn(`[OAuth] Failed to fetch ${provider} username:`, e.message);
+        }
 
         res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
         res.send(`
@@ -733,8 +803,21 @@ app.post('/api/ask', extractUser, async (req, res) => {
 
     // Detect client disconnect to stop processing
     let clientDisconnected = false;
+
+    // Heartbeat to prevent frontend timeout during long tool operations
+    const heartbeatInterval = setInterval(() => {
+        if (!clientDisconnected) {
+            try {
+                res.write(`data: ${JSON.stringify({ type: "heartbeat" })}\n\n`);
+            } catch (e) {
+                clearInterval(heartbeatInterval);
+            }
+        }
+    }, 15000);
+
     req.on('close', () => {
         clientDisconnected = true;
+        clearInterval(heartbeatInterval);
         console.log(`[Server] Client disconnected during stream`);
     });
 
@@ -782,6 +865,7 @@ app.post('/api/ask', extractUser, async (req, res) => {
 
             res.write(`data: ${JSON.stringify({ type: "token", content: helpText })}\n\n`);
             res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+            clearInterval(heartbeatInterval);
             return res.end();
         } catch (e) {
             console.error('[Server] /help Interceptor Error:', e);
@@ -884,6 +968,7 @@ app.post('/api/ask', extractUser, async (req, res) => {
       res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
     } catch (e) { /* response already closed */ }
   } finally {
+    clearInterval(heartbeatInterval);
     res.end();
   }
 });
