@@ -1171,7 +1171,7 @@ function getOrCreateAgent(tools, userTimezone, userId, userLLM, userPrefs, proje
         llm: userLLM,
         tools,
         stateModifier: systemPrompt,
-        recursionLimit: 150,
+        recursionLimit: 30,
     });
     
     console.log(`[Agent Factory] Created agent with tools: ${toolSignature || '(none)'}`);
@@ -1280,7 +1280,7 @@ async function processWithSemanticRouting(input) {
     }
     const result = await agent.invoke(
         { messages: [...history, freshTimeReminder, toolNudge, new HumanMessage(userQuery)] },
-        { recursionLimit: 150 }
+        { recursionLimit: 30 }
     );
 
     return result;
@@ -1444,29 +1444,40 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         }
         const stream = agent.streamEvents(
             { messages: [...history, agentTimeReminder, toolNudge, new HumanMessage(userQuery)] },
-            { version: "v2", recursionLimit: 150 }
+            { version: "v2", recursionLimit: 30 }
         );
 
         let completeResponse = "";
-        const STREAM_TIMEOUT_MS = 90000;
+        const STREAM_TIMEOUT_MS = 45000;
 
         // Repeated tool call detector — catches hallucination loops
         const MAX_REPEATED_CALLS = 3;
         let lastToolCall = null;
         let repeatCount = 0;
 
-        // Wrap stream with inactivity timeout
+        // Track total tool errors to bail early when tools keep failing
+        let toolErrorCount = 0;
+        const MAX_TOOL_ERRORS = 4;
+
+        // Wrap stream with inactivity timeout (properly clears timers)
         async function* withTimeout(source, timeoutMs) {
             const iterator = source[Symbol.asyncIterator]();
             while (true) {
-                const raceResult = await Promise.race([
-                    iterator.next(),
-                    new Promise((_, reject) =>
-                        setTimeout(() => reject(new Error('Stream inactivity timeout')), timeoutMs)
-                    ),
-                ]);
-                if (raceResult.done) break;
-                yield raceResult.value;
+                let timer;
+                try {
+                    const raceResult = await Promise.race([
+                        iterator.next(),
+                        new Promise((_, reject) => {
+                            timer = setTimeout(() => reject(new Error('Stream inactivity timeout')), timeoutMs);
+                        }),
+                    ]);
+                    clearTimeout(timer);
+                    if (raceResult.done) break;
+                    yield raceResult.value;
+                } catch (err) {
+                    clearTimeout(timer);
+                    throw err;
+                }
             }
         }
 
@@ -1491,6 +1502,23 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
                 } else {
                     lastToolCall = callSignature;
                     repeatCount = 1;
+                }
+            }
+
+            // Track tool errors — bail if tools keep failing
+            if (event.event === "on_tool_end") {
+                const rawOutput = event.data?.output;
+                const outputStr = typeof rawOutput === 'string' ? rawOutput : JSON.stringify(rawOutput || '');
+                if (outputStr.includes('"status":"error"') || outputStr.includes('Error') || outputStr.includes('Failed')) {
+                    toolErrorCount++;
+                    if (toolErrorCount >= MAX_TOOL_ERRORS) {
+                        console.warn(`[Agent] Bailing: ${toolErrorCount} tool errors reached. Forcing summary response.`);
+                        yield {
+                            event: "on_chat_model_stream",
+                            data: { chunk: { content: "\n\nI'm running into repeated errors with the tools. Let me summarize what I was able to do and what failed." } }
+                        };
+                        break;
+                    }
                 }
             }
 
