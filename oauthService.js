@@ -187,8 +187,6 @@ function getOAuthProviders() {
       scopes: [
         'read:jira-work', 'write:jira-work', 'read:jira-user',
         'manage:jira-project',
-        'read:sprint:jira-software', 'write:sprint:jira-software', 'delete:sprint:jira-software',
-        'read:board-scope:jira-software', 'write:board-scope:jira-software',
         'offline_access'
       ],
       redirectUri: callbackUrl,

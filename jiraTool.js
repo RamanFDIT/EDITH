@@ -423,7 +423,6 @@ export async function createJiraProject(input, userId) {
 // Helper: Get the Board ID for a specific project
 async function getBoardIdForProject(projectKey, accessToken, cloudId) {
     const url = `${getJiraBaseUrl(cloudId)}/rest/agile/1.0/board?projectKeyOrId=${projectKey}`;
-    console.log(`[DEBUG Sprint] Board fetch URL: ${url}`);
     const response = await fetchWithTimeout(url, {
         method: 'GET',
         headers: {
@@ -597,14 +596,10 @@ export async function listJiraSprints(input, userId) {
 
     if (!projectKey) throw new Error("Project Key (e.g., 'FDIT') is required.");
 
-    console.log("[DEBUG Sprint] Getting Jira credentials...");
     const { accessToken, cloudId } = await getJiraCredentials(userId);
-    console.log(`[DEBUG Sprint] Got credentials. cloudId: ${cloudId}, token length: ${accessToken?.length}`);
 
     try {
-        console.log("[DEBUG Sprint] Fetching board ID...");
         const boardId = await getBoardIdForProject(projectKey, accessToken, cloudId);
-        console.log(`[DEBUG Sprint] Got boardId: ${boardId}`);
         
         let url = `${getJiraBaseUrl(cloudId)}/rest/agile/1.0/board/${boardId}/sprint`;
         if (state) {
