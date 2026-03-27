@@ -21,7 +21,9 @@ const userSchema = new mongoose.Schema({
       access_token: String,
       refresh_token: String,
       cloud_id: String,
-      cloud_url: String
+      cloud_url: String,
+      scope: String,
+      expires_at: Date
     }
   },
   resetToken: String,

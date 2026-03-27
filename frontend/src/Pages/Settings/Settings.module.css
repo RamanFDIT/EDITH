@@ -85,6 +85,13 @@
            hover:bg-colorFail/20 hover:text-colorFail hover:cursor-pointer
            transition-all ease-out active:scale-95;
 }
+.scopeWarning {
+    @apply flex items-center gap-1 text-yellow-400 font-fontBody text-xs;
+}
+.reconnectButton {
+    @apply flex items-center gap-1 ml-2 text-yellow-400 font-fontBody text-xs underline
+           hover:text-yellow-300 hover:cursor-pointer bg-transparent border-none p-0;
+}
 .accountCard {
     @apply bg-bgComponents rounded-sm px-4 md:px-6 py-4 md:py-5 mb-8
            flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:justify-between

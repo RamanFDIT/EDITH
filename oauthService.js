@@ -290,6 +290,23 @@ export async function fetchProviderUsername(provider, accessToken, cloudId) {
   }
 }
 
+const REQUIRED_AGILE_SCOPES = [
+  'read:board-scope:jira-software',
+  'read:sprint:jira-software',
+  'write:sprint:jira-software',
+];
+
+export function checkJiraAgileScopesFromToken(tokens) {
+  const grantedScope = tokens?.scope || '';
+  if (!grantedScope) return { hasAgileScopes: null, reason: 'unknown' };
+  const grantedSet = new Set(grantedScope.split(' '));
+  const missing = REQUIRED_AGILE_SCOPES.filter(s => !grantedSet.has(s));
+  if (missing.length > 0) {
+    return { hasAgileScopes: false, reason: 'missing_scopes', missing };
+  }
+  return { hasAgileScopes: true };
+}
+
 export async function getConnectionStatus(userId) {
   const user = await User.findById(userId);
   const status = {};
@@ -305,12 +322,19 @@ export async function getConnectionStatus(userId) {
        isValid = decrypted !== null;
     }
 
-    status[provider] = {
+    const entry = {
       connected: isValid,
       expired: tokens ? isTokenExpired(tokens) : true,
       hasRefreshToken: !!tokens?.refresh_token,
       username: user?.oauthUsernames?.[provider] || null,
     };
+
+    if (provider === 'jira' && isValid) {
+      const scopeCheck = checkJiraAgileScopesFromToken(tokens);
+      entry.agileEnabled = scopeCheck.hasAgileScopes;
+    }
+
+    status[provider] = entry;
   }
   return status;
 }

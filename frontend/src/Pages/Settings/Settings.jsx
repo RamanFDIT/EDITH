@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Github, Figma, Calendar, MessageSquare, CheckCircle2, Plug, Unplug, Wifi, LogOut, Shield, User } from 'lucide-react';
+import { Github, Figma, Calendar, MessageSquare, CheckCircle2, Plug, Unplug, Wifi, LogOut, Shield, User, AlertTriangle, RefreshCw } from 'lucide-react';
 import styles from './Settings.module.css';
 import { useNavBar } from '../../components/NavBar/NavBarContext.jsx';
 import BackButton from '../../components/BackButton/BackButton.jsx';
@@ -147,6 +147,11 @@ const Settings = () => {
     }
   };
 
+  const handleReconnect = async (provider) => {
+    await handleDisconnect(provider);
+    setTimeout(() => handleConnect(provider), 500);
+  };
+
   const handleDisconnect = async (provider) => {
     try {
       await fetch(`${API_URL}/api/oauth/disconnect/${provider}`, {
@@ -272,6 +277,14 @@ const Settings = () => {
                       {oauthStatus[key]?.username && (
                         <span className={styles.connectedUsername}> ({oauthStatus[key].username})</span>
                       )}
+                    </span>
+                  )}
+                  {key === 'jira' && isConnected && oauthStatus.jira?.agileEnabled === false && (
+                    <span className={styles.scopeWarning}>
+                      <AlertTriangle size={12} /> Sprints unavailable
+                      <button onClick={() => handleReconnect('jira')} className={styles.reconnectButton}>
+                        <RefreshCw size={12} /> Reconnect
+                      </button>
                     </span>
                   )}
                   {isConnected ? (

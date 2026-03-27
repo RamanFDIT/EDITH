@@ -1,6 +1,6 @@
 import fetch from 'node-fetch';
 import './envConfig.js';
-import { getValidToken, getStoredTokens } from './oauthService.js';
+import { getValidToken, getStoredTokens, checkJiraAgileScopesFromToken } from './oauthService.js';
 
 // ---------------------------------------------------------------------------
 // Per-user Jira credential helpers.
@@ -30,6 +30,17 @@ function getJiraBaseUrl(cloudId) {
 
 function getAuthHeader(accessToken) {
     return `Bearer ${accessToken}`;
+}
+
+async function ensureAgileAccess(userId) {
+    const tokens = await getStoredTokens(userId, 'jira');
+    const scopeCheck = checkJiraAgileScopesFromToken(tokens);
+    if (scopeCheck.hasAgileScopes === false) {
+        throw new Error(
+            'Your Jira connection does not have Sprint/Board permissions. ' +
+            'Please go to Settings, disconnect Jira, then reconnect it to grant the updated Agile API scopes.'
+        );
+    }
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 25000) {
@@ -476,6 +487,7 @@ export async function createJiraSprint(input, userId) {
 
     if (!name || !projectKey) throw new Error("Sprint Name and Project Key are required.");
 
+    await ensureAgileAccess(userId);
     const { accessToken, cloudId } = await getJiraCredentials(userId);
 
     try {
@@ -488,8 +500,9 @@ export async function createJiraSprint(input, userId) {
 
         if (!boardResponse.ok) {
             const txt = await boardResponse.text();
-            if (boardResponse.status === 401) {
-                throw new Error(`Jira Software API access denied. To create sprints, add "Jira Software" API with Agile scopes in your Atlassian Developer Console app permissions.`);
+            console.error(`[Jira Agile] Board fetch failed — Status: ${boardResponse.status}, Body: ${txt}`);
+            if (boardResponse.status === 401 || boardResponse.status === 403) {
+                throw new Error(`Sprint API access denied (HTTP ${boardResponse.status}). Please go to Settings, disconnect Jira, then reconnect it to re-authorize with updated Agile permissions.`);
             }
             throw new Error(`Failed to fetch boards: ${boardResponse.status} - ${txt}`);
         }
@@ -543,6 +556,7 @@ export async function updateJiraSprint(input, userId) {
         throw new Error("No update parameters provided (name, state, startDate, endDate, goal).");
     }
 
+    await ensureAgileAccess(userId);
     const { accessToken, cloudId } = await getJiraCredentials(userId);
 
     try {
@@ -566,10 +580,10 @@ export async function updateJiraSprint(input, userId) {
 
         if (!response.ok) {
             const txt = await response.text();
-            if (response.status === 401) {
-                throw new Error(`Jira Software API access denied. To update sprints, add "Jira Software" API with Agile scopes in your Atlassian Developer Console app permissions.`);
-            }
             console.error(`[Jira Agile] Update sprint failed — Status: ${response.status}, Body: ${txt}`);
+            if (response.status === 401 || response.status === 403) {
+                throw new Error(`Sprint API access denied (HTTP ${response.status}). Please go to Settings, disconnect Jira, then reconnect it to re-authorize with updated Agile permissions.`);
+            }
             throw new Error(`Failed to update sprint: ${response.status} - ${txt}`);
         }
 
@@ -594,6 +608,7 @@ export async function addIssuesToSprint(input, userId) {
         throw new Error("Sprint ID and an array of Issue keys are required.");
     }
 
+    await ensureAgileAccess(userId);
     const { accessToken, cloudId } = await getJiraCredentials(userId);
 
     try {
@@ -610,10 +625,10 @@ export async function addIssuesToSprint(input, userId) {
 
         if (!response.ok && response.status !== 204) {
              const txt = await response.text();
-             if (response.status === 401) {
-                 throw new Error(`Jira Software API access denied. To manage sprint issues, add "Jira Software" API with Agile scopes in your Atlassian Developer Console app permissions.`);
-             }
              console.error(`[Jira Agile] Add issues to sprint failed — Status: ${response.status}, Body: ${txt}`);
+             if (response.status === 401 || response.status === 403) {
+                 throw new Error(`Sprint API access denied (HTTP ${response.status}). Please go to Settings, disconnect Jira, then reconnect it to re-authorize with updated Agile permissions.`);
+             }
              throw new Error(`Failed to add issues to sprint: ${response.status} - ${txt}`);
         }
 
