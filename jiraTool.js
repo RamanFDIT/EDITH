@@ -417,36 +417,47 @@ export async function createJiraProject(input, userId) {
 }
 
 // ---------------------------------------------------------------------------
-// AGILE API (SPRINTS)
+// SPRINT TOOLS (using REST API v3 + JQL — no Agile API scopes needed)
 // ---------------------------------------------------------------------------
 
-// Helper: Get the Board ID for a specific project
-async function getBoardIdForProject(projectKey, accessToken, cloudId) {
-    const url = `${getJiraBaseUrl(cloudId)}/rest/agile/1.0/board?projectKeyOrId=${projectKey}`;
-    const response = await fetchWithTimeout(url, {
-        method: 'GET',
-        headers: {
-            'Authorization': getAuthHeader(accessToken),
-            'Accept': 'application/json'
+// Helper: Extract unique sprint objects from JQL search results
+function extractSprintsFromIssues(issues) {
+    const sprintMap = new Map();
+    for (const issue of issues) {
+        const sprintField = issue.fields?.sprint;
+        if (sprintField) {
+            if (!sprintMap.has(sprintField.id)) {
+                sprintMap.set(sprintField.id, {
+                    id: sprintField.id,
+                    name: sprintField.name,
+                    state: sprintField.state,
+                    startDate: sprintField.startDate || null,
+                    endDate: sprintField.endDate || null,
+                    goal: sprintField.goal || null
+                });
+            }
         }
-    });
-
-    if (!response.ok) {
-        const text = await response.text();
-        console.error(`[Jira Agile] Board fetch failed — URL: ${url}, Status: ${response.status}, Body: ${text}`);
-        throw new Error(`Failed to fetch boards for project ${projectKey}: ${response.status} - ${text}`);
+        // Also check closedSprints array for historical sprints
+        const closedSprints = issue.fields?.closedSprints;
+        if (Array.isArray(closedSprints)) {
+            for (const cs of closedSprints) {
+                if (!sprintMap.has(cs.id)) {
+                    sprintMap.set(cs.id, {
+                        id: cs.id,
+                        name: cs.name,
+                        state: cs.state,
+                        startDate: cs.startDate || null,
+                        endDate: cs.endDate || null,
+                        goal: cs.goal || null
+                    });
+                }
+            }
+        }
     }
-
-    const data = await response.json();
-    if (!data.values || data.values.length === 0) {
-        throw new Error(`No agile boards found for project ${projectKey}. A board is required to create a sprint.`);
-    }
-
-    // Return the first board ID associated with this project
-    return data.values[0].id;
+    return [...sprintMap.values()];
 }
 
-// --- TOOL 7: CREATE SPRINT ---
+// --- TOOL 7: CREATE SPRINT (requires Jira Software API — uses Agile REST API) ---
 export async function createJiraSprint(input, userId) {
     console.log("🏃‍♂️ Jira Create Sprint Invoked:", JSON.stringify(input));
     const { name, projectKey, startDate, endDate, goal } = input;
@@ -456,15 +467,29 @@ export async function createJiraSprint(input, userId) {
     const { accessToken, cloudId } = await getJiraCredentials(userId);
 
     try {
-        const originBoardId = await getBoardIdForProject(projectKey, accessToken, cloudId);
+        // First get the board ID for this project
+        const boardUrl = `${getJiraBaseUrl(cloudId)}/rest/agile/1.0/board?projectKeyOrId=${projectKey}`;
+        const boardResponse = await fetchWithTimeout(boardUrl, {
+            method: 'GET',
+            headers: { 'Authorization': getAuthHeader(accessToken), 'Accept': 'application/json' }
+        });
+
+        if (!boardResponse.ok) {
+            const txt = await boardResponse.text();
+            if (boardResponse.status === 401) {
+                throw new Error(`Jira Software API access denied. To create sprints, add "Jira Software" API with Agile scopes in your Atlassian Developer Console app permissions.`);
+            }
+            throw new Error(`Failed to fetch boards: ${boardResponse.status} - ${txt}`);
+        }
+
+        const boardData = await boardResponse.json();
+        if (!boardData.values || boardData.values.length === 0) {
+            throw new Error(`No agile boards found for project ${projectKey}. A board is required to create a sprint.`);
+        }
+        const originBoardId = boardData.values[0].id;
 
         const url = `${getJiraBaseUrl(cloudId)}/rest/agile/1.0/sprint`;
-        const bodyData = {
-            name: name,
-            originBoardId: originBoardId,
-            goal: goal || ""
-        };
-
+        const bodyData = { name, originBoardId, goal: goal || "" };
         if (startDate) bodyData.startDate = startDate;
         if (endDate) bodyData.endDate = endDate;
 
@@ -496,7 +521,7 @@ export async function createJiraSprint(input, userId) {
     }
 }
 
-// --- TOOL 8: UPDATE / START SPRINT ---
+// --- TOOL 8: UPDATE / START SPRINT (requires Jira Software API) ---
 export async function updateJiraSprint(input, userId) {
     console.log("🏃‍♂️ Jira Update Sprint Invoked:", JSON.stringify(input));
     const { sprintId, name, state, startDate, endDate, goal } = input;
@@ -512,13 +537,13 @@ export async function updateJiraSprint(input, userId) {
         const url = `${getJiraBaseUrl(cloudId)}/rest/agile/1.0/sprint/${sprintId}`;
         const bodyData = {};
         if (name) bodyData.name = name;
-        if (state) bodyData.state = state; // "active" (starts sprint), "closed" (completes sprint)
+        if (state) bodyData.state = state;
         if (startDate) bodyData.startDate = startDate;
         if (endDate) bodyData.endDate = endDate;
         if (goal) bodyData.goal = goal;
 
         const response = await fetchWithTimeout(url, {
-            method: 'POST', // The Agile API uses POST or PUT to update a sprint. POST is standard.
+            method: 'POST',
             headers: {
                 'Authorization': getAuthHeader(accessToken),
                 'Accept': 'application/json',
@@ -529,6 +554,9 @@ export async function updateJiraSprint(input, userId) {
 
         if (!response.ok) {
             const txt = await response.text();
+            if (response.status === 401) {
+                throw new Error(`Jira Software API access denied. To update sprints, add "Jira Software" API with Agile scopes in your Atlassian Developer Console app permissions.`);
+            }
             console.error(`[Jira Agile] Update sprint failed — Status: ${response.status}, Body: ${txt}`);
             throw new Error(`Failed to update sprint: ${response.status} - ${txt}`);
         }
@@ -545,7 +573,7 @@ export async function updateJiraSprint(input, userId) {
     }
 }
 
-// --- TOOL 9: ADD ISSUES TO SPRINT ---
+// --- TOOL 9: ADD ISSUES TO SPRINT (requires Jira Software API) ---
 export async function addIssuesToSprint(input, userId) {
     console.log("📝 Jira Add Issues To Sprint Invoked:", JSON.stringify(input));
     const { sprintId, issues } = input;
@@ -558,10 +586,6 @@ export async function addIssuesToSprint(input, userId) {
 
     try {
         const url = `${getJiraBaseUrl(cloudId)}/rest/agile/1.0/sprint/${sprintId}/issue`;
-        const bodyData = {
-            issues: issues
-        };
-
         const response = await fetchWithTimeout(url, {
             method: 'POST',
             headers: {
@@ -569,11 +593,14 @@ export async function addIssuesToSprint(input, userId) {
                 'Accept': 'application/json',
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(bodyData)
+            body: JSON.stringify({ issues })
         });
 
         if (!response.ok && response.status !== 204) {
              const txt = await response.text();
+             if (response.status === 401) {
+                 throw new Error(`Jira Software API access denied. To manage sprint issues, add "Jira Software" API with Agile scopes in your Atlassian Developer Console app permissions.`);
+             }
              console.error(`[Jira Agile] Add issues to sprint failed — Status: ${response.status}, Body: ${txt}`);
              throw new Error(`Failed to add issues to sprint: ${response.status} - ${txt}`);
         }
@@ -589,7 +616,7 @@ export async function addIssuesToSprint(input, userId) {
     }
 }
 
-// --- TOOL 10: LIST JIRA SPRINTS ---
+// --- TOOL 10: LIST JIRA SPRINTS (via JQL — uses REST API v3, no Agile scopes needed) ---
 export async function listJiraSprints(input, userId) {
     console.log("📋 Jira List Sprints Invoked:", JSON.stringify(input));
     const { projectKey, state } = input;
@@ -599,42 +626,57 @@ export async function listJiraSprints(input, userId) {
     const { accessToken, cloudId } = await getJiraCredentials(userId);
 
     try {
-        const boardId = await getBoardIdForProject(projectKey, accessToken, cloudId);
-        
-        let url = `${getJiraBaseUrl(cloudId)}/rest/agile/1.0/board/${boardId}/sprint`;
-        if (state) {
-            url += `?state=${encodeURIComponent(state)}`;
+        // Build JQL based on requested sprint state
+        let jql;
+        if (state === 'active') {
+            jql = `project = "${projectKey}" AND sprint in openSprints()`;
+        } else if (state === 'closed') {
+            jql = `project = "${projectKey}" AND sprint in closedSprints()`;
+        } else if (state === 'future') {
+            jql = `project = "${projectKey}" AND sprint in futureSprints()`;
+        } else {
+            // All sprints — search for any issue that has a sprint
+            jql = `project = "${projectKey}" AND sprint is not EMPTY`;
         }
 
+        const url = `${getJiraBaseUrl(cloudId)}/rest/api/3/search/jql`;
         const response = await fetchWithTimeout(url, {
-            method: 'GET',
+            method: 'POST',
             headers: {
                 'Authorization': getAuthHeader(accessToken),
-                'Accept': 'application/json'
-            }
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                jql,
+                maxResults: 50,
+                fields: ['sprint', 'closedSprints']
+            })
         });
 
         if (!response.ok) {
             const txt = await response.text();
-            console.error(`[Jira Agile] List sprints failed — Status: ${response.status}, Body: ${txt}`);
-            throw new Error(`Failed to list sprints: ${response.status} - ${txt}`);
+            console.error(`[Jira] Sprint search failed — Status: ${response.status}, Body: ${txt}`);
+            throw new Error(`Failed to search sprints: ${response.status} - ${txt}`);
         }
 
         const data = await response.json();
-        if (!data.values || data.values.length === 0) {
+        if (!data.issues || data.issues.length === 0) {
             return JSON.stringify({ status: "no_results_found", message: `No sprints found for project ${projectKey}${state ? ` in state '${state}'` : ''}.` });
         }
 
-        const sprints = data.values.map(s => ({
-            id: s.id,
-            name: s.name,
-            state: s.state,
-            startDate: s.startDate,
-            endDate: s.endDate,
-            goal: s.goal
-        }));
-        
-        return JSON.stringify(sprints);
+        const sprints = extractSprintsFromIssues(data.issues);
+
+        // Filter by requested state if needed (JQL handles most cases, but closedSprints field may include extras)
+        const filtered = state
+            ? sprints.filter(s => s.state === state)
+            : sprints;
+
+        if (filtered.length === 0) {
+            return JSON.stringify({ status: "no_results_found", message: `No sprints found for project ${projectKey}${state ? ` in state '${state}'` : ''}.` });
+        }
+
+        return JSON.stringify(filtered);
     } catch (error) {
         return JSON.stringify({ status: "error", message: `Error listing sprints: ${error.message}` });
     }
