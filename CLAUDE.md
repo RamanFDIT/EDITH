@@ -70,7 +70,10 @@ EDITH (Even Dead I'm The Hero) is a web-based AI assistant with a React frontend
 - `{ type: "tool_end", name: "...", output: "..." }` — Tool result
 - `{ type: "image", url: "...", caption: "..." }` — Generated image
 - `{ type: "audio", url: "data:audio/..." }` — TTS audio (base64)
+- `{ type: "heartbeat" }` — Keep-alive during long tool operations (every 15s)
 - `{ type: "done" }` — Stream complete
+
+`POST /api/voice` accepts a multipart audio file upload, transcribes it, then streams the same SSE event types plus `{ type: "user_text", content: "..." }` with the transcription.
 
 ## LLM Provider Priority
 

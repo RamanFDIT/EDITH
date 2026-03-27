@@ -32,6 +32,21 @@ function getAuthHeader(accessToken) {
     return `Bearer ${accessToken}`;
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 25000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetchWithTimeout(url, { ...options, signal: controller.signal });
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            throw new Error(`Jira API request timed out after ${timeoutMs / 1000}s: ${url}`);
+        }
+        throw err;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 // --- TOOL 1: SEARCH (The Fixed Version) ---
 export async function getJiraIssues(input, userId) {
     console.log("🔍 Jira Search Invoked:", JSON.stringify(input));
@@ -43,7 +58,7 @@ export async function getJiraIssues(input, userId) {
     const url = `${getJiraBaseUrl(cloudId)}/rest/api/3/search/jql`;
 
     try {
-        const response = await fetch(url, {
+        const response = await fetchWithTimeout(url, {
             method: 'POST',
             headers: {
                 'Authorization': getAuthHeader(accessToken),
@@ -124,7 +139,7 @@ export async function createJiraIssue(input, userId) {
     }
 
     try {
-        const response = await fetch(url, {
+        const response = await fetchWithTimeout(url, {
             method: 'POST',
             headers: {
                 'Authorization': getAuthHeader(accessToken),
@@ -178,7 +193,7 @@ export async function updateJiraIssue(input, userId) {
         try {
             // A. Get available transitions for this ticket
             const transUrl = `${getJiraBaseUrl(cloudId)}/rest/api/3/issue/${issueKey}/transitions`;
-            const transRes = await fetch(transUrl, {
+            const transRes = await fetchWithTimeout(transUrl, {
                 method: 'GET',
                 headers: { 'Authorization': getAuthHeader(accessToken), 'Accept': 'application/json' }
             });
@@ -200,7 +215,7 @@ export async function updateJiraIssue(input, userId) {
                 success = false;
             } else {
                 // C. Perform the transition
-                const moveRes = await fetch(transUrl, {
+                const moveRes = await fetchWithTimeout(transUrl, {
                     method: 'POST',
                     headers: {
                         'Authorization': getAuthHeader(accessToken),
@@ -246,7 +261,7 @@ export async function updateJiraIssue(input, userId) {
             }
 
             const updateUrl = `${getJiraBaseUrl(cloudId)}/rest/api/3/issue/${issueKey}`;
-            const updateRes = await fetch(updateUrl, {
+            const updateRes = await fetchWithTimeout(updateUrl, {
                 method: 'PUT',
                 headers: {
                     'Authorization': getAuthHeader(accessToken),
@@ -287,7 +302,7 @@ export async function deleteJiraIssue(input, userId) {
     const url = `${getJiraBaseUrl(cloudId)}/rest/api/3/issue/${issueKey}`;
 
     try {
-        const response = await fetch(url, {
+        const response = await fetchWithTimeout(url, {
             method: 'DELETE',
             headers: {
                 'Authorization': getAuthHeader(accessToken),
@@ -314,7 +329,7 @@ export async function listJiraProjects(input, userId) {
     const url = `${getJiraBaseUrl(cloudId)}/rest/api/3/project`;
 
     try {
-        const response = await fetch(url, {
+        const response = await fetchWithTimeout(url, {
             method: 'GET',
             headers: {
                 'Authorization': getAuthHeader(accessToken),
@@ -350,7 +365,7 @@ export async function createJiraProject(input, userId) {
     try {
         // 1. Fetch Current User to assign as Lead
         const myselfUrl = `${getJiraBaseUrl(cloudId)}/rest/api/3/myself`;
-        const myselfRes = await fetch(myselfUrl, {
+        const myselfRes = await fetchWithTimeout(myselfUrl, {
             method: 'GET',
             headers: { 'Authorization': getAuthHeader(accessToken), 'Accept': 'application/json' }
         });
@@ -371,7 +386,7 @@ export async function createJiraProject(input, userId) {
             assigneeType: "PROJECT_LEAD"
         };
 
-        const response = await fetch(url, {
+        const response = await fetchWithTimeout(url, {
             method: 'POST',
             headers: {
                 'Authorization': getAuthHeader(accessToken),
@@ -408,7 +423,7 @@ export async function createJiraProject(input, userId) {
 // Helper: Get the Board ID for a specific project
 async function getBoardIdForProject(projectKey, accessToken, cloudId) {
     const url = `${getJiraBaseUrl(cloudId)}/rest/agile/1.0/board?projectKeyOrId=${projectKey}`;
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
         method: 'GET',
         headers: {
             'Authorization': getAuthHeader(accessToken),
@@ -418,6 +433,7 @@ async function getBoardIdForProject(projectKey, accessToken, cloudId) {
 
     if (!response.ok) {
         const text = await response.text();
+        console.error(`[Jira Agile] Board fetch failed — URL: ${url}, Status: ${response.status}, Body: ${text}`);
         throw new Error(`Failed to fetch boards for project ${projectKey}: ${response.status} - ${text}`);
     }
 
@@ -452,7 +468,7 @@ export async function createJiraSprint(input, userId) {
         if (startDate) bodyData.startDate = startDate;
         if (endDate) bodyData.endDate = endDate;
 
-        const response = await fetch(url, {
+        const response = await fetchWithTimeout(url, {
             method: 'POST',
             headers: {
                 'Authorization': getAuthHeader(accessToken),
@@ -464,6 +480,7 @@ export async function createJiraSprint(input, userId) {
 
         if (!response.ok) {
             const txt = await response.text();
+            console.error(`[Jira Agile] Create sprint failed — Status: ${response.status}, Body: ${txt}`);
             throw new Error(`Failed to create sprint: ${response.status} - ${txt}`);
         }
 
@@ -500,7 +517,7 @@ export async function updateJiraSprint(input, userId) {
         if (endDate) bodyData.endDate = endDate;
         if (goal) bodyData.goal = goal;
 
-        const response = await fetch(url, {
+        const response = await fetchWithTimeout(url, {
             method: 'POST', // The Agile API uses POST or PUT to update a sprint. POST is standard.
             headers: {
                 'Authorization': getAuthHeader(accessToken),
@@ -512,6 +529,7 @@ export async function updateJiraSprint(input, userId) {
 
         if (!response.ok) {
             const txt = await response.text();
+            console.error(`[Jira Agile] Update sprint failed — Status: ${response.status}, Body: ${txt}`);
             throw new Error(`Failed to update sprint: ${response.status} - ${txt}`);
         }
 
@@ -544,7 +562,7 @@ export async function addIssuesToSprint(input, userId) {
             issues: issues
         };
 
-        const response = await fetch(url, {
+        const response = await fetchWithTimeout(url, {
             method: 'POST',
             headers: {
                 'Authorization': getAuthHeader(accessToken),
@@ -556,6 +574,7 @@ export async function addIssuesToSprint(input, userId) {
 
         if (!response.ok && response.status !== 204) {
              const txt = await response.text();
+             console.error(`[Jira Agile] Add issues to sprint failed — Status: ${response.status}, Body: ${txt}`);
              throw new Error(`Failed to add issues to sprint: ${response.status} - ${txt}`);
         }
 
@@ -587,7 +606,7 @@ export async function listJiraSprints(input, userId) {
             url += `?state=${encodeURIComponent(state)}`;
         }
 
-        const response = await fetch(url, {
+        const response = await fetchWithTimeout(url, {
             method: 'GET',
             headers: {
                 'Authorization': getAuthHeader(accessToken),
@@ -597,6 +616,7 @@ export async function listJiraSprints(input, userId) {
 
         if (!response.ok) {
             const txt = await response.text();
+            console.error(`[Jira Agile] List sprints failed — Status: ${response.status}, Body: ${txt}`);
             throw new Error(`Failed to list sprints: ${response.status} - ${txt}`);
         }
 
