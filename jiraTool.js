@@ -36,7 +36,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 25000) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        return await fetchWithTimeout(url, { ...options, signal: controller.signal });
+        return await fetch(url, { ...options, signal: controller.signal });
     } catch (err) {
         if (err.name === 'AbortError') {
             throw new Error(`Jira API request timed out after ${timeoutMs / 1000}s: ${url}`);
