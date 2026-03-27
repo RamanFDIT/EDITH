@@ -421,35 +421,47 @@ export async function createJiraProject(input, userId) {
 // ---------------------------------------------------------------------------
 
 // Helper: Extract unique sprint objects from JQL search results
+// Sprint data can live in fields.sprint, fields.closedSprints, or a customfield (e.g. customfield_10020)
 function extractSprintsFromIssues(issues) {
     const sprintMap = new Map();
-    for (const issue of issues) {
-        const sprintField = issue.fields?.sprint;
-        if (sprintField) {
-            if (!sprintMap.has(sprintField.id)) {
-                sprintMap.set(sprintField.id, {
-                    id: sprintField.id,
-                    name: sprintField.name,
-                    state: sprintField.state,
-                    startDate: sprintField.startDate || null,
-                    endDate: sprintField.endDate || null,
-                    goal: sprintField.goal || null
-                });
-            }
+
+    function addSprint(s) {
+        if (s && s.id && !sprintMap.has(s.id)) {
+            sprintMap.set(s.id, {
+                id: s.id,
+                name: s.name,
+                state: s.state,
+                startDate: s.startDate || null,
+                endDate: s.endDate || null,
+                goal: s.goal || null
+            });
         }
-        // Also check closedSprints array for historical sprints
-        const closedSprints = issue.fields?.closedSprints;
-        if (Array.isArray(closedSprints)) {
-            for (const cs of closedSprints) {
-                if (!sprintMap.has(cs.id)) {
-                    sprintMap.set(cs.id, {
-                        id: cs.id,
-                        name: cs.name,
-                        state: cs.state,
-                        startDate: cs.startDate || null,
-                        endDate: cs.endDate || null,
-                        goal: cs.goal || null
-                    });
+    }
+
+    for (const issue of issues) {
+        const fields = issue.fields || {};
+
+        // Check direct sprint field
+        if (fields.sprint) addSprint(fields.sprint);
+
+        // Check closedSprints array
+        if (Array.isArray(fields.closedSprints)) {
+            fields.closedSprints.forEach(addSprint);
+        }
+
+        // Scan all customfields for sprint-shaped data
+        for (const [key, val] of Object.entries(fields)) {
+            if (!key.startsWith('customfield_')) continue;
+            // Single sprint object
+            if (val && typeof val === 'object' && !Array.isArray(val) && val.id && val.state && val.name) {
+                addSprint(val);
+            }
+            // Array of sprint objects
+            if (Array.isArray(val)) {
+                for (const item of val) {
+                    if (item && typeof item === 'object' && item.id && item.state && item.name) {
+                        addSprint(item);
+                    }
                 }
             }
         }
@@ -650,7 +662,7 @@ export async function listJiraSprints(input, userId) {
             body: JSON.stringify({
                 jql,
                 maxResults: 50,
-                fields: ['sprint', 'closedSprints']
+                fields: ['*navigable']
             })
         });
 
