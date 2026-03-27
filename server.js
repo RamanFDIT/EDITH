@@ -764,6 +764,7 @@ app.get('/api/projects/:id/jira-stats', extractUser, async (req, res) => {
 
 // --- API Endpoint ---
 app.post('/api/ask', extractUser, async (req, res) => {
+  let heartbeatInterval;
   try {
     const { question, files, timezone, voiceEnabled, sessionId: clientSessionId, projectId } = req.body;
 
@@ -805,7 +806,7 @@ app.post('/api/ask', extractUser, async (req, res) => {
     let clientDisconnected = false;
 
     // Heartbeat to prevent frontend timeout during long tool operations
-    const heartbeatInterval = setInterval(() => {
+    heartbeatInterval = setInterval(() => {
         if (!clientDisconnected) {
             try {
                 res.write(`data: ${JSON.stringify({ type: "heartbeat" })}\n\n`);
