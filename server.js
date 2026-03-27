@@ -391,6 +391,7 @@ app.get('/api/oauth/callback', async (req, res) => {
         const userIdentifier = rest.slice(0, -1).join('__');
 
         const tokenData = await exchangeCodeForTokens(provider, code);
+        console.log(`[OAuth Callback] Provider: ${provider}, Granted scopes: ${tokenData.scope || 'none returned'}`);
 
         if (provider === 'jira') {
             const jiraInfo = await discoverJiraCloudId(tokenData.access_token);
