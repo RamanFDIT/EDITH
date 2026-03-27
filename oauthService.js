@@ -200,12 +200,14 @@ function getOAuthProviders() {
 export async function getStoredTokens(userId, provider) {
   const user = await User.findById(userId);
   if (!user || !user.tokens || !user.tokens[provider]) return null;
-  
+
   const tokens = user.tokens[provider];
-  
+
   // Decrypt tokens before returning to the application
+  // Use lean object extraction to avoid Mongoose subdocument issues
+  const plain = typeof tokens.toObject === 'function' ? tokens.toObject() : { ...tokens };
   return {
-    ...tokens.toObject(),
+    ...plain,
     access_token: decryptToken(tokens.access_token),
     refresh_token: tokens.refresh_token ? decryptToken(tokens.refresh_token) : undefined
   };
