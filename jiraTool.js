@@ -494,8 +494,22 @@ export async function createJiraSprint(input, userId) {
     const { accessToken, cloudId } = await getJiraCredentials(userId);
 
     try {
+        // Diagnostic: test token against accessible-resources and platform API
+        const diagHeaders = { 'Authorization': getAuthHeader(accessToken), 'Accept': 'application/json' };
+        try {
+            const arRes = await fetchWithTimeout('https://api.atlassian.com/oauth/token/accessible-resources', { headers: diagHeaders });
+            const arData = await arRes.json();
+            console.log(`[Jira Agile Diag] accessible-resources status: ${arRes.status}, sites:`, JSON.stringify(arData.map?.(s => ({ id: s.id, name: s.name, scopes: s.scopes })) || arData));
+        } catch (e) { console.error(`[Jira Agile Diag] accessible-resources failed:`, e.message); }
+
+        try {
+            const meRes = await fetchWithTimeout(`${getJiraBaseUrl(cloudId)}/rest/api/3/myself`, { headers: diagHeaders });
+            console.log(`[Jira Agile Diag] /rest/api/3/myself status: ${meRes.status}`);
+        } catch (e) { console.error(`[Jira Agile Diag] myself failed:`, e.message); }
+
         // First get the board ID for this project
         const boardUrl = `${getJiraBaseUrl(cloudId)}/rest/agile/1.0/board?projectKeyOrId=${projectKey}`;
+        console.log(`[Jira Agile Diag] Calling board URL: ${boardUrl}`);
         const boardResponse = await fetchWithTimeout(boardUrl, {
             method: 'GET',
             headers: { 'Authorization': getAuthHeader(accessToken), 'Accept': 'application/json' }
