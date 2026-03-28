@@ -34,7 +34,10 @@ function getAuthHeader(accessToken) {
 
 async function ensureAgileAccess(userId) {
     const tokens = await getStoredTokens(userId, 'jira');
+    const storedScope = tokens?.scope || '';
+    console.log(`[Jira Agile] Stored scope for user ${userId}: "${storedScope}"`);
     const scopeCheck = checkJiraAgileScopesFromToken(tokens);
+    console.log(`[Jira Agile] Scope check result:`, JSON.stringify(scopeCheck));
     if (scopeCheck.hasAgileScopes === false) {
         throw new Error(
             'Your Jira connection does not have Sprint/Board permissions. ' +
