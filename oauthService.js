@@ -239,7 +239,7 @@ export async function storeTokens(userId, provider, tokenData) {
   if (tokenData.cloud_url) update[`tokens.${provider}.cloud_url`] = tokenData.cloud_url;
 
   await User.findByIdAndUpdate(userId, { $set: update }, { upsert: true });
-  console.log(`[OAuth] Stored encrypted tokens for user ${userId}, provider ${provider}`);
+  console.log(`[OAuth] Stored encrypted tokens for user ${userId}, provider ${provider}, scope: ${tokenData.scope || '(none)'}`);
 }
 
 export async function clearTokens(userId, provider) {
