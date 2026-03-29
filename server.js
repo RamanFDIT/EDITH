@@ -315,7 +315,7 @@ app.get('/api/auth/session', async (req, res) => {
             preferredName: user.preferredName || '',
             titlePreference: user.titlePreference || 'Sir',
             oauthStatus: status,
-            onboardingComplete: true
+            onboardingComplete: !!user.preferredName
         });
     } catch (error) {
         console.error('[Auth Session] Error:', error);

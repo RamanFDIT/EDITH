@@ -186,8 +186,7 @@ export const AppProvider = ({ children }) => {
         setUserEmail(data.email);
         setGoogleName(data.name || '');
         setIsAuthenticated(true);
-        setOnboardingComplete(true);
-        localStorage.setItem('edith_onboarding_complete', 'true');
+        // Don't mark onboarding complete — UserSetup will do that after the user sets their name
         return data;
     }, []);
 

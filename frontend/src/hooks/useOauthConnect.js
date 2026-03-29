@@ -33,7 +33,7 @@ export function useOauthConnect(userEmail, refreshOauthStatus) {
         pollTimeoutRef.current = null;
         setConnecting('');
         setStatus({ type: 'error', message: `Connection to ${provider} timed out.` });
-        try { authWindow.close(); } catch (e) {}
+        try { authWindow.close(); } catch { /* popup may already be closed */ }
       }, 120000);
 
       let pollCount = 0;
@@ -48,7 +48,7 @@ export function useOauthConnect(userEmail, refreshOauthStatus) {
           pollTimeoutRef.current = null;
           setConnecting('');
           setStatus({ type: 'error', message: `Connection to ${provider} timed out.` });
-          try { authWindow.close(); } catch (e) {}
+          try { authWindow.close(); } catch { /* popup may already be closed */ }
           return;
         }
 
@@ -66,7 +66,7 @@ export function useOauthConnect(userEmail, refreshOauthStatus) {
             setStatus({ type: 'success', message: `Connected to ${provider}!` });
             await refreshOauthStatus();
             setConnecting('');
-            try { authWindow.close(); } catch (e) {}
+            try { authWindow.close(); } catch { /* popup may already be closed */ }
             return;
           }
 
@@ -78,7 +78,7 @@ export function useOauthConnect(userEmail, refreshOauthStatus) {
             await refreshOauthStatus();
             setConnecting('');
           }
-        } catch (err) {
+        } catch {
           console.log("Window check blocked or fetch failed, continuing poll...");
         }
       }, 1000);

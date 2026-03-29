@@ -98,13 +98,29 @@ async function getLLMForUser(userId, excludeProviders = new Set()) {
     llmCache.delete(cacheKey);
   }
 
-  // 1. GITHUB (GitHub Models via standard OAuth - PRIORITY)
+  // 1. GEMINI (Global Key - PRIMARY)
+  // Note: We removed the user OAuth token approach for Gemini because the
+  // 'generative-language' scope requires strict Google Cloud App Verification.
+  if ((provider === 'gemini' || provider === 'auto') && !excludeProviders.has('gemini')) {
+    const apiKey = process.env.GOOGLE_API_KEY;
+    if (validateCredential(apiKey, 'Gemini API Key Config')) {
+      console.log(`[LLM] Using Gemini for user ${userId} (Global Key)`);
+      const llm = new ChatGoogleGenerativeAI("gemini-2.5-flash", { apiKey: apiKey });
+      const classifier = new ChatGoogleGenerativeAI("gemini-2.0-flash-lite", { apiKey: apiKey, temperature: 0 });
+      const result = { llm, classifier, provider: 'gemini' };
+      llmCache.set(cacheKey, { ...result, createdAt: Date.now() });
+      return result;
+    }
+    if (provider === 'gemini') throw new Error("Gemini API key not configured in environment variables.");
+  }
+
+  // 2. GITHUB (GitHub Models via standard OAuth - Fallback)
   // We can use standard GitHub OAuth App tokens with the official GitHub Models endpoint.
   // This provides users with free gpt-4o requests without needing personal API keys.
   if ((provider === 'github' || provider === 'auto') && !excludeProviders.has('github')) {
     const githubToken = await getValidToken(userId, 'github');
-    
-    // We removed the strict 'ghp_' check because standard OAuth tokens ('ghu_' or 'gho_') 
+
+    // We removed the strict 'ghp_' check because standard OAuth tokens ('ghu_' or 'gho_')
     // are officially supported by the models.github.ai endpoint.
     if (validateCredential(githubToken, 'GitHub Token')) {
       console.log(`[LLM] Using GitHub Models for user ${userId} (token prefix: ${githubToken.substring(0, 4)}, length: ${githubToken.length})`);
@@ -127,22 +143,6 @@ async function getLLMForUser(userId, excludeProviders = new Set()) {
       return result;
     }
     if (provider === 'github') throw new Error("GitHub account not connected or Token invalid.");
-  }
-
-  // 2. GEMINI (Global Key - Fallback)
-  // Note: We removed the user OAuth token approach for Gemini because the 
-  // 'generative-language' scope requires strict Google Cloud App Verification.
-  if ((provider === 'gemini' || provider === 'auto') && !excludeProviders.has('gemini')) {
-    const apiKey = process.env.GOOGLE_API_KEY;
-    if (validateCredential(apiKey, 'Gemini API Key Config')) {
-      console.log(`[LLM] Using Gemini for user ${userId} (Global Key)`);
-      const llm = new ChatGoogleGenerativeAI("gemini-2.5-flash", { apiKey: apiKey });
-      const classifier = new ChatGoogleGenerativeAI("gemini-2.0-flash-lite", { apiKey: apiKey, temperature: 0 });
-      const result = { llm, classifier, provider: 'gemini' };
-      llmCache.set(cacheKey, { ...result, createdAt: Date.now() });
-      return result;
-    }
-    if (provider === 'gemini') throw new Error("Gemini API key not configured in environment variables.");
   }
 
   // 4. OLLAMA (Local)
