@@ -668,7 +668,9 @@ const KEYWORD_MAP = {
         'mark as done', 'change status', 'assign to', 'set priority', 'create issue',
         'create epic', 'create project', 'create space', 'new project', 'new space',
         'make task', 'create task', 'new task', 'create sprint', 'new sprint',
-        'start sprint', 'end sprint', 'close sprint', 'update sprint', 'add to sprint', 'sprint planning'
+        'start sprint', 'end sprint', 'close sprint', 'update sprint', 'add to sprint', 'sprint planning',
+        'in progress', 'into progress', 'move to', 'move into', 'mark done', 'mark complete',
+        'to done', 'transition', 'to do', 'move these', 'move all'
     ],
     github_read: [
         'list commits', 'show commits', 'check pr', 'list pr', 'show pull requests',
@@ -739,8 +741,8 @@ const KEYWORD_MAP = {
 
 // Fallback keywords that map to both read and write
 const FALLBACK_KEYWORD_MAP = {
-    jira: ['jira', 'ticket', 'sprint', 'epic', 'kanban', 'issue', 'bug', 'board', 'space'],
-    github: ['github', 'repo', 'pr', 'pull request', 'commit', 'branch', 'push', 'merge', 'clone', 'check', 'code'],
+    jira: ['jira', 'ticket', 'sprint', 'epic', 'kanban', 'issue', 'bug', 'board', 'space', 'backlog', 'status'],
+    github: ['github', 'repo', 'pr', 'pull request', 'commit', 'branch', 'push', 'merge', 'clone', 'checks'],
 };
 
 // =============================================================================
@@ -873,23 +875,57 @@ async function classifyIntent(userMessage, chatHistory = [], classifier) {
         // Look at the last few messages to determine context
         const recentMessages = chatHistory.slice(-4); // Last 2 exchanges (human + AI each)
         
-        // INSTEAD OF matching AI's verbose text, ONLY match human prompt
+        // Match human prompts for service keywords
         const recentUserMessages = recentMessages.filter(m => {
             const type = typeof m._getType === 'function' ? m._getType() : m.type;
             return type === 'human';
         });
         const recentContext = recentUserMessages.map(m => m.content || '').join(' ').toLowerCase();
-        
+
+        // Also extract tool names from AI messages to detect service context
+        // (e.g., if AI called search_jira_issues, the follow-up "try again" should route to jira)
+        const recentAIMessages = recentMessages.filter(m => {
+            const type = typeof m._getType === 'function' ? m._getType() : m.type;
+            return type === 'ai';
+        });
+        const aiContext = recentAIMessages.map(m => {
+            // Check for tool_calls in additional_kwargs or direct content
+            const toolNames = [];
+            if (m.additional_kwargs?.tool_calls) {
+                for (const tc of m.additional_kwargs.tool_calls) {
+                    if (tc.function?.name) toolNames.push(tc.function.name);
+                }
+            }
+            // Also check content for tool name patterns
+            const content = (typeof m.content === 'string' ? m.content : '').toLowerCase();
+            return [...toolNames, content].join(' ');
+        }).join(' ').toLowerCase();
+
         // Check if recent context mentions any service keywords
         const contextCategories = new Set();
-        
+
+        // Map tool name prefixes to services
+        const TOOL_SERVICE_MAP = {
+            jira: 'jira', search_jira: 'jira', create_jira: 'jira', update_jira: 'jira', delete_jira: 'jira',
+            list_jira: 'jira', add_issues_to_sprint: 'jira',
+            github: 'github', create_repo: 'github', get_repo: 'github', list_commits: 'github',
+            list_branches: 'github', get_commit: 'github', get_pull: 'github', list_pull: 'github',
+        };
+
+        for (const [toolPrefix, service] of Object.entries(TOOL_SERVICE_MAP)) {
+            if (aiContext.includes(toolPrefix)) {
+                contextCategories.add(`${service}_read`);
+                contextCategories.add(`${service}_write`);
+            }
+        }
+
         for (const [service, keywords] of Object.entries(FALLBACK_KEYWORD_MAP)) {
             if (keywords.some(k => recentContext.includes(k))) {
                 contextCategories.add(`${service}_read`);
                 contextCategories.add(`${service}_write`);
             }
         }
-        
+
         // Also check specific keywords in context
         for (const [category, keywords] of Object.entries(KEYWORD_MAP)) {
             if (keywords.some(k => recentContext.includes(k))) {

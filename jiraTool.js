@@ -189,11 +189,20 @@ export async function updateJiraIssue(input, userId) {
     console.log("📝 Jira Update Invoked:", JSON.stringify(input));
     const { issueKey, summary, description, status, priority, assignee, duedate, labels, parent } = input;
 
-    const { accessToken, cloudId } = await getJiraCredentials(userId);
-    if (!issueKey) throw new Error("Issue Key (e.g., FDIT-1) is required.");
+    if (!issueKey) {
+        return JSON.stringify({ status: "error", message: "Issue Key (e.g., FDIT-1) is required." });
+    }
 
     if (!status && !summary && !description && !priority && !assignee && !duedate && !labels && !parent) {
         return JSON.stringify({ status: "no_action", message: "No updates requested. Provide at least one field to update." });
+    }
+
+    let accessToken, cloudId;
+    try {
+        ({ accessToken, cloudId } = await getJiraCredentials(userId));
+    } catch (e) {
+        console.error(`[Jira Update] Credentials error for ${issueKey}:`, e.message);
+        return JSON.stringify({ status: "error", message: `Jira credentials error: ${e.message}` });
     }
 
     let results = [];
@@ -208,21 +217,24 @@ export async function updateJiraIssue(input, userId) {
                 method: 'GET',
                 headers: { 'Authorization': getAuthHeader(accessToken), 'Accept': 'application/json' }
             });
-            
+
             if (!transRes.ok) {
                 const errText = await transRes.text();
+                console.error(`[Jira Update] Transitions fetch failed for ${issueKey}: ${transRes.status} - ${errText}`);
                 throw new Error(`Could not fetch transitions (Status: ${transRes.status}): ${errText}`);
             }
             const transData = await transRes.json();
 
             // B. Find the transition ID that matches the requested status name
-            const transition = transData.transitions.find(t => 
-                t.name.toLowerCase() === status.toLowerCase() || 
+            const transition = transData.transitions.find(t =>
+                t.name.toLowerCase() === status.toLowerCase() ||
                 (t.to && t.to.name.toLowerCase() === status.toLowerCase())
             );
 
             if (!transition) {
-                results.push(`Could not move to '${status}'. Available states: ${transData.transitions.map(t => `${t.name} (-> ${t.to ? t.to.name : '?'})`).join(", ")}`);
+                const available = transData.transitions.map(t => `${t.name} (-> ${t.to ? t.to.name : '?'})`).join(", ");
+                console.warn(`[Jira Update] No transition match for '${status}' on ${issueKey}. Available: ${available}`);
+                results.push(`Could not move to '${status}'. Available states: ${available}`);
                 success = false;
             } else {
                 // C. Perform the transition
@@ -237,14 +249,16 @@ export async function updateJiraIssue(input, userId) {
                 });
 
                 if (moveRes.status === 204) {
-                    results.push(`Status updated to '${transition.name}'`);
+                    results.push(`Status updated to '${transition.to ? transition.to.name : transition.name}'`);
                 } else {
                     const errorText = await moveRes.text();
+                    console.error(`[Jira Update] Transition failed for ${issueKey}: ${moveRes.status} - ${errorText}`);
                     results.push(`Failed to move status. Code: ${moveRes.status}. Response: ${errorText}`);
                     success = false;
                 }
             }
         } catch (e) {
+            console.error(`[Jira Update] Status change error for ${issueKey}:`, e.message);
             results.push(`Status Error: ${e.message}`);
             success = false;
         }
@@ -286,10 +300,12 @@ export async function updateJiraIssue(input, userId) {
                 results.push(`Fields updated successfully.`);
             } else {
                 const txt = await updateRes.text();
+                console.error(`[Jira Update] Field update failed for ${issueKey}: ${updateRes.status} - ${txt}`);
                 results.push(`Update Failed: ${txt}`);
                 success = false;
             }
         } catch (e) {
+            console.error(`[Jira Update] Field update error for ${issueKey}:`, e.message);
             results.push(`Field Update Error: ${e.message}`);
             success = false;
         }
