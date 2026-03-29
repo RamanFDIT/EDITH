@@ -55,7 +55,7 @@ const NavBar = ({ onNewProject }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [showDisconnected, setShowDisconnected] = useState(false);
+  const [showDisconnected, setShowDisconnected] = useState(true);
   const deleteTimerRef = useRef(null);
 
   // Clean up delete confirmation timer on unmount
