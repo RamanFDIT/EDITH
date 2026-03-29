@@ -187,6 +187,7 @@ function getOAuthProviders() {
       scopes: [
         'read:jira-work', 'write:jira-work', 'read:jira-user',
         'manage:jira-project',
+        'manage:jira-configuration',
         'read:board-scope:jira-software',
         'read:sprint:jira-software', 'write:sprint:jira-software',
         'read:issue:jira-software', 'write:issue:jira-software',
