@@ -18,7 +18,10 @@
     @apply h-6/7 bg-bgComponents w-full rounded-sm py-2 flex flex-col justify-between;
 }
 .hamburger {
-    @apply w-10 text-white cursor-pointer;
+    @apply text-white cursor-pointer transition-transform duration-300;
+}
+.hamburgerExpanded {
+    @apply rotate-180;
 }
 .settingContainer {
     @apply w-full text-textPrimary text-lg font-fontBody flex flex-col gap-5;
@@ -58,6 +61,21 @@
 }
 .toolIcon {
     @apply text-textPrimary;
+}
+.toolIconDimmed {
+    @apply text-textPrimary/30;
+}
+.toolsDisconnected {
+    @apply flex items-center gap-2;
+}
+.showMoreToggle {
+    @apply text-xs text-textPrimary/40 hover:text-textPrimary/70 font-fontBody
+           cursor-pointer bg-transparent border-none p-0 text-left transition-colors;
+}
+.connectLink {
+    @apply ml-auto text-xs text-bgCTA hover:text-bgCTA/80 font-fontBody
+           cursor-pointer bg-transparent border-none p-0 transition-colors
+           disabled:opacity-50 disabled:cursor-default;
 }
 .logoutButton {
     @apply flex items-center gap-3 w-full cursor-pointer text-textPrimary

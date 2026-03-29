@@ -2,11 +2,10 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useRef, useEffect } from 'react';
 import styles from "./NavBar.module.css";
 import Logo from '../../assets/EDITH.svg?react';
-import settings from '../../assets/settings.svg';
-import hamburger from '../../assets/hamburger.svg';
-import { Github, Figma, Calendar, MessageSquare, Plus, LogOut, Menu, X, FolderOpen, Trash2, Plug } from 'lucide-react';
+import { Github, Figma, MessageSquare, Plus, LogOut, Menu, X, FolderOpen, Trash2, ChevronRight, Settings as SettingsIcon } from 'lucide-react';
 import { useNavBar } from './NavBarContext.jsx';
 import { useApp } from '../../context/AppContext.jsx';
+import { useOauthConnect } from '../../hooks/useOauthConnect.js';
 
 const toolDisplayNames = {
   google: 'Google',
@@ -16,13 +15,12 @@ const toolDisplayNames = {
   jira: 'Jira',
 };
 
-const toolIcons = {
-  google: Calendar,
-  github: Github,
-  slack: MessageSquare,
-  figma: Figma,
-  jira: ({ size, className }) => <JiraIcon size={size} className={className} />,
-};
+// Google "G" icon — monochrome, uses currentColor to match other tool icons
+const GoogleIcon = ({ size = 18, className }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
+    <path d="M12.545 10.239v3.821h5.445c-.712 2.315-2.647 3.972-5.445 3.972a6.033 6.033 0 110-12.064c1.498 0 2.866.549 3.921 1.453l2.814-2.814A9.969 9.969 0 0012.545 2C7.021 2 2.543 6.477 2.543 12s4.478 10 10.002 10c8.396 0 10.249-7.85 9.426-11.748l-9.426-.013z"/>
+  </svg>
+);
 
 // Jira icon — used both as tool sidebar icon and small project indicator
 const JiraIcon = ({ size = 12, className }) => (
@@ -30,6 +28,16 @@ const JiraIcon = ({ size = 12, className }) => (
     <path d="M11.53 2c0 2.4 1.97 4.35 4.35 4.35h1.78v1.7c0 2.4 1.94 4.34 4.34 4.35V2.84a.84.84 0 00-.84-.84H11.53zM6.77 6.8a4.36 4.36 0 004.34 4.34h1.78v1.72a4.36 4.36 0 004.34 4.34V7.63a.84.84 0 00-.83-.83H6.77zM2 11.6a4.35 4.35 0 004.34 4.34h1.78v1.72c0 2.4 1.94 4.34 4.34 4.34v-9.57a.84.84 0 00-.84-.83H2z"/>
   </svg>
 );
+
+const toolIcons = {
+  google: GoogleIcon,
+  github: Github,
+  slack: MessageSquare,
+  figma: Figma,
+  jira: ({ size, className }) => <JiraIcon size={size} className={className} />,
+};
+
+const ALL_PROVIDERS = ['google', 'github', 'slack', 'figma', 'jira'];
 
 const NavBar = ({ onNewProject }) => {
   const { expanded: toggle, setExpanded, mobileOpen, setMobileOpen } = useNavBar();
@@ -40,10 +48,14 @@ const NavBar = ({ onNewProject }) => {
     setActiveProjectId,
     deleteProject,
     projectsAvailable,
+    userEmail,
+    refreshOauthStatus,
   } = useApp();
+  const { connecting, handleConnect } = useOauthConnect(userEmail, refreshOauthStatus);
   const navigate = useNavigate();
   const location = useLocation();
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [showDisconnected, setShowDisconnected] = useState(false);
   const deleteTimerRef = useRef(null);
 
   // Clean up delete confirmation timer on unmount
@@ -54,6 +66,8 @@ const NavBar = ({ onNewProject }) => {
   const connectedTools = Object.entries(oauthStatus)
     .filter(([, info]) => info.connected)
     .map(([provider]) => provider);
+
+  const disconnectedTools = ALL_PROVIDERS.filter(p => !oauthStatus[p]?.connected);
 
   const handleClick = () => {
     setExpanded(!toggle);
@@ -170,6 +184,32 @@ const NavBar = ({ onNewProject }) => {
               </div>
             );
           })}
+
+          {/* Disconnected tools toggle (expanded/mobile only) */}
+          {disconnectedTools.length > 0 && (toggle || isMobile) && (
+            <button
+              className={styles.showMoreToggle}
+              onClick={() => setShowDisconnected(!showDisconnected)}
+            >
+              {showDisconnected ? 'Hide available' : `+${disconnectedTools.length} available`}
+            </button>
+          )}
+          {showDisconnected && (toggle || isMobile) && disconnectedTools.map((provider) => {
+            const Icon = toolIcons[provider];
+            return (
+              <div key={provider} className={styles.toolsDisconnected}>
+                {Icon && <Icon size={18} className={styles.toolIconDimmed} />}
+                <p className={styles.toolName}>{toolDisplayNames[provider]}</p>
+                <button
+                  className={styles.connectLink}
+                  onClick={() => handleConnect(provider)}
+                  disabled={connecting === provider}
+                >
+                  {connecting === provider ? '...' : 'Connect'}
+                </button>
+              </div>
+            );
+          })}
         </div>
 
         {/* Settings + Logout */}
@@ -179,8 +219,8 @@ const NavBar = ({ onNewProject }) => {
             to="/settings"
             onClick={isMobile ? closeMobile : undefined}
           >
-            <Plug size={20} className={styles.settings} />
-            <p className={(!toggle && !isMobile) ? styles.displayNone : undefined}>Connections</p>
+            <SettingsIcon size={20} className={styles.settings} />
+            <p className={(!toggle && !isMobile) ? styles.displayNone : undefined}>Settings</p>
           </NavLink>
           <button
             className={(toggle || isMobile) ? styles.logoutButton : styles.logoutButtonCompact}
@@ -242,7 +282,7 @@ const NavBar = ({ onNewProject }) => {
             onClick={() => navigate('/home')}
             style={{ cursor: 'pointer' }}
           />
-          <img onClick={handleClick} src={hamburger} className={styles.hamburger} alt="arrow" />
+          <ChevronRight onClick={handleClick} size={24} className={`${styles.hamburger} ${toggle ? styles.hamburgerExpanded : ''}`} />
         </div>
         {navContent(false)}
       </nav>

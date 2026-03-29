@@ -588,7 +588,7 @@ function createToolsForUser(userId) {
     gmail:        gmailTools,
     image:        imageTools,
     files:        fileTools,
-    general:      [...calendarTools],
+    general:      [],
   };
 
   return toolsByCategory;
@@ -791,11 +791,45 @@ async function classifyIntent(userMessage, chatHistory = [], classifier) {
     if (isConfirmationMessage(userMessage, chatHistory)) {
         console.log("[Traffic Cop] ✅ Confirmation detected. Scanning full context (human + AI)...");
 
-        // For confirmations, check ALL recent messages (including AI proposals)
-        const recentMessages = chatHistory.slice(-4);
-        const recentContext = recentMessages.map(m => m.content || '').join(' ').toLowerCase();
+        // For confirmations, look further back (8 messages) to account for tool call/response messages
+        // that push the original human request out of a shorter window
+        const recentMessages = chatHistory.slice(-8);
+        const recentContext = recentMessages.map(m => {
+            const content = typeof m.content === 'string' ? m.content : '';
+            return content;
+        }).join(' ').toLowerCase();
 
         const contextCategories = new Set();
+
+        // Check for tool names in AI messages to detect service context
+        const TOOL_SERVICE_MAP_CONFIRM = {
+            jira: 'jira', search_jira: 'jira', create_jira: 'jira', update_jira: 'jira', delete_jira: 'jira',
+            list_jira: 'jira', add_issues_to_sprint: 'jira',
+            github: 'github', create_repo: 'github', get_repo: 'github', list_commits: 'github',
+            list_branches: 'github', get_commit: 'github', get_pull: 'github', list_pull: 'github',
+            send_gmail: 'gmail', search_gmail: 'gmail', get_recent_emails: 'gmail',
+            calendar: 'calendar', create_calendar: 'calendar', get_calendar: 'calendar',
+            send_slack: 'slack', get_figma: 'figma',
+        };
+
+        for (const msg of recentMessages) {
+            if (msg.additional_kwargs?.tool_calls) {
+                for (const tc of msg.additional_kwargs.tool_calls) {
+                    const toolName = tc.function?.name || '';
+                    for (const [prefix, service] of Object.entries(TOOL_SERVICE_MAP_CONFIRM)) {
+                        if (toolName.includes(prefix)) {
+                            contextCategories.add(`${service}_read`);
+                            contextCategories.add(`${service}_write`);
+                            // For non-read/write categories (gmail, calendar, slack, figma), add directly
+                            if (!['jira', 'github'].includes(service)) {
+                                contextCategories.add(service);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         for (const [service, keywords] of Object.entries(FALLBACK_KEYWORD_MAP)) {
             if (keywords.some(k => recentContext.includes(k))) {
                 contextCategories.add(`${service}_read`);
