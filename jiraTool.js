@@ -36,10 +36,15 @@ async function ensureAgileAccess(userId) {
     const tokens = await getStoredTokens(userId, 'jira');
     const scopeCheck = checkJiraAgileScopesFromToken(tokens);
     if (scopeCheck.hasAgileScopes === false) {
+        console.error(`[Jira Agile] Missing scopes: ${scopeCheck.missing?.join(', ')}`);
         throw new Error(
             'Your Jira connection does not have Sprint/Board permissions. ' +
-            'Please go to Settings, disconnect Jira, then reconnect it to grant the updated Agile API scopes.'
+            'Please go to Settings, disconnect Jira, then reconnect it to grant the updated Agile API scopes. ' +
+            'Also ensure the Jira Software API scopes are enabled in the Atlassian Developer Console (Permissions → Jira Software).'
         );
+    }
+    if (scopeCheck.hasAgileScopes === null) {
+        console.warn(`[Jira Agile] Scope data unavailable for user ${userId} — cannot verify Agile permissions, proceeding anyway`);
     }
 }
 
@@ -533,12 +538,15 @@ export async function createJiraSprint(input, userId) {
 
         if (!boardResponse.ok) {
             const txt = await boardResponse.text();
+            const storedTokens = await getStoredTokens(userId, 'jira');
             console.error(`[Jira Agile] Board fetch failed — Status: ${boardResponse.status}, Body: ${txt}`);
+            console.error(`[Jira Agile] Granted scopes: ${storedTokens?.scope || '(none stored)'}`);
             if (boardResponse.status === 401 || boardResponse.status === 403) {
                 throw new Error(
                     `Sprint API access denied (HTTP ${boardResponse.status}). ` +
-                    `This usually happens with team-managed projects. The Jira Agile API requires company-managed projects. ` +
-                    `Please create a new company-managed Scrum project or disconnect/reconnect Jira in Settings.`
+                    `The Jira Software (Agile) API scopes may not be granted. ` +
+                    `Please ensure the Jira Software API is enabled in the Atlassian Developer Console (Permissions → Jira Software), ` +
+                    `then disconnect and reconnect Jira in Settings.`
                 );
             }
             throw new Error(`Failed to fetch boards: ${boardResponse.status} - ${txt}`);
