@@ -34,10 +34,7 @@ function getAuthHeader(accessToken) {
 
 async function ensureAgileAccess(userId) {
     const tokens = await getStoredTokens(userId, 'jira');
-    const storedScope = tokens?.scope || '';
-    console.log(`[Jira Agile] Stored scope for user ${userId}: "${storedScope}"`);
     const scopeCheck = checkJiraAgileScopesFromToken(tokens);
-    console.log(`[Jira Agile] Scope check result:`, JSON.stringify(scopeCheck));
     if (scopeCheck.hasAgileScopes === false) {
         throw new Error(
             'Your Jira connection does not have Sprint/Board permissions. ' +
@@ -394,7 +391,7 @@ export async function createJiraProject(input, userId) {
             key: key.toUpperCase(),
             name: name,
             projectTypeKey: projectTypeKey || "software",
-            projectTemplateKey: templateKey || "com.pyxis.greenhopper.jira:gh-simplified-kanban-classic",
+            projectTemplateKey: templateKey || "com.pyxis.greenhopper.jira:gh-scrum-project",
             description: description || `Project created by EDITH for ${name}`,
             leadAccountId: leadAccountId,
             assigneeType: "PROJECT_LEAD"
@@ -494,22 +491,25 @@ export async function createJiraSprint(input, userId) {
     const { accessToken, cloudId } = await getJiraCredentials(userId);
 
     try {
-        // Diagnostic: test token against accessible-resources and platform API
-        const diagHeaders = { 'Authorization': getAuthHeader(accessToken), 'Accept': 'application/json' };
-        try {
-            const arRes = await fetchWithTimeout('https://api.atlassian.com/oauth/token/accessible-resources', { headers: diagHeaders });
-            const arData = await arRes.json();
-            console.log(`[Jira Agile Diag] accessible-resources status: ${arRes.status}, sites:`, JSON.stringify(arData.map?.(s => ({ id: s.id, name: s.name, scopes: s.scopes })) || arData));
-        } catch (e) { console.error(`[Jira Agile Diag] accessible-resources failed:`, e.message); }
+        // Check if project is team-managed (Agile API doesn't support team-managed projects)
+        const projUrl = `${getJiraBaseUrl(cloudId)}/rest/api/3/project/${projectKey}`;
+        const projRes = await fetchWithTimeout(projUrl, {
+            method: 'GET',
+            headers: { 'Authorization': getAuthHeader(accessToken), 'Accept': 'application/json' }
+        });
+        if (projRes.ok) {
+            const projData = await projRes.json();
+            console.log(`[Jira Agile] Project ${projectKey}: style=${projData.style}, type=${projData.projectTypeKey}`);
+            if (projData.style === 'next-gen') {
+                throw new Error(
+                    `Project ${projectKey} is a team-managed project. The Jira Agile API only supports company-managed projects for sprint operations. ` +
+                    `Please create a new company-managed Scrum project, or convert this project to company-managed in Jira Settings.`
+                );
+            }
+        }
 
-        try {
-            const meRes = await fetchWithTimeout(`${getJiraBaseUrl(cloudId)}/rest/api/3/myself`, { headers: diagHeaders });
-            console.log(`[Jira Agile Diag] /rest/api/3/myself status: ${meRes.status}`);
-        } catch (e) { console.error(`[Jira Agile Diag] myself failed:`, e.message); }
-
-        // First get the board ID for this project
+        // Get the board ID for this project
         const boardUrl = `${getJiraBaseUrl(cloudId)}/rest/agile/1.0/board?projectKeyOrId=${projectKey}`;
-        console.log(`[Jira Agile Diag] Calling board URL: ${boardUrl}`);
         const boardResponse = await fetchWithTimeout(boardUrl, {
             method: 'GET',
             headers: { 'Authorization': getAuthHeader(accessToken), 'Accept': 'application/json' }
@@ -519,7 +519,11 @@ export async function createJiraSprint(input, userId) {
             const txt = await boardResponse.text();
             console.error(`[Jira Agile] Board fetch failed — Status: ${boardResponse.status}, Body: ${txt}`);
             if (boardResponse.status === 401 || boardResponse.status === 403) {
-                throw new Error(`Sprint API access denied (HTTP ${boardResponse.status}). Please go to Settings, disconnect Jira, then reconnect it to re-authorize with updated Agile permissions.`);
+                throw new Error(
+                    `Sprint API access denied (HTTP ${boardResponse.status}). ` +
+                    `This usually happens with team-managed projects. The Jira Agile API requires company-managed projects. ` +
+                    `Please create a new company-managed Scrum project or disconnect/reconnect Jira in Settings.`
+                );
             }
             throw new Error(`Failed to fetch boards: ${boardResponse.status} - ${txt}`);
         }
