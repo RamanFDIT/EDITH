@@ -185,9 +185,14 @@ function getOAuthProviders() {
       clientId: process.env.OAUTH_JIRA_CLIENT_ID || '',
       clientSecret: process.env.OAUTH_JIRA_CLIENT_SECRET || '',
       scopes: [
+        // Classic Jira Platform scopes
         'read:jira-work', 'write:jira-work', 'read:jira-user',
         'manage:jira-project',
         'manage:jira-configuration',
+        // Granular Jira Platform scopes (required by Agile API endpoints)
+        'read:project:jira',
+        'read:issue-details:jira',
+        // Granular Jira Software scopes (Agile API)
         'read:board-scope:jira-software',
         'read:sprint:jira-software', 'write:sprint:jira-software',
         'read:issue:jira-software', 'write:issue:jira-software',
@@ -295,6 +300,7 @@ const REQUIRED_AGILE_SCOPES = [
   'read:board-scope:jira-software',
   'read:sprint:jira-software',
   'write:sprint:jira-software',
+  'read:project:jira',
 ];
 
 export function checkJiraAgileScopesFromToken(tokens) {
