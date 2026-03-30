@@ -1527,7 +1527,7 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
 
         // Track total tool errors to bail early when tools keep failing
         let toolErrorCount = 0;
-        const MAX_TOOL_ERRORS = 4;
+        const MAX_TOOL_ERRORS = 8;
 
         // Wrap stream with inactivity timeout (properly clears timers)
         async function* withTimeout(source, timeoutMs) {
@@ -1579,7 +1579,7 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
             if (event.event === "on_tool_end") {
                 const rawOutput = event.data?.output;
                 const outputStr = typeof rawOutput === 'string' ? rawOutput : JSON.stringify(rawOutput || '');
-                if (outputStr.includes('"status":"error"') || outputStr.includes('Error') || outputStr.includes('Failed')) {
+                if (outputStr.includes('"status":"error"') || outputStr.includes('"status": "error"')) {
                     toolErrorCount++;
                     if (toolErrorCount >= MAX_TOOL_ERRORS) {
                         console.warn(`[Agent] Bailing: ${toolErrorCount} tool errors reached. Forcing summary response.`);

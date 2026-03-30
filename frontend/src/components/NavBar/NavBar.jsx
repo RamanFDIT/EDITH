@@ -212,7 +212,7 @@ const NavBar = ({ onNewProject }) => {
           })}
         </div>
 
-        {/* Settings + Logout */}
+        {/* Settings */}
         <div className={styles.settingContainer}>
           <NavLink
             className={(toggle || isMobile) ? styles.profile : styles.profileCompact}
