@@ -454,6 +454,13 @@ export async function discoverJiraCloudId(accessToken) {
   });
   const sites = await response.json();
   if (sites.length === 0) throw new Error('No Jira sites found');
+
+  // Log all accessible resources for debugging scope issues
+  console.log(`[Jira OAuth] accessible-resources returned ${sites.length} site(s):`);
+  for (const site of sites) {
+    console.log(`  [Site] id=${site.id}, name=${site.name}, url=${site.url}, scopes=${JSON.stringify(site.scopes)}`);
+  }
+
   return { cloud_id: sites[0].id, cloud_url: sites[0].url };
 }
 
