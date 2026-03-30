@@ -222,16 +222,6 @@ const NavBar = ({ onNewProject }) => {
             <SettingsIcon size={20} className={styles.settings} />
             <p className={(!toggle && !isMobile) ? styles.displayNone : undefined}>Settings</p>
           </NavLink>
-          <button
-            className={(toggle || isMobile) ? styles.logoutButton : styles.logoutButtonCompact}
-            onClick={() => {
-              if (isMobile) closeMobile();
-              navigate('/');
-            }}
-          >
-            <LogOut size={20} className={styles.logoutIcon} />
-            <p className={(!toggle && !isMobile) ? styles.displayNone : undefined}>Log Out</p>
-          </button>
         </div>
       </div>
     </>
