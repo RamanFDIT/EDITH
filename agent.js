@@ -104,10 +104,9 @@ async function getLLMForUser(userId, excludeProviders = new Set()) {
   if ((provider === 'gemini' || provider === 'auto') && !excludeProviders.has('gemini')) {
     const apiKey = process.env.GOOGLE_API_KEY;
     if (validateCredential(apiKey, 'Gemini API Key Config')) {
-      console.log(`[LLM] Using Gemini for user ${userId} (Global Key)`);
-      const llm = new ChatGoogleGenerativeAI("gemini-2.5-flash", { apiKey: apiKey });
-      const classifier = new ChatGoogleGenerativeAI("gemini-2.0-flash-lite", { apiKey: apiKey, temperature: 0 });
-      const result = { llm, classifier, provider: 'gemini' };
+      console.log(`[LLM] Using Gemini 3 Flash for user ${userId} (Global Key)`);
+      const llm = new ChatGoogleGenerativeAI("gemini-3-flash-preview", { apiKey: apiKey });
+      const result = { llm, classifier: null, provider: 'gemini' };
       llmCache.set(cacheKey, { ...result, createdAt: Date.now() });
       return result;
     }
@@ -132,13 +131,7 @@ async function getLLMForUser(userId, excludeProviders = new Set()) {
         openAIApiKey: githubToken,
         configuration: { baseURL: ghBaseURL, apiKey: githubToken },
       });
-      const classifier = new ChatOpenAI({
-        modelName: 'gpt-4o-mini',
-        openAIApiKey: githubToken,
-        temperature: 0,
-        configuration: { baseURL: ghBaseURL, apiKey: githubToken },
-      });
-      const result = { llm, classifier, provider: 'github' };
+      const result = { llm, classifier: null, provider: 'github' };
       llmCache.set(cacheKey, { ...result, createdAt: Date.now() });
       return result;
     }
@@ -151,8 +144,7 @@ async function getLLMForUser(userId, excludeProviders = new Set()) {
     const ollamaModel = process.env.OLLAMA_MODEL || 'llama3.2';
     console.log(`[LLM] Using Ollama for user ${userId}`);
     const llm = new ChatOllama({ baseUrl: ollamaBaseUrl, model: ollamaModel });
-    const classifier = new ChatOllama({ baseUrl: ollamaBaseUrl, model: ollamaModel, temperature: 0 });
-    const result = { llm, classifier, provider: 'ollama' };
+    const result = { llm, classifier: null, provider: 'ollama' };
     llmCache.set(cacheKey, { ...result, createdAt: Date.now() });
     return result;
   }
@@ -576,176 +568,20 @@ function createToolsForUser(userId) {
     }),
   ];
 
-  // Category map for this user's tools
-  const toolsByCategory = {
-    jira_read:    jiraReadTools,
-    jira_write:   jiraWriteTools,
-    github_read:  githubReadTools,
-    github_write: githubWriteTools,
-    figma:        figmaTools,
-    calendar:     calendarTools,
-    slack:        slackCustomTools,
-    gmail:        gmailTools,
-    image:        imageTools,
-    files:        fileTools,
-    general:      [],
-  };
-
-  return toolsByCategory;
+  // Return all tools as a flat array — no category routing needed
+  return [
+    ...imageTools,
+    ...jiraReadTools, ...jiraWriteTools,
+    ...githubReadTools, ...githubWriteTools,
+    ...figmaTools,
+    ...calendarTools,
+    ...slackCustomTools,
+    ...gmailTools,
+    ...fileTools,
+  ];
 }
 
-// =============================================================================
-// SEMANTIC CLASSIFIER (The Traffic Cop)
-// =============================================================================
-
-const CLASSIFIER_PROMPT = `You are a fast intent classifier for an AI assistant named E.D.I.T.H.
-Your ONLY job is to classify the user's message into ONE OR MORE categories.
-
-CATEGORIES:
-- jira_read: Reading/searching Jira tickets, issues, epics, sprints, backlogs (queries, lookups, listing)
-- jira_write: Creating, updating, or deleting Jira tickets, issues, projects
-- github_read: Reading GitHub data: commits, PRs, issues, checks, branches, repo info, default branch (queries, lookups, listing)
-- github_write: Creating repos, issues, or any write operation on GitHub
-- figma: Anything about designs, mockups, UI/UX, wireframes, Figma files, design comments
-- calendar: Anything about scheduling, meetings, appointments, events, calendar, free time, availability, reminders
-- slack: Sending messages to Slack, posting announcements, notifying team, messaging channels, team notifications
-- gmail: Sending emails, reading inbox, checking mail, finding someone's email address, emailing a person
-- image: Generating images, pictures, illustrations, graphics, logos, artwork, drawings, visualisations
-- files: Reading uploaded documents, files, PDFs, Word docs, summarizing attached documents
-- general: Casual conversation, greetings, questions that don't need tools, chitchat
-
-RULES:
-1. Output ONLY the category name(s), comma-separated if multiple apply
-2. If unsure, output "general"
-3. Do NOT explain, do NOT add any other text
-4. Be fast and decisive
-5. For queries that both read and write, include both (e.g., jira_read,jira_write)
-
-EXAMPLES:
-User: "How many epics do I have?" -> jira_read
-User: "Check my open PRs on the EDITH repo" -> github_read
-User: "Hello, how are you?" -> general
-User: "Create a ticket for the login bug" -> jira_write
-User: "Update ticket FDIT-123 to done" -> jira_write
-User: "List all my Jira tickets and mark the first one done" -> jira_read,jira_write
-User: "Read the comments on the dashboard design" -> figma
-User: "What branches does the EDITH repo have?" -> github_read
-User: "What's the default branch?" -> github_read
-User: "Create a new repo called test-app" -> github_write
-User: "What meetings do I have today?" -> calendar
-User: "Schedule a call with John next Tuesday at 2pm" -> calendar
-User: "Am I free tomorrow afternoon?" -> calendar
-User: "Cancel my 3pm meeting" -> calendar
-User: "Tell the dev-team I fixed the bug" -> slack
-User: "Post to #general that deployment is complete" -> slack
-User: "Notify the team about the new release" -> slack
-User: "Send an email to John about the meeting" -> gmail
-User: "What emails did I get today?" -> gmail
-User: "Email Sarah the project update" -> gmail
-User: "Check my inbox" -> gmail
-User: "Generate an image of a sunset over mountains" -> image
-User: "Draw me a logo for my app" -> image
-User: "Create a picture of a robot" -> image
-User: "Read the uploaded file" -> files
-User: "Summarize that document" -> files
-User: "What does the PDF say?" -> files
-
-User message: `;
-
-// Define keywords for the "Fast Pass"
-const KEYWORD_MAP = {
-    jira_read: [
-        'list tickets', 'show tickets', 'get tickets', 'search jira', 'find ticket',
-        'how many epics', 'what tickets', 'show epics', 'backlog', 'sprint status',
-        'list projects', 'show projects', 'find project', 'what projects', 'jira projects',
-        'list spaces', 'show spaces', 'find space', 'what spaces', 'my spaces',
-        'check space', 'check project', 'does project exist', 'does space exist',
-        'look for project', 'look for space', 'which projects', 'which spaces',
-        'list sprints', 'show sprints', 'find sprint',
-        'in progress', 'to do', 'what do i have', 'my tasks', 'my issues', 'my tickets',
-        'open issues', 'open tickets', 'assigned to me', 'what tasks'
-    ],
-    jira_write: [
-        'create ticket', 'make ticket', 'new ticket', 'update ticket', 'delete ticket',
-        'mark as done', 'change status', 'assign to', 'set priority', 'create issue',
-        'create epic', 'create project', 'create space', 'new project', 'new space',
-        'make task', 'create task', 'new task', 'create sprint', 'new sprint',
-        'start sprint', 'end sprint', 'close sprint', 'update sprint', 'add to sprint', 'sprint planning',
-        'move to in progress', 'move to progress', 'into progress', 'move to', 'move into',
-        'mark done', 'mark complete', 'to done', 'transition', 'move these', 'move all'
-    ],
-    github_read: [
-        'list commits', 'show commits', 'check pr', 'list pr', 'show pull requests',
-        'get checks', 'repo status', 'list issues', 'list branches', 'show branches',
-        'what branches', 'default branch', 'main branch', 'repo info', 'repository info'
-    ],
-    github_write: [
-        'create repo', 'new repository', 'create issue', 'make issue'
-    ],
-    figma: [
-        'figma', 'design', 'mockup', 'wireframe', 'ux', 'ui', 'color', 'frame', 
-        'layer', 'canvas', 'prototype', 'comment' 
-    ],
-    system: [
-        'open app', 'open application', 'launch', 'open ', 'start ', 'run command', 'terminal', 'cpu usage',
-        'memory usage', 'system status', 'disk space', 'battery', 'connect', 'how do i connect'
-    ],
-    calendar: [
-        'schedule', 'meeting', 'meetings', 'appointment', 'calendar', 'event', 'events',
-        'free time', 'availability', 'busy', 'remind', 'reminder', 'book', 'block time',
-        'tomorrow', 'yesterday', 'next week', 'this week', 'today', 'tonight',
-        'what do i have', 'do i have', 'anything scheduled', 'anything on my',
-        'what\'s on my', 'what is on my', 'check my calendar', 'show my calendar',
-        'my schedule', 'my agenda', 'upcoming', 'plans for', 'what\'s happening',
-        'this evening', 'this morning', 'this afternoon',
-        'any tasks', 'any events', 'any meetings',
-        'schedule a task', 'schedule task', 'add to calendar', 'put on calendar',
-        'create an event', 'create event', 'book a meeting', 'set a reminder',
-        'add a meeting', 'block out time', 'schedule for'
-    ],
-    files: [
-        'document', 'pdf', 'docx', 'word doc', 'file',
-        'read file', 'read that', 'summarize', 'summary',
-        'that document', 'the file', 'the document',
-        'brief me', 'overview', 'contents of', 'what does it say',
-        'attached', 'attachment', 'uploaded',
-        'file tools', 'attached the following'
-    ],
-    slack: [
-        'slack', 'tell the team', 'notify team', 'post to', 'announce', 'message channel',
-        'send message', 'tell dev', 'tell #', 'post announcement', 'team notification'
-    ],
-    gmail: [
-        'email', 'gmail', 'send email', 'send mail', 'mail to', 'email to',
-        'inbox', 'check mail', 'check email', 'recent emails', 'unread emails',
-        'send it to', 'email them', 'email him', 'email her', 'email that',
-        'mail it', 'compose email', 'write email', 'draft email',
-        'send an email', 'email address', 'mail him', 'mail her', 'mail them',
-        'send that email', 'forward email', 'reply email', 'my emails',
-        'send it via email', 'shoot an email', 'drop an email', 'fire off an email'
-    ],
-    image: [
-        'generate image', 'create image', 'draw', 'make a picture', 'generate a picture',
-        'create a logo', 'make an image', 'illustration', 'visualize', 'visualise',
-        'generate art', 'create art', 'make art', 'dall-e', 'dalle', 'artwork',
-        'render an image', 'design a logo', 'generate a logo', 'picture of',
-        'create photo', 'make picture', 'generate photo', 'make a photo',
-        'generate a photo', 'create a picture', 'create a drawing', 'sketch',
-        'render a', 'paint', 'create graphic', 'make graphic',
-        'draw me', 'draw a', 'image of', 'photo of', 'logo of', 'graphic of',
-        'make me an image', 'make me a picture', 'make me a logo', 'make me a graphic',
-        'generate me', 'create me an image', 'create me a picture',
-        'design an image', 'design a picture', 'design a graphic',
-        'can you draw', 'can you generate', 'can you create an image',
-        'show me an image', 'show me a picture', 'depict', 'depiction'
-    ]
-};
-
-// Fallback keywords that map to both read and write
-const FALLBACK_KEYWORD_MAP = {
-    jira: ['jira', 'ticket', 'sprint', 'epic', 'kanban', 'issue', 'bug', 'board', 'space', 'backlog', 'status'],
-    github: ['github', 'repo', 'pr', 'pull request', 'commit', 'branch', 'push', 'merge', 'clone', 'checks'],
-};
+// (Traffic Cop classifier removed — all tools now given to the LLM directly)
 
 // =============================================================================
 // CONFIRMATION DETECTION
@@ -785,250 +621,8 @@ function isConfirmationMessage(message, chatHistory) {
     return remaining.split(/\s+/).every(w => FILLER_WORDS.has(w));
 }
 
-async function classifyIntent(userMessage, chatHistory = [], classifier) {
-    const lowerMsg = userMessage.toLowerCase();
-    const detectedCategories = new Set();
-
-    // 0. CONFIRMATION CHECK: Is this a short affirmation confirming a prior AI proposal?
-    if (isConfirmationMessage(userMessage, chatHistory)) {
-        console.log("[Traffic Cop] ✅ Confirmation detected. Scanning full context (human + AI)...");
-
-        // For confirmations, look further back (8 messages) to account for tool call/response messages
-        // that push the original human request out of a shorter window
-        const recentMessages = chatHistory.slice(-8);
-        const recentContext = recentMessages.map(m => {
-            const content = typeof m.content === 'string' ? m.content : '';
-            return content;
-        }).join(' ').toLowerCase();
-
-        const contextCategories = new Set();
-
-        // Check for tool names in AI messages to detect service context
-        const TOOL_SERVICE_MAP_CONFIRM = {
-            jira: 'jira', search_jira: 'jira', create_jira: 'jira', update_jira: 'jira', delete_jira: 'jira',
-            list_jira: 'jira', add_issues_to_sprint: 'jira',
-            github: 'github', create_repo: 'github', get_repo: 'github', list_commits: 'github',
-            list_branches: 'github', get_commit: 'github', get_pull: 'github', list_pull: 'github',
-            send_gmail: 'gmail', search_gmail: 'gmail', get_recent_emails: 'gmail',
-            calendar: 'calendar', create_calendar: 'calendar', get_calendar: 'calendar',
-            send_slack: 'slack', get_figma: 'figma',
-        };
-
-        for (const msg of recentMessages) {
-            if (msg.additional_kwargs?.tool_calls) {
-                for (const tc of msg.additional_kwargs.tool_calls) {
-                    const toolName = tc.function?.name || '';
-                    for (const [prefix, service] of Object.entries(TOOL_SERVICE_MAP_CONFIRM)) {
-                        if (toolName.includes(prefix)) {
-                            contextCategories.add(`${service}_read`);
-                            contextCategories.add(`${service}_write`);
-                            // For non-read/write categories (gmail, calendar, slack, figma), add directly
-                            if (!['jira', 'github'].includes(service)) {
-                                contextCategories.add(service);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        for (const [service, keywords] of Object.entries(FALLBACK_KEYWORD_MAP)) {
-            if (keywords.some(k => recentContext.includes(k))) {
-                contextCategories.add(`${service}_read`);
-                contextCategories.add(`${service}_write`);
-            }
-        }
-        for (const [category, keywords] of Object.entries(KEYWORD_MAP)) {
-            if (keywords.some(k => recentContext.includes(k))) {
-                contextCategories.add(category);
-            }
-        }
-
-        if (contextCategories.size > 0 && contextCategories.size <= 6) {
-            console.log(`[Traffic Cop] ✅ Confirmation routed: ${Array.from(contextCategories)}`);
-            return { categories: Array.from(contextCategories), isConfirmation: true };
-        }
-
-        return { categories: ['general'], isConfirmation: true };
-    }
-
-    // 0.5 GREETING CHECK: If the user just says hello, don't drag in 16 tools
-    const isGreeting = /^(hi|hello|hey|yo|greetings|good morning|good afternoon|good evening|sup)\s*([.!?]*)$/i.test(lowerMsg);
-    if (isGreeting) {
-        console.log("[Traffic Cop] 👋 Greeting detected. Routing to General directly.");
-        return { categories: ['general'], isConfirmation: false };
-    }
-
-    // 1. FAST PASS: Check specific keywords first (< 1ms)
-    for (const [category, keywords] of Object.entries(KEYWORD_MAP)) {
-        if (keywords.some(k => lowerMsg.includes(k))) {
-            detectedCategories.add(category);
-        }
-    }
-
-    // 2. ALWAYS check fallback keywords (even if fast-pass found something)
-    // This ensures "open jira tickets" detects jira, not just system
-    for (const [service, keywords] of Object.entries(FALLBACK_KEYWORD_MAP)) {
-        if (keywords.some(k => lowerMsg.includes(k))) {
-            detectedCategories.add(`${service}_read`);
-            detectedCategories.add(`${service}_write`);
-        }
-    }
-
-    // TIME-CONTEXT DISAMBIGUATION: If both Jira and Calendar detected, prefer Calendar when time context present
-    if (detectedCategories.size > 0) {
-        const hasJira = [...detectedCategories].some(c => c.startsWith('jira'));
-        const hasCalendar = detectedCategories.has('calendar');
-        const hasTimeContext = /\b(\d{1,2}[:\s]?\d{0,2}\s*(am|pm)|at\s+\d|tomorrow|tonight|this\s+(morning|afternoon|evening)|next\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)|on\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/i.test(lowerMsg);
-
-        if (hasJira && hasTimeContext) {
-            if (hasCalendar) {
-                // Both detected + time context → remove Jira, keep Calendar
-                for (const cat of [...detectedCategories]) {
-                    if (cat.startsWith('jira')) detectedCategories.delete(cat);
-                }
-                console.log(`[Traffic Cop] 📅 Time-context disambiguation: preferring Calendar over Jira`);
-            } else {
-                // Only Jira detected but time context → add Calendar so LLM can decide
-                detectedCategories.add('calendar');
-                console.log(`[Traffic Cop] 📅 Time-context detected with Jira: adding Calendar tools`);
-            }
-        }
-    }
-
-    if (detectedCategories.size > 0) {
-        console.log(`[Traffic Cop] ⚡ Fast-Pass Intent: ${Array.from(detectedCategories)}`);
-        return { categories: Array.from(detectedCategories), isConfirmation: false };
-    }
-
-    // 3. CONTEXT PASS: For short messages OR messages with reference words, check conversation context
-    const wordCount = userMessage.split(' ').length;
-    const hasReferenceWord = /\b(that|it|this|the file|the document|the pdf|same|above|previous)\b/i.test(userMessage);
-    
-    if ((wordCount < 10 || hasReferenceWord) && chatHistory.length > 0) {
-        console.log("[Traffic Cop] Follow-up detected (short or reference word). Checking conversation context...");
-        
-        // Look at the last few messages to determine context
-        const recentMessages = chatHistory.slice(-4); // Last 2 exchanges (human + AI each)
-        
-        // Match human prompts for service keywords
-        const recentUserMessages = recentMessages.filter(m => {
-            const type = typeof m._getType === 'function' ? m._getType() : m.type;
-            return type === 'human';
-        });
-        const recentContext = recentUserMessages.map(m => m.content || '').join(' ').toLowerCase();
-
-        // Also extract tool names from AI messages to detect service context
-        // (e.g., if AI called search_jira_issues, the follow-up "try again" should route to jira)
-        const recentAIMessages = recentMessages.filter(m => {
-            const type = typeof m._getType === 'function' ? m._getType() : m.type;
-            return type === 'ai';
-        });
-        const aiContext = recentAIMessages.map(m => {
-            // Check for tool_calls in additional_kwargs or direct content
-            const toolNames = [];
-            if (m.additional_kwargs?.tool_calls) {
-                for (const tc of m.additional_kwargs.tool_calls) {
-                    if (tc.function?.name) toolNames.push(tc.function.name);
-                }
-            }
-            // Also check content for tool name patterns
-            const content = (typeof m.content === 'string' ? m.content : '').toLowerCase();
-            return [...toolNames, content].join(' ');
-        }).join(' ').toLowerCase();
-
-        // Check if recent context mentions any service keywords
-        const contextCategories = new Set();
-
-        // Map tool name prefixes to services
-        const TOOL_SERVICE_MAP = {
-            jira: 'jira', search_jira: 'jira', create_jira: 'jira', update_jira: 'jira', delete_jira: 'jira',
-            list_jira: 'jira', add_issues_to_sprint: 'jira',
-            github: 'github', create_repo: 'github', get_repo: 'github', list_commits: 'github',
-            list_branches: 'github', get_commit: 'github', get_pull: 'github', list_pull: 'github',
-        };
-
-        for (const [toolPrefix, service] of Object.entries(TOOL_SERVICE_MAP)) {
-            if (aiContext.includes(toolPrefix)) {
-                contextCategories.add(`${service}_read`);
-                contextCategories.add(`${service}_write`);
-            }
-        }
-
-        for (const [service, keywords] of Object.entries(FALLBACK_KEYWORD_MAP)) {
-            if (keywords.some(k => recentContext.includes(k))) {
-                contextCategories.add(`${service}_read`);
-                contextCategories.add(`${service}_write`);
-            }
-        }
-
-        // Also check specific keywords in context
-        for (const [category, keywords] of Object.entries(KEYWORD_MAP)) {
-            if (keywords.some(k => recentContext.includes(k))) {
-                contextCategories.add(category);
-            }
-        }
-        
-        // Only return if it resolved to a reasonably small set of categories (prevent 30 tool nightmare)
-        if (contextCategories.size > 0 && contextCategories.size <= 4) {
-            console.log(`[Traffic Cop] 🔗 Context-Pass Intent (follow-up): ${Array.from(contextCategories)}`);
-            return { categories: Array.from(contextCategories), isConfirmation: false };
-        }
-    }
-
-    if (wordCount < 5) {
-        console.log("[Traffic Cop] Short query with no context. Defaulting to General.");
-        return { categories: ['general'], isConfirmation: false };
-    }
-
-    // 4. SLOW PASS: Fallback to LLM for ambiguous queries
-    try {
-        let contextBlock = "";
-        if (chatHistory.length > 0) {
-            contextBlock = "[Recent Chat History]\n" + chatHistory.slice(-4).map(m => {
-                const role = (typeof m._getType === 'function' ? m._getType() : m.type) === 'human' ? 'User' : 'E.D.I.T.H.';
-                return `${role}: ${m.content}`;
-            }).join('\n') + "\n\nUser message: ";
-        }
-        
-        // Safety check for CLASSIFIER_PROMPT
-        const promptBase = (typeof CLASSIFIER_PROMPT === 'string') ? CLASSIFIER_PROMPT : "Classify user intent: ";
-        const prompt = promptBase.replace('User message: ', contextBlock ? contextBlock : 'User message: ');
-        
-        if (!classifier) {
-            console.warn("[Traffic Cop] Classifier LLM missing, defaulting to General.");
-            return { categories: ['general'], isConfirmation: false };
-        }
-
-        const response = await classifier.invoke(prompt + userMessage);
-        const categories = response.content.toLowerCase().trim().split(',').map(c => c.trim());
-        const VALID_CATEGORIES = new Set([
-            'jira_read', 'jira_write', 'github_read', 'github_write',
-            'figma', 'calendar', 'slack', 'gmail', 'image', 'files', 'general'
-        ]);
-        const validCategories = categories.filter(c => VALID_CATEGORIES.has(c));
-
-        if (validCategories.length === 0) return { categories: ['general'], isConfirmation: false };
-
-        console.log(`[Traffic Cop] Intent classified: ${validCategories.join(', ')}`);
-        return { categories: validCategories, isConfirmation: false };
-    } catch (error) {
-        console.error("[Traffic Cop] Classification error:", error.message);
-        return { categories: ['general'], isConfirmation: false };
-    }
-}
-
-function getToolsForCategories(categories, toolsByCategory) {
-    const tools = new Set();
-
-    for (const category of categories) {
-        const categoryTools = toolsByCategory[category] || [];
-        categoryTools.forEach(tool => tools.add(tool));
-    }
-
-    // If no tools selected (general conversation), return empty array
-    return Array.from(tools);
-}
+// classifyIntent and getToolsForCategories removed — all tools given to agent directly
+// (see git history for the removed Traffic Cop code)
 
 // =============================================================================
 // CHAT HISTORY PERSISTENCE
@@ -1209,7 +803,7 @@ function getMessageHistory(sessionId, userId) {
 }
 
 // =============================================================================
-// DYNAMIC AGENT CREATION (Traffic Cop Pattern)
+// DYNAMIC AGENT CREATION
 // =============================================================================
 
 // Create agent with fresh timestamp each time (don't cache system prompt)
@@ -1253,74 +847,19 @@ function getOrCreateAgent(tools, userTimezone, userId, userLLM, userPrefs, proje
 // The main processing function that classifies intent and routes to appropriate agent
 async function processWithSemanticRouting(input) {
     process.env.ACTIVE_REQUEST = 'true';
-    // input usually contains { input, chat_history, userId, timezone } 
-    // when coming from agentExecutor.invoke
     const { input: userQuery, chat_history, userId, timezone } = input;
-    
-    // We MUST initialize the LLM for this specific user
-    const { llm, classifier } = await getLLMForUser(userId);
-    
+
+    const { llm } = await getLLMForUser(userId);
     const history = sanitizeHistoryForTools(trimHistory(Array.isArray(chat_history) ? chat_history : []));
-    
-    // Step 1: Classify intent using the Traffic Cop (now with context)
-    const { categories, isConfirmation } = await classifyIntent(userQuery, history, classifier);
 
-    // Step 2: Get the appropriate tools for the classified categories (per-user)
-    const userToolsByCategory = createToolsForUser(userId);
-    const selectedTools = getToolsForCategories(categories, userToolsByCategory);
+    // Get ALL tools for this user (no classification needed)
+    const allTools = createToolsForUser(userId);
+    const isConfirmation = isConfirmationMessage(userQuery, history);
 
-    console.log(`[Traffic Cop] Selected ${selectedTools.length} tools for categories: ${categories.join(', ')}${isConfirmation ? ' (confirmation)' : ''}`);
+    console.log(`[Agent] ${allTools.length} tools available${isConfirmation ? ' (confirmation)' : ''}`);
 
-    // Step 3: Handle "general" conversation directly with LLM (no agent needed)
-    if (selectedTools.length === 0) {
-        console.log("[Traffic Cop] General conversation - using direct LLM call");
+    const agent = getOrCreateAgent(allTools, timezone, userId, llm, input.userPrefs);
 
-        const systemPrompt = getSystemPrompt(timezone, input.userPrefs);
-        let guardMessage;
-        if (isConfirmation) {
-            guardMessage = new SystemMessage(
-                "[CONTINUATION] The user is confirming something you previously said. " +
-                "Review your recent conversation and respond appropriately. " +
-                "If the user is confirming an action plan but you don't have the right tools available, " +
-                "let them know and ask them to rephrase the specific action request."
-            );
-        } else {
-            guardMessage = new SystemMessage(
-                "[SYSTEM NOTICE] IMPORTANT: You have NO tools available in this response. " +
-                "You CANNOT perform any actions such as sending emails, creating tickets, " +
-                "posting messages, reading files, scheduling events, or querying APIs. " +
-                "Do NOT pretend to execute actions or fabricate results. " +
-                "If the user asks you to perform an action, tell them clearly and honestly " +
-                "that you were unable to route their request to the appropriate tool, " +
-                "and ask them to rephrase or be more specific."
-            );
-        }
-        const now = new Date();
-        const effectiveTimezone = timezone || 'UTC';
-        const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: effectiveTimezone };
-        const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: effectiveTimezone };
-        const freshTimeReminder = new SystemMessage(
-            `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', timeOptions)} on ${now.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
-        );
-        // Merge all system-level content into a single SystemMessage so that
-        // Gemini doesn't crash with "System message should be the first one".
-        const combinedSystemContent = systemPrompt.content
-            + '\n\n' + guardMessage.content
-            + '\n\n' + freshTimeReminder.content;
-        const messages = [
-            new SystemMessage(combinedSystemContent),
-            ...history,
-            new HumanMessage(userQuery)
-        ];
-
-        const response = await llm.invoke(messages);
-        return { messages: [...history, new HumanMessage(userQuery), response] };
-    }
-
-    // Step 4: Get or create an agent with these specific tools
-    const agent = getOrCreateAgent(selectedTools, timezone, userId, llm, input.userPrefs);
-
-    // Step 5: Execute the agent (inject fresh time reminder before user query)
     const now = new Date();
     const effectiveTimezone = timezone || 'UTC';
     const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: effectiveTimezone };
@@ -1328,19 +867,18 @@ async function processWithSemanticRouting(input) {
     const freshTimeReminder = new HumanMessage(
         `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', timeOptions)} on ${now.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
     );
-    // Conditional guard: CONTINUATION for confirmations, FRESHNESS GUARD for new requests
     let toolNudge;
     if (isConfirmation) {
         toolNudge = new HumanMessage(
             `[CONTINUATION] The user is confirming/approving a plan you previously proposed. ` +
             `Review your most recent message in the conversation history and EXECUTE the action(s) you described. ` +
             `Do NOT ask for further confirmation. Do NOT re-propose the plan. Proceed to call the tools now. ` +
-            `You have ${selectedTools.length} tools available. Use them to carry out the plan. ` +
+            `You have ${allTools.length} tools available. Use them to carry out the plan. ` +
             `You MUST cite the Receipt (ID/Link) in your confirmation.`
         );
     } else {
         toolNudge = new HumanMessage(
-            `[FRESHNESS GUARD] You have ${selectedTools.length} tools available. ` +
+            `[FRESHNESS GUARD] You have ${allTools.length} tools available. ` +
             `The following request from the user is NEW and INDEPENDENT. ` +
             `Even if you see a similar request or tool result in the conversation history, ` +
             `you MUST invoke the appropriate tool again to fulfill this specific request. ` +
@@ -1369,7 +907,7 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         try {
 
-        const { llm, classifier, provider: activeProvider } = await getLLMForUser(userId, excludeProviders);
+        const { llm, provider: activeProvider } = await getLLMForUser(userId, excludeProviders);
 
         const messageHistory = getMessageHistory(sessionId, userId);
         const fullHistory = await messageHistory.getMessages();
@@ -1385,107 +923,16 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
             }
         }
 
-        // Step 1: Classify intent using the Traffic Cop (with conversation context)
-        const { categories, isConfirmation } = await classifyIntent(userQuery, history, classifier);
+        // Get ALL tools for this user (no classification needed — LLM picks tools naturally)
+        const allTools = createToolsForUser(userId);
+        const isConfirmation = isConfirmationMessage(userQuery, history);
 
-        // Auto-include file tools when files are attached
-        if (userQuery.includes('Read them using your file tools')) {
-            if (!categories.includes('files')) {
-                categories.push('files');
-                console.log('[Traffic Cop] Files detected in request — added files category');
-            }
-        }
+        console.log(`[Agent] ${allTools.length} tools available${isConfirmation ? ' (confirmation)' : ''}`);
 
-        // Step 2: Get the appropriate tools for the classified categories (per-user)
-        const userToolsByCategory = createToolsForUser(userId);
-        const selectedTools = getToolsForCategories(categories, userToolsByCategory);
+        // Create agent with all tools
+        const agent = getOrCreateAgent(allTools, timezone, userId, llm, userPrefs, projectContext);
 
-        console.log(`[Traffic Cop] Selected ${selectedTools.length} tools for categories: ${categories.join(', ')}${isConfirmation ? ' (confirmation)' : ''}`);
-
-        // Step 3: Handle "general" conversation directly with LLM (no agent needed)
-        if (selectedTools.length === 0) {
-            console.log("[Traffic Cop] General conversation - using direct LLM call");
-
-            // getSystemPrompt() already returns a SystemMessage — don't double-wrap
-            const systemPrompt = getSystemPrompt(timezone, userPrefs);
-            let guardMessage;
-            if (isConfirmation) {
-                guardMessage = new SystemMessage(
-                    "[CONTINUATION] The user is confirming something you previously said. " +
-                    "Review your recent conversation and respond appropriately. " +
-                    "If the user is confirming an action plan but you don't have the right tools available, " +
-                    "let them know and ask them to rephrase the specific action request."
-                );
-            } else {
-                guardMessage = new SystemMessage(
-                    "[SYSTEM NOTICE] IMPORTANT: You have NO tools available in this response. " +
-                    "You CANNOT perform any actions such as sending emails, creating tickets, " +
-                    "posting messages, reading files, scheduling events, or querying APIs. " +
-                    "Do NOT pretend to execute actions or fabricate results. " +
-                    "If the user asks you to perform an action, tell them clearly and honestly " +
-                    "that you were unable to route their request to the appropriate tool, " +
-                    "and ask them to rephrase or be more specific."
-                );
-            }
-            // Inject a fresh time reminder right before the user query so the LLM
-            // doesn't rely on stale timestamps from earlier in the conversation history.
-            const now = new Date();
-            const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: timezone };
-            const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: timezone };
-            const freshTimeReminder = new SystemMessage(
-                `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', timeOptions)} on ${now.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
-            );
-            // Merge all system-level content into a single SystemMessage so that
-            // Gemini doesn't crash with "System message should be the first one".
-            let combinedSystemContent = systemPrompt.content
-                + '\n\n' + guardMessage.content
-                + '\n\n' + freshTimeReminder.content;
-
-            if (projectContext) {
-                let projectBlock = '\n\n[PROJECT CONTEXT]\nThe user is working within a project workspace.';
-                if (projectContext.jiraProjectKey) {
-                    projectBlock += `\n- Jira Project Key: ${projectContext.jiraProjectKey} (use as default for all Jira queries)`;
-                }
-                if (projectContext.githubRepo) {
-                    projectBlock += `\n- GitHub Repository: ${projectContext.githubRepo} (use as default owner/repo for all GitHub queries)`;
-                }
-                projectBlock += '\nWhen the user asks about issues, PRs, tickets without specifying a project or repo, default to these values.';
-                combinedSystemContent += projectBlock;
-            }
-
-            const messages = [
-                new SystemMessage(combinedSystemContent),
-                ...history,
-                new HumanMessage(userQuery)
-            ];
-
-            const stream = await llm.stream(messages);
-
-            let completeResponse = "";
-            for await (const chunk of stream) {
-                const content = chunk.content;
-                if (content) {
-                    completeResponse += content;
-                    yield {
-                        event: "on_chat_model_stream",
-                        data: { chunk: { content } }
-                    };
-                }
-            }
-
-            // Save to history after streaming completes
-            await messageHistory.addMessage(new HumanMessage(userQuery));
-            if (completeResponse) {
-                await messageHistory.addMessage(new AIMessage(completeResponse));
-            }
-            process.env.ACTIVE_REQUEST = 'false';
-            return;
-        }
-
-        // Step 4: Get or create an agent with these specific tools
-        const agent = getOrCreateAgent(selectedTools, timezone, userId, llm, userPrefs, projectContext);
-
-        // Step 5: Stream events from the agent (inject fresh time reminder before user query)
+        // Stream events from the agent (inject fresh time reminder before user query)
         const agentNow = new Date();
         const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: timezone };
         const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: timezone };
@@ -1499,12 +946,12 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
                 `[CONTINUATION] The user is confirming/approving a plan you previously proposed. ` +
                 `Review your most recent message in the conversation history and EXECUTE the action(s) you described. ` +
                 `Do NOT ask for further confirmation. Do NOT re-propose the plan. Proceed to call the tools now. ` +
-                `You have ${selectedTools.length} tools available. Use them to carry out the plan. ` +
+                `You have ${allTools.length} tools available. Use them to carry out the plan. ` +
                 `You MUST cite the Receipt (ID/Link) in your confirmation.`
             );
         } else {
             toolNudge = new HumanMessage(
-                `[FRESHNESS GUARD] You have ${selectedTools.length} tools available. ` +
+                `[FRESHNESS GUARD] You have ${allTools.length} tools available. ` +
                 `The following request from the user is NEW and INDEPENDENT. ` +
                 `Even if you see a similar request or tool result in the conversation history, ` +
                 `you MUST invoke the appropriate tool again to fulfill this specific request. ` +
@@ -1564,7 +1011,7 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
                 if (callSignature === lastToolCall) {
                     repeatCount++;
                     if (repeatCount >= MAX_REPEATED_CALLS) {
-                        console.warn(`[Traffic Cop] Halting: tool "${toolName}" called ${MAX_REPEATED_CALLS}+ times with identical args. Likely hallucination loop.`);
+                        console.warn(`[Agent] Halting: tool "${toolName}" called ${MAX_REPEATED_CALLS}+ times with identical args. Likely hallucination loop.`);
                         yield {
                             event: "on_chat_model_stream",
                             data: { chunk: { content: "\n\nI noticed I was repeating the same action. Let me stop here and summarize what I've done so far." } }

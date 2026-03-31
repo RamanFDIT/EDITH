@@ -1,14 +1,15 @@
-# GEMINI.md - EDITH Core Tactical Assistant
+# EDITH Core - Tactical Assistant
 
 ## Project Overview
-**E.D.I.T.H (Even Dead I'm The Hero)** is a sophisticated, tactical AI assistant designed for developer productivity and system control. It serves as a central hub for various developer tools (GitHub, Jira, Figma, Slack, Google Workspace) and provides system-level capabilities (app launching, terminal execution, hardware monitoring).
+**E.D.I.T.H. (Even Dead I'm The Hero)** is a sophisticated, tactical local AI assistant designed for developer productivity and system control. It serves as a central hub for various developer tools (GitHub, Jira, Figma, Slack, Google Workspace) and provides system-level capabilities (app launching, terminal execution, hardware monitoring), all wrapped in a "Jarvis-like" interface.
 
 ### Key Technologies
-- **Backend**: Node.js, Express.
-- **AI Orchestration**: LangChain, LangGraph (with semantic routing).
-- **Primary LLM**: Gemini (via `@google/genai` and LangChain), with fallback to OpenAI or local Ollama.
+- **Backend**: Node.js, Express, WebSockets (`ws`).
+- **AI Orchestration**: LangChain, LangGraph (semantic routing).
+- **Primary LLM**: Gemini (via `@google/genai` and `@langchain/google-genai`), with fallback options to OpenAI or local Ollama.
 - **Database**: MongoDB (Mongoose) for chat history, user profiles, and project metadata.
-- **Frontend**: React (Vite), Tailwind CSS, Recharts for data visualization.
+- **Frontend (`/frontend`)**: React (Vite), Tailwind CSS, Recharts for data visualization, React Router DOM, `@huggingface/transformers`.
+- **Frontend Website (`/frontend-website`)**: React (Vite), Tailwind CSS, Framer Motion (Landing/Marketing site).
 - **Integrations**:
   - **GitHub**: Repository management, issues, PRs, commits.
   - **Jira**: Issue lifecycle, project creation, WBS/hierarchy generation.
@@ -23,18 +24,18 @@
   - `server.js`: Entry point, Express API, and static file serving.
   - `agent.js`: Core AI agent orchestration and tool routing.
   - `systemPrompt.js`: Defines the EDITH persona and operational protocols.
-  - `*Tool.js`: Modular integration files for external services.
+  - `*Tool.js`: Modular integration files for external services (e.g., `githubTool.js`, `jiraTool.js`, `audioTool.js`).
   - `oauthService.js`: Token management for OAuth-based integrations.
   - `db.js`: MongoDB schemas and connection logic.
 - `/frontend`: The main React-based assistant interface.
-- `/frontend-website`: A separate Vite/React site, likely for landing/marketing.
+- `/frontend-website`: A separate Vite/React site for landing and marketing purposes.
 
 ## Building and Running
 
 ### Prerequisites
 - Node.js (v18+ recommended)
 - MongoDB (running locally or a cloud instance)
-- A `.env` file with necessary API keys (refer to `README.md` for the list).
+- A `.env` file in the root directory with necessary API keys (refer to `README.md` for the list).
 
 ### Backend (Development)
 ```bash
@@ -45,18 +46,36 @@ npm run dev:backend
 
 ### Frontend (Development)
 ```bash
+# You can run it from the root:
+npm run dev:frontend
+
+# Or from the frontend directory:
 cd frontend
 npm install
 npm run dev
 ```
 *Starts the Vite dev server at `http://localhost:5173`.*
 
+### Frontend Website (Development)
+```bash
+cd frontend-website
+npm install
+npm run dev
+```
+
 ### Production Build
 ```bash
+# From the root directory:
 npm run build
+# Starts the server and serves the built frontend
 npm start
 ```
-*Builds the frontend and serves it via the backend on port 3000.*
+
+### Background Service (Optional)
+```bash
+npm install -g pm2
+pm2 start server.js --name "EDITH_SYSTEM"
+```
 
 ## Development Conventions
 
@@ -78,5 +97,5 @@ npm start
 - The system supports multiple users with isolated data via `x-user-email` and `x-user-id` headers.
 
 ### Testing
-- Currently, there is no comprehensive test suite (TODO). 
-- `test_oauth.js` is available for testing OAuth flows.
+- Currently, there is no comprehensive test suite setup (TODO). 
+- `test_oauth.js` is available for testing OAuth flows manually.
