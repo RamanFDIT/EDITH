@@ -661,7 +661,9 @@ const KEYWORD_MAP = {
         'list spaces', 'show spaces', 'find space', 'what spaces', 'my spaces',
         'check space', 'check project', 'does project exist', 'does space exist',
         'look for project', 'look for space', 'which projects', 'which spaces',
-        'list sprints', 'show sprints', 'find sprint'
+        'list sprints', 'show sprints', 'find sprint',
+        'in progress', 'to do', 'what do i have', 'my tasks', 'my issues', 'my tickets',
+        'open issues', 'open tickets', 'assigned to me', 'what tasks'
     ],
     jira_write: [
         'create ticket', 'make ticket', 'new ticket', 'update ticket', 'delete ticket',
@@ -669,8 +671,8 @@ const KEYWORD_MAP = {
         'create epic', 'create project', 'create space', 'new project', 'new space',
         'make task', 'create task', 'new task', 'create sprint', 'new sprint',
         'start sprint', 'end sprint', 'close sprint', 'update sprint', 'add to sprint', 'sprint planning',
-        'in progress', 'into progress', 'move to', 'move into', 'mark done', 'mark complete',
-        'to done', 'transition', 'to do', 'move these', 'move all'
+        'move to in progress', 'move to progress', 'into progress', 'move to', 'move into',
+        'mark done', 'mark complete', 'to done', 'transition', 'move these', 'move all'
     ],
     github_read: [
         'list commits', 'show commits', 'check pr', 'list pr', 'show pull requests',
