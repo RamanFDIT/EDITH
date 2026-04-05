@@ -100,19 +100,49 @@ export async function transcribeAudio(args) {
            `Please connect your Google account in Settings to enable Gemini-based transcription.`;
 }
 
-// --- TEXT TO SPEECH (Supports ElevenLabs & Edge TTS) ---
+// --- TEXT TO SPEECH (Gemini TTS → Edge TTS fallback → Web Speech API) ---
 export async function generateSpeech(args) {
     const { text, voiceId } = args;
     console.log(`🗣️ Generating Speech for: "${text.substring(0, 40)}..."`);
 
-    // Strategy 1: Edge TTS via node-edge-tts (Microsoft neural voices — free, no API key)
+    // Strategy 1: Gemini TTS via @google/genai (uses bundled GOOGLE_API_KEY)
+    if (process.env.GOOGLE_API_KEY) {
+        try {
+            const { GoogleGenAI } = await import('@google/genai');
+            const genai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
+
+            const response = await genai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: [{ text: text }],
+                config: {
+                    responseModalities: ['AUDIO'],
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: { voiceName: voiceId || 'Kore' }
+                        }
+                    }
+                }
+            });
+
+            const audioPart = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+            if (audioPart && audioPart.inlineData) {
+                const { mimeType, data } = audioPart.inlineData;
+                console.log(`🗣️ Gemini TTS audio generated (voice: ${voiceId || 'Kore'}, format: ${mimeType})`);
+                return `data:${mimeType};base64,${data}`;
+            }
+            throw new Error('No audio data in Gemini response');
+        } catch (error) {
+            console.warn(`[Audio] Gemini TTS failed: ${error.message}. Falling back to Edge TTS...`);
+        }
+    }
+
+    // Strategy 2: Edge TTS via node-edge-tts (Microsoft neural voices — free, no API key)
     try {
         const { EdgeTTS } = await import('node-edge-tts');
         const voice = voiceId || DEFAULT_EDGE_VOICE;
-        
-        // node-edge-tts requires writing to a file, so we use a temp file
+
         const tempPath = path.join(os.tmpdir(), `edith-tts-${Date.now()}.mp3`);
-        
+
         const tts = new EdgeTTS({
             voice: voice,
             lang: voice.substring(0, 5) || 'en-US',
@@ -122,49 +152,19 @@ export async function generateSpeech(args) {
 
         await tts.ttsPromise(text, tempPath);
 
-        // Read the generated file into a buffer
         if (fs.existsSync(tempPath)) {
             const audioBuffer = await fs.promises.readFile(tempPath);
             const base64Audio = audioBuffer.toString('base64');
-            
-            // Clean up temp file
+
             fs.promises.unlink(tempPath).catch(e => console.warn('Failed to delete temp TTS file:', e));
-            
+
             console.log(`🗣️ Edge TTS audio generated (voice: ${voice})`);
             return `data:audio/mp3;base64,${base64Audio}`;
         } else {
             throw new Error('TTS file was not created');
         }
     } catch (error) {
-        console.warn(`[Audio] Edge TTS failed: ${error.message}. Falling back to ElevenLabs TTS...`);
-    }
-
-    // Strategy 2: ElevenLabs (High quality — requires API key)
-    if (process.env.ELEVENLABS_API_KEY) {
-        try {
-            const { ElevenLabsClient } = await import('elevenlabs');
-            const client = new ElevenLabsClient({ apiKey: process.env.ELEVENLABS_API_KEY });
-            
-            console.log(`🗣️ Using ElevenLabs TTS (Voice: ${voiceId || 'JBFqnCBv7zXP0t9NvYI8 (Sonia)'})`);
-            const audio = await client.generate({
-                voice: voiceId || "JBFqnCBv7zXP0t9NvYI8", // Default to Sonia or a known good voice
-                text: text,
-                model_id: "eleven_multilingual_v2"
-            });
-
-            // Convert Stream to Buffer for base64
-            const chunks = [];
-            for await (const chunk of audio) {
-                chunks.push(chunk);
-            }
-            const audioBuffer = Buffer.concat(chunks);
-            const base64Audio = audioBuffer.toString('base64');
-            console.log(`✅ ElevenLabs audio generated`);
-            return `data:audio/mp3;base64,${base64Audio}`;
-
-        } catch (error) {
-            console.warn(`[Audio] ElevenLabs TTS failed: ${error.message}. Falling back to Web Speech API...`);
-        }
+        console.warn(`[Audio] Edge TTS failed: ${error.message}. Falling back to Web Speech API...`);
     }
 
     // Strategy 3: Return text for client-side Web Speech API (zero cost, zero keys)

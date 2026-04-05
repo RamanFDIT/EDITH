@@ -879,38 +879,40 @@ app.post('/api/ask', extractUser, async (req, res) => {
 
     let sentenceBuffer = "";
 
-    // --- Audio Generation Logic (only when voice is enabled) ---
-    const ttsPromises = [];
+    // --- Audio Generation Logic (sequential queue for correct ordering) ---
+    const ttsQueue = [];
+    let ttsProcessingPromise = null;
 
-    function generateAudioChunk(text) {
-        if (!voiceEnabled) return; // Skip TTS when voice is off
-        console.log(`[Server] Triggering TTS for chunk: "${text.substring(0, 40)}..."`);
-        const promise = (async () => {
+    async function processTTSQueue() {
+        while (ttsQueue.length > 0) {
+            const currentItem = ttsQueue.shift();
+            console.log(`[TTS Queue] Generating for: "${currentItem.text.substring(0, 50)}..."`);
             try {
-                console.log(`[Server] Generating speech...`);
-                const audioResult = await generateSpeech({ text });
-                console.log(`[Server] TTS result type: ${typeof audioResult}, length: ${audioResult ? audioResult.length : 0}`);
-
+                const audioResult = await generateSpeech({ text: currentItem.text });
                 if (typeof audioResult === 'string') {
                     try {
                         const parsed = JSON.parse(audioResult);
                         if (parsed.fallback === 'web-speech-api') {
-                            console.log(`[Server] Sending tts_fallback event`);
                             res.write(`data: ${JSON.stringify({ type: "tts_fallback", text: parsed.text })}\n\n`);
-                            return;
+                            continue;
                         }
                     } catch (e) {}
-
                     if (audioResult && !audioResult.startsWith("Error")) {
-                        console.log(`[Server] Sending audio event (Base64 length: ${audioResult.length})`);
                         res.write(`data: ${JSON.stringify({ type: "audio", url: audioResult })}\n\n`);
-                    } else {
-                        console.warn(`[Server] TTS returned error string:`, audioResult);
                     }
                 }
-            } catch (e) { console.error("[Server] TTS Error caught:", e); }
-        })();
-        ttsPromises.push(promise);
+            } catch (e) { console.error("[Server] TTS Error:", e); }
+        }
+    }
+
+    function queueAudioChunk(text) {
+        if (!voiceEnabled) return;
+        ttsQueue.push({ text });
+        if (ttsProcessingPromise) {
+            ttsProcessingPromise = ttsProcessingPromise.then(() => processTTSQueue());
+        } else {
+            ttsProcessingPromise = processTTSQueue();
+        }
     }
 
     for await (const event of stream) {
@@ -923,7 +925,7 @@ app.post('/api/ask', extractUser, async (req, res) => {
                 res.write(`data: ${JSON.stringify({ type: "token", content })}\n\n`);
                 sentenceBuffer += content;
                 if (/[.?!](\s|$)/.test(sentenceBuffer) && sentenceBuffer.length > 20) {
-                    generateAudioChunk(sentenceBuffer.trim());
+                    queueAudioChunk(sentenceBuffer.trim());
                     sentenceBuffer = "";
                 }
             }
@@ -954,11 +956,11 @@ app.post('/api/ask', extractUser, async (req, res) => {
     // Flush remaining TTS and wait for delivery (connection stays open for audio)
     if (voiceEnabled) {
         if (sentenceBuffer.trim().length > 0) {
-            generateAudioChunk(sentenceBuffer.trim());
+            queueAudioChunk(sentenceBuffer.trim());
         }
-        if (ttsPromises.length > 0) {
+        if (ttsProcessingPromise) {
             console.log('[TTS] Awaiting TTS queue drain...');
-            await Promise.all(ttsPromises);
+            await ttsProcessingPromise;
             console.log('[TTS] Queue drained.');
         }
     }

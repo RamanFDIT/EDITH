@@ -375,7 +375,7 @@ const Home = () => {
     }
   };
 
-  // --- Handle voice input: read SSE stream from /api/voice ---
+  // --- Handle voice stream: read SSE stream from /api/voice ---
   const handleVoiceStream = useCallback(async (streamBody) => {
     const reader = streamBody.getReader();
     const decoder = new TextDecoder();
@@ -433,6 +433,33 @@ const Home = () => {
     }
   }, [setMessages, enqueueAudio]);
 
+  // --- Handle audio submission: send blob to backend /api/voice for STT + response ---
+  const handleAudioSubmit = useCallback(async (audioBlob) => {
+    setIsStreaming(true);
+    setIsThinking(true);
+    try {
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'recording.webm');
+      formData.append('sessionId', activeSessionId);
+      if (activeProject?._id) formData.append('projectId', activeProject._id);
+      if (voiceEnabledRef.current) formData.append('voiceEnabled', 'true');
+
+      const response = await fetch(`${API_URL}/api/voice`, {
+        method: 'POST',
+        headers: { 'X-User-Email': userEmail },
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error(`Voice API returned ${response.status}`);
+      await handleVoiceStream(response.body);
+    } catch (err) {
+      console.error('[AudioSubmit] Error:', err);
+    } finally {
+      setIsStreaming(false);
+      setIsThinking(false);
+    }
+  }, [activeSessionId, activeProject, userEmail, handleVoiceStream]);
+
   return (
     <section className={styles.mainSection}>
       <div className={expanded ? styles.container : styles.containerCompact}>
@@ -472,7 +499,7 @@ const Home = () => {
             disabled={isStreaming}
             files={files}
             onFilesChange={setFiles}
-            onVoiceStream={handleVoiceStream}
+            onAudioSubmit={handleAudioSubmit}
             voiceEnabled={voiceEnabled}
             onVoiceToggle={() => {
               setVoiceEnabled(v => !v);

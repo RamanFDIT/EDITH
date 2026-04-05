@@ -2,7 +2,7 @@ import { useRef, useState, useCallback, useEffect } from 'react';
 import { Send, Paperclip, Mic, X, Volume2, VolumeX } from 'lucide-react';
 import styles from './Input.module.css';
 
-const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVoiceStream, voiceEnabled, onVoiceToggle }) => {
+const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onAudioSubmit, voiceEnabled, onVoiceToggle }) => {
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -13,52 +13,12 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVo
   const animationFrameRef = useRef(null);
   const lastAudioTimeRef = useRef(Date.now());
   const stopRecordingRef = useRef(null);
-  
-  // Whisper Worker Ref
-  const workerRef = useRef(null);
-  const [isModelReady, setIsModelReady] = useState(false);
 
   const onSubmitRef = useRef(onSubmit);
   const onChangeRef = useRef(onChange);
   const valueRef = useRef(value);
   const [isRecording, setIsRecording] = useState(false);
   const [liveTranscription, setLiveTranscription] = useState('');
-
-  // Initialize Worker
-  useEffect(() => {
-    if (!workerRef.current) {
-      workerRef.current = new Worker(new URL('../../workers/whisperWorker.js', import.meta.url), {
-        type: 'module'
-      });
-      
-      workerRef.current.addEventListener('message', (e) => {
-        switch (e.data.status) {
-          case 'ready':
-            setIsModelReady(true);
-            setLiveTranscription('');
-            break;
-          case 'progress':
-            setLiveTranscription(`Loading local AI Model...`);
-            break;
-          case 'complete':
-            setLiveTranscription('');
-            if (e.data.output && e.data.output.text) {
-               const text = e.data.output.text.trim();
-               if (text && onSubmitRef.current) {
-                   onSubmitRef.current(text);
-               }
-            }
-            break;
-          case 'error':
-            console.error('[Whisper] Worker Error:', e.data.error);
-            setLiveTranscription('');
-            break;
-        }
-      });
-      // Trigger load immediately in background
-      workerRef.current.postMessage({ action: 'load' });
-    }
-  }, []);
 
   useEffect(() => {
     onSubmitRef.current = onSubmit;
@@ -188,28 +148,15 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVo
         if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
         if (audioContext && audioContext.state !== 'closed') audioContext.close();
 
-        setLiveTranscription('Transcribing (Local)...');
-
         const blob = new Blob(chunksRef.current, { type: mimeType });
         if (blob.size === 0) {
             setLiveTranscription('');
             return;
         }
 
-        try {
-            // Decode blob to Float32Array at 16000Hz required by Whisper
-            const arrayBuffer = await blob.arrayBuffer();
-            const decodeContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-            const audioBuffer = await decodeContext.decodeAudioData(arrayBuffer);
-            const float32Array = audioBuffer.getChannelData(0);
-            
-            // Send to Web Worker
-            if (workerRef.current) {
-                workerRef.current.postMessage({ audio: float32Array });
-            }
-        } catch (err) {
-            console.error('[Whisper] Decode error:', err);
-            setLiveTranscription('');
+        setLiveTranscription('Transcribing...');
+        if (onAudioSubmit) {
+            onAudioSubmit(blob);
         }
       };
 
@@ -219,7 +166,7 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVo
     } catch (err) {
       console.error('[Voice] Microphone access denied or Error:', err);
     }
-  }, []);
+  }, [onAudioSubmit]);
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -286,15 +233,15 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVo
           value={value}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          placeholder={isModelReady ? "Ask E.D.I.T.H. anything..." : "Loading STT model..."}
-          disabled={disabled || isRecording || !isModelReady}
+          placeholder="Ask E.D.I.T.H. anything..."
+          disabled={disabled || isRecording}
         />
         <div className={styles.inputActions}>
           <div className={styles.actionsLeft}>
             <button
               className={styles.attachButton}
               onClick={() => fileInputRef.current?.click()}
-              disabled={disabled || isRecording || !isModelReady}
+              disabled={disabled || isRecording}
               title="Attach files"
             >
               <Paperclip size={18} />
@@ -313,7 +260,7 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVo
             <button
               className={`${styles.micButton} ${isRecording ? styles.micRecording : ''}`}
               onClick={toggleRecording}
-              disabled={disabled || !isModelReady}
+              disabled={disabled}
               title={isRecording ? 'Stop recording' : 'Voice input'}
             >
               <Mic size={18} />
@@ -321,7 +268,7 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onVo
             <button
               className={styles.sendButton}
               onClick={onSubmit}
-              disabled={disabled || isRecording || !value.trim() || !isModelReady}
+              disabled={disabled || isRecording || !value.trim()}
             >
               <Send size={18} />
             </button>
