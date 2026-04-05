@@ -39,58 +39,19 @@ export async function transcribeAudio(args) {
     if (hasGeminiAccess) {
         try {
             const { GoogleGenAI } = await import('@google/genai');
-            let genai;
-            if (process.env.GOOGLE_REFRESH_TOKEN) {
-              // OAuth mode — preferred
-              const accessToken = await getValidToken('default-user', 'google');
-              if (accessToken) {
-                genai = new GoogleGenAI({
-                  auth: {
-                    addAuthHeaders: async (headers) => {
-                      headers.set('Authorization', `Bearer ${accessToken}`);
-                    }
-                  }
-                });
-              }
-            }
-            if (!genai && process.env.GOOGLE_API_KEY) {
-              genai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
-            }
+            // API key is the only reliable auth for Gemini generateContent (OAuth scopes don't cover it)
+            const genai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
 
-            if (genai) {
-              const response = await genai.models.generateContent({
-                  model: "gemini-2.5-flash",
-                  contents: [
-                      { inlineData: { data: base64Audio, mimeType } },
-                      'Transcribe this audio accurately. Return ONLY the transcribed text, nothing else.'
-                  ]
-              });
-              return response.candidates[0].content.parts[0].text;
-            }
+            const response = await genai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: [
+                    { inlineData: { data: base64Audio, mimeType } },
+                    'Transcribe this audio accurately. Return ONLY the transcribed text, nothing else.'
+                ]
+            });
+            return response.candidates[0].content.parts[0].text;
         } catch (error) {
-            console.warn(`[Audio] Gemini transcription failed: ${error.message}`);
-            
-            // If OAuth failed due to insufficient scopes, try falling back to the bundled API key
-            if (error.message && error.message.includes('403') && process.env.GOOGLE_API_KEY) {
-                console.log(`[Audio] Falling back to GOOGLE_API_KEY for transcription due to OAuth scope error...`);
-                try {
-                    const { GoogleGenAI } = await import('@google/genai');
-                    const genai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
-
-                    const response = await genai.models.generateContent({
-                        model: "gemini-2.5-flash",
-                        contents: [
-                            { inlineData: { data: base64Audio, mimeType } },
-                            'Transcribe this audio accurately. Return ONLY the transcribed text, nothing else.'
-                        ]
-                    });
-                    return response.candidates[0].content.parts[0].text;
-                } catch (fallbackError) {
-                    console.error(`[Audio] Fallback to API key also failed:`, fallbackError.message);
-                    return `Error: Gemini transcription failed (OAuth & API Key both rejected) - ${fallbackError.message}`;
-                }
-            }
-
+            console.error(`[Audio] Gemini transcription failed:`, error.message);
             return `Error: Gemini transcription failed - ${error.message}`;
         }
     }
