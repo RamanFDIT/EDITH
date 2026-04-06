@@ -45,6 +45,7 @@ const Home = () => {
   const messageAreaRef = useRef(null);
   const audioQueueRef = useRef([]);
   const isPlayingRef = useRef(false);
+  const streamAbortRef = useRef(null);
 
   // --- Audio playback queue (plays audio chunks sequentially) ---
   const playNextAudio = useCallback(() => {
@@ -248,6 +249,7 @@ const Home = () => {
     setIsThinking(true);
 
     const streamAbort = new AbortController();
+    streamAbortRef.current = streamAbort;
     const STREAM_INACTIVITY_MS = 60000;
     let inactivityTimer = setTimeout(() => streamAbort.abort(), STREAM_INACTIVITY_MS);
 
@@ -352,23 +354,33 @@ const Home = () => {
         }
       }
     } catch (err) {
-      console.error('[Stream] Fetch or read error:', err);
-      const isTimeout = err.name === 'AbortError';
-      const errorMsg = isTimeout
-        ? 'Response timed out. The server may be busy — please try again.'
-        : 'Failed to get a response. Is the server running?';
-      setMessages(prev => {
-        const updated = [...prev];
-        const last = updated[updated.length - 1];
-        if (last?.role === 'ai' && last.content === '') {
-          updated[updated.length - 1] = { ...last, content: errorMsg };
-        } else if (last?.role === 'ai') {
-          updated[updated.length - 1] = { ...last, content: last.content + `\n\n*${errorMsg}*` };
-        }
-        return updated;
-      });
+      if (err.name === 'AbortError') {
+        // User cancelled or inactivity timeout — append note only if AI had no content yet
+        setMessages(prev => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last?.role === 'ai' && last.content === '') {
+            updated[updated.length - 1] = { ...last, content: '*Response cancelled.*' };
+          }
+          return updated;
+        });
+      } else {
+        console.error('[Stream] Fetch or read error:', err);
+        setMessages(prev => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          const errorMsg = 'Failed to get a response. Is the server running?';
+          if (last?.role === 'ai' && last.content === '') {
+            updated[updated.length - 1] = { ...last, content: errorMsg };
+          } else if (last?.role === 'ai') {
+            updated[updated.length - 1] = { ...last, content: last.content + `\n\n*${errorMsg}*` };
+          }
+          return updated;
+        });
+      }
     } finally {
       clearTimeout(inactivityTimer);
+      streamAbortRef.current = null;
       setIsStreaming(false);
       setIsThinking(false);
       isSubmittingRef.current = false;
@@ -435,6 +447,8 @@ const Home = () => {
 
   // --- Handle audio submission: send blob to backend /api/voice for STT + response ---
   const handleAudioSubmit = useCallback(async (audioBlob) => {
+    const voiceAbort = new AbortController();
+    streamAbortRef.current = voiceAbort;
     setIsStreaming(true);
     setIsThinking(true);
     try {
@@ -448,17 +462,30 @@ const Home = () => {
         method: 'POST',
         headers: { 'X-User-Email': userEmail },
         body: formData,
+        signal: voiceAbort.signal,
       });
 
       if (!response.ok) throw new Error(`Voice API returned ${response.status}`);
       await handleVoiceStream(response.body);
     } catch (err) {
-      console.error('[AudioSubmit] Error:', err);
+      if (err.name !== 'AbortError') console.error('[AudioSubmit] Error:', err);
     } finally {
+      streamAbortRef.current = null;
       setIsStreaming(false);
       setIsThinking(false);
     }
   }, [activeSessionId, activeProject, userEmail, handleVoiceStream]);
+
+  // --- Cancel active stream ---
+  const cancelStream = useCallback(() => {
+    if (streamAbortRef.current) {
+      streamAbortRef.current.abort();
+      streamAbortRef.current = null;
+    }
+    audioQueueRef.current = [];
+    isPlayingRef.current = false;
+    window.speechSynthesis?.cancel();
+  }, []);
 
   return (
     <section className={styles.mainSection}>
@@ -500,6 +527,8 @@ const Home = () => {
             files={files}
             onFilesChange={setFiles}
             onAudioSubmit={handleAudioSubmit}
+            isStreaming={isStreaming}
+            onCancel={cancelStream}
             voiceEnabled={voiceEnabled}
             onVoiceToggle={() => {
               setVoiceEnabled(v => !v);

@@ -1,8 +1,8 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
-import { Send, Paperclip, Mic, X, Volume2, VolumeX } from 'lucide-react';
+import { Send, Paperclip, Mic, X, Volume2, VolumeX, Square } from 'lucide-react';
 import styles from './Input.module.css';
 
-const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onAudioSubmit, voiceEnabled, onVoiceToggle }) => {
+const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onAudioSubmit, isStreaming, onCancel, voiceEnabled, onVoiceToggle }) => {
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -13,6 +13,7 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onAu
   const animationFrameRef = useRef(null);
   const lastAudioTimeRef = useRef(Date.now());
   const stopRecordingRef = useRef(null);
+  const speechRecognitionRef = useRef(null);
 
   const onSubmitRef = useRef(onSubmit);
   const onChangeRef = useRef(onChange);
@@ -26,6 +27,13 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onAu
     valueRef.current = value;
   }, [onSubmit, onChange, value]);
 
+  // Clear transcription banner when streaming ends
+  useEffect(() => {
+    if (!disabled && liveTranscription === 'Transcribing...') {
+      setLiveTranscription('');
+    }
+  }, [disabled, liveTranscription]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -35,6 +43,9 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onAu
       }
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop();
+      }
+      if (speechRecognitionRef.current) {
+        speechRecognitionRef.current.stop();
       }
     };
   }, []);
@@ -63,6 +74,17 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onAu
     document.addEventListener('keydown', handleGlobalKeyDown);
     return () => document.removeEventListener('keydown', handleGlobalKeyDown);
   }, []);
+
+  // Cancel stream on Escape key
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === 'Escape' && isStreaming && onCancel) {
+        onCancel();
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isStreaming, onCancel]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !disabled) {
@@ -129,7 +151,28 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onAu
       setLiveTranscription('Listening...');
 
       // -----------------------------------------------------------------------
-      // MEDIA RECORDER — collect audio blobs for local processing
+      // WEB SPEECH API — live transcription preview (visual feedback only)
+      // -----------------------------------------------------------------------
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
+        recognition.onresult = (e) => {
+          let transcript = '';
+          for (let i = e.resultIndex; i < e.results.length; i++) {
+            transcript += e.results[i][0].transcript;
+          }
+          if (transcript.trim()) setLiveTranscription(transcript.trim());
+        };
+        recognition.onerror = () => {}; // Silently ignore — this is just for preview
+        recognition.start();
+        speechRecognitionRef.current = recognition;
+      }
+
+      // -----------------------------------------------------------------------
+      // MEDIA RECORDER — collect audio blobs for backend transcription
       // -----------------------------------------------------------------------
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
       const mediaRecorder = new MediaRecorder(stream, { mimeType });
@@ -169,6 +212,10 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onAu
   }, [onAudioSubmit]);
 
   const stopRecording = useCallback(() => {
+    if (speechRecognitionRef.current) {
+      speechRecognitionRef.current.stop();
+      speechRecognitionRef.current = null;
+    }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
@@ -194,8 +241,8 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onAu
 
   return (
     <div className={styles.inputWrapper}>
-      {/* Live transcription banner — shown while recording */}
-      {isRecording && (
+      {/* Live transcription banner — shown while recording or transcribing */}
+      {(isRecording || liveTranscription) && (
         <div className={styles.liveTranscriptBanner}>
           <span className={styles.liveTranscriptDot} />
           <span className={styles.liveTranscriptText}>
@@ -265,13 +312,23 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onAu
             >
               <Mic size={18} />
             </button>
-            <button
-              className={styles.sendButton}
-              onClick={onSubmit}
-              disabled={disabled || isRecording || !value.trim()}
-            >
-              <Send size={18} />
-            </button>
+            {isStreaming ? (
+              <button
+                className={`${styles.sendButton} ${styles.cancelButton}`}
+                onClick={onCancel}
+                title="Cancel response (Esc)"
+              >
+                <Square size={16} />
+              </button>
+            ) : (
+              <button
+                className={styles.sendButton}
+                onClick={onSubmit}
+                disabled={disabled || isRecording || !value.trim()}
+              >
+                <Send size={18} />
+              </button>
+            )}
           </div>
         </div>
       </div>
