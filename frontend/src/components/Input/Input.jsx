@@ -13,7 +13,6 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onAu
   const animationFrameRef = useRef(null);
   const lastAudioTimeRef = useRef(Date.now());
   const stopRecordingRef = useRef(null);
-  const speechRecognitionRef = useRef(null);
 
   const onSubmitRef = useRef(onSubmit);
   const onChangeRef = useRef(onChange);
@@ -27,12 +26,6 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onAu
     valueRef.current = value;
   }, [onSubmit, onChange, value]);
 
-  // Clear transcription banner when streaming ends
-  useEffect(() => {
-    if (!disabled && liveTranscription === 'Transcribing...') {
-      setLiveTranscription('');
-    }
-  }, [disabled, liveTranscription]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -43,9 +36,6 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onAu
       }
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop();
-      }
-      if (speechRecognitionRef.current) {
-        speechRecognitionRef.current.stop();
       }
     };
   }, []);
@@ -151,27 +141,6 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onAu
       setLiveTranscription('Listening...');
 
       // -----------------------------------------------------------------------
-      // WEB SPEECH API — live transcription preview (visual feedback only)
-      // -----------------------------------------------------------------------
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        const recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = 'en-US';
-        recognition.onresult = (e) => {
-          let transcript = '';
-          for (let i = e.resultIndex; i < e.results.length; i++) {
-            transcript += e.results[i][0].transcript;
-          }
-          if (transcript.trim()) setLiveTranscription(transcript.trim());
-        };
-        recognition.onerror = () => {}; // Silently ignore — this is just for preview
-        recognition.start();
-        speechRecognitionRef.current = recognition;
-      }
-
-      // -----------------------------------------------------------------------
       // MEDIA RECORDER — collect audio blobs for backend transcription
       // -----------------------------------------------------------------------
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
@@ -212,10 +181,6 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onAu
   }, [onAudioSubmit]);
 
   const stopRecording = useCallback(() => {
-    if (speechRecognitionRef.current) {
-      speechRecognitionRef.current.stop();
-      speechRecognitionRef.current = null;
-    }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
@@ -241,8 +206,8 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onAu
 
   return (
     <div className={styles.inputWrapper}>
-      {/* Live transcription banner — shown while recording or transcribing */}
-      {(isRecording || liveTranscription) && (
+      {/* Live transcription banner — shown while recording */}
+      {isRecording && (
         <div className={styles.liveTranscriptBanner}>
           <span className={styles.liveTranscriptDot} />
           <span className={styles.liveTranscriptText}>
