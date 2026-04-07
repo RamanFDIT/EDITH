@@ -18,7 +18,7 @@ import { generateImage } from "./imageTool.js";
 import { getJiraIssues, createJiraIssue, updateJiraIssue, deleteJiraIssue, createJiraProject, listJiraProjects, createJiraSprint, updateJiraSprint, addIssuesToSprint, listJiraSprints } from "./jiraTool.js";
 import { getCalendarEvents, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent, findFreeTime } from "./calendarTool.js";
 import { sendSlackMessage, sendSlackAnnouncement, sendSlackLink } from "./slackTool.js";
-import { createRepository, getRepoIssues, createRepoIssue, listCommits, listPullRequests, getPullRequest, getCommit, getRepoChecks, listBranches, getRepoInfo } from "./githubTool.js";
+import { createRepository, getRepoIssues, createRepoIssue, listCommits, listPullRequests, getPullRequest, getCommit, getRepoChecks, listBranches, getRepoInfo, listRepositories } from "./githubTool.js";
 import { getFigmaFileStructure, getFigmaComments, postFigmaComment } from "./figmaTool.js";
 import { sendGmail, searchGmailContacts, getRecentEmails } from "./gmailTool.js";
 import { readFile } from "./fileTool.js";
@@ -466,6 +466,17 @@ function createToolsForUser(userId) {
         repo: z.string().describe("Repository name."),
       }),
       func: (input) => getRepoInfo(input, userId),
+    }),
+    new DynamicStructuredTool({
+      name: "list_repositories",
+      description: "List GitHub repositories for the authenticated user or a specified user. Returns repo name, description, language, stars, and visibility.",
+      schema: z.object({
+        owner: z.string().optional().describe("GitHub username to list repos for. Omit to list your own repositories."),
+        type: z.string().optional().describe("Filter type: 'all', 'owner', 'public', 'private', 'member'. Default 'all'."),
+        sort: z.string().optional().describe("Sort by: 'created', 'updated', 'pushed', 'full_name'. Default 'updated'."),
+        perPage: z.number().optional().describe("Number of repos to return (max 100). Default 30."),
+      }),
+      func: (input) => listRepositories(input, userId),
     }),
   ];
 

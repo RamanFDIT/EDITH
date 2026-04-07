@@ -67,7 +67,16 @@ export async function createRepository(args, userId) {
 
         if (!response.ok) {
             const txt = await response.text();
-            throw new Error(`GitHub API Error: ${txt}`);
+            if (response.status === 403) {
+                throw new Error(
+                    `GitHub 403 Forbidden: Cannot create repository. ` +
+                    `Please go to Settings, disconnect GitHub, and reconnect to grant updated permissions.`
+                );
+            }
+            if (response.status === 422) {
+                throw new Error(`Repository '${name}' already exists or the name is invalid.`);
+            }
+            throw new Error(`GitHub API Error (${response.status}): ${txt}`);
         }
 
         const data = await response.json();
@@ -124,7 +133,23 @@ export async function createRepoIssue(args, userId) {
             body: JSON.stringify({ title, body: body || "Created by E.D.I.T.H." })
         });
 
-        if (!response.ok) throw new Error(`GitHub API Error: ${await response.text()}`);
+        if (!response.ok) {
+            const errorText = await response.text();
+            if (response.status === 403) {
+                throw new Error(
+                    `GitHub 403 Forbidden: You don't have permission to create issues on ${owner}/${repo}. ` +
+                    `Your GitHub token may lack the required 'repo' scope. ` +
+                    `Please go to Settings, disconnect GitHub, and reconnect to grant updated permissions.`
+                );
+            }
+            if (response.status === 404) {
+                throw new Error(
+                    `GitHub 404: Repository '${owner}/${repo}' not found. ` +
+                    `Check the owner and repo name, or ensure your token has access to private repositories.`
+                );
+            }
+            throw new Error(`GitHub API Error (${response.status}): ${errorText}`);
+        }
         const data = await response.json();
         return JSON.stringify({
             status: "success",
@@ -288,5 +313,35 @@ export async function getRepoInfo(args, userId) {
         });
     } catch (error) {
         return JSON.stringify({ status: "error", message: `Error getting repo info: ${error.message}` });
+    }
+}
+
+// --- LIST REPOSITORIES ---
+export async function listRepositories(args, userId) {
+    let { owner, type = 'all', sort = 'updated', perPage = 30 } = args;
+    try {
+        let url;
+        if (owner) {
+            url = `https://api.github.com/users/${owner}/repos?type=${type}&sort=${sort}&per_page=${perPage}`;
+        } else {
+            url = `https://api.github.com/user/repos?type=${type}&sort=${sort}&per_page=${perPage}`;
+        }
+        const data = await githubFetch(url, userId);
+        if (!data || data.length === 0) {
+            return JSON.stringify({ status: "no_results_found", message: "No repositories found." });
+        }
+        const repos = data.map(r => ({
+            name: r.name,
+            fullName: r.full_name,
+            description: r.description,
+            visibility: r.visibility,
+            language: r.language,
+            stars: r.stargazers_count,
+            updatedAt: r.updated_at,
+            url: r.html_url,
+        }));
+        return JSON.stringify({ status: "success", repositories: repos });
+    } catch (error) {
+        return JSON.stringify({ status: "error", message: `Error listing repositories: ${error.message}` });
     }
 }

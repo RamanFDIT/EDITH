@@ -100,6 +100,13 @@ const Home = () => {
   // Track which session we last loaded history for
   const lastLoadedSessionRef = useRef(null);
 
+  // Clear the ref when historyLoaded is externally reset (e.g., by project switch)
+  useEffect(() => {
+    if (!historyLoaded) {
+      lastLoadedSessionRef.current = null;
+    }
+  }, [historyLoaded]);
+
   // Load chat history on mount and when session changes
   useEffect(() => {
     // Wait until activeProjectId is synced with URL param to avoid loading wrong session

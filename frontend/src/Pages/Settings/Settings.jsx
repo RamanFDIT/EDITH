@@ -6,6 +6,8 @@ import { useNavBar } from '../../components/NavBar/NavBarContext.jsx';
 import BackButton from '../../components/BackButton/BackButton.jsx';
 import { useApp } from '../../context/AppContext.jsx';
 import { API_URL } from '../../apiConfig.js';
+import { ToastContainer } from '../../components/Toast/Toast.jsx';
+import { useToast } from '../../components/Toast/useToast.js';
 
 const JiraIcon = ({ size = 24, className }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -55,7 +57,7 @@ const Settings = () => {
     }
   };
 
-  const [status, setStatus] = useState({ type: '', message: '' });
+  const { toasts, addToast, removeToast } = useToast();
   const [connecting, setConnecting] = useState('');
   const pollIntervalRef = useRef(null);
   const pollTimeoutRef = useRef(null);
@@ -87,7 +89,7 @@ const Settings = () => {
         pollIntervalRef.current = null;
         pollTimeoutRef.current = null;
         setConnecting('');
-        setStatus({ type: 'error', message: `Connection to ${provider} timed out.` });
+        addToast(`Connection to ${provider} timed out.`, 'error');
         try { authWindow.close(); } catch (e) {}
       }, 120000);
 
@@ -102,7 +104,7 @@ const Settings = () => {
           pollIntervalRef.current = null;
           pollTimeoutRef.current = null;
           setConnecting('');
-          setStatus({ type: 'error', message: `Connection to ${provider} timed out.` });
+          addToast(`Connection to ${provider} timed out.`, 'error');
           try { authWindow.close(); } catch (e) {}
           return;
         }
@@ -119,7 +121,7 @@ const Settings = () => {
             clearTimeout(pollTimeoutRef.current);
             pollIntervalRef.current = null;
             pollTimeoutRef.current = null;
-            setStatus({ type: 'success', message: `Connected to ${provider}!` });
+            addToast(`Connected to ${provider}!`, 'success');
             await refreshOauthStatus();
             setConnecting('');
             try { authWindow.close(); } catch (e) {}
@@ -140,10 +142,8 @@ const Settings = () => {
       }, 1000);
 
     } catch (err) {
-      setStatus({ type: 'error', message: `OAuth error: ${err.message}` });
+      addToast(`OAuth error: ${err.message}`, 'error');
       setConnecting('');
-    } finally {
-      setTimeout(() => setStatus({ type: '', message: '' }), 5000);
     }
   };
 
@@ -158,12 +158,11 @@ const Settings = () => {
         method: 'POST',
         headers: { 'X-User-Email': userEmail }
       });
-      setStatus({ type: 'info', message: `Disconnected from ${provider}.` });
+      addToast(`Disconnected from ${provider}.`, 'info');
       await refreshOauthStatus();
     } catch (err) {
       console.error('Disconnect failed:', err);
     }
-    setTimeout(() => setStatus({ type: '', message: '' }), 3000);
   };
 
   const handleSignOut = () => {
@@ -240,16 +239,6 @@ const Settings = () => {
           </div>
         </div>
 
-        {status.message && (
-          <div className={`${styles.statusBar} ${
-            status.type === 'success' ? styles.statusSuccess :
-            status.type === 'error' ? styles.statusError : styles.statusInfo
-          }`}>
-            {status.type === 'success' && <CheckCircle2 size={16} />}
-            {status.message}
-          </div>
-        )}
-
         <h2 className={styles.sectionTitle}>
           <Plug size={20} className={styles.sectionIcon} />
           Integrations
@@ -310,6 +299,7 @@ const Settings = () => {
           })}
         </div>
       </div>
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
     </section>
   );
 };
