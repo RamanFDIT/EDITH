@@ -100,19 +100,12 @@ const Home = () => {
   // Track which session we last loaded history for
   const lastLoadedSessionRef = useRef(null);
 
-  // Clear the ref when historyLoaded is externally reset (e.g., by project switch)
-  useEffect(() => {
-    if (!historyLoaded) {
-      lastLoadedSessionRef.current = null;
-    }
-  }, [historyLoaded]);
-
   // Load chat history on mount and when session changes
   useEffect(() => {
     // Wait until activeProjectId is synced with URL param to avoid loading wrong session
     if (projectIdFromUrl && projectIdFromUrl !== activeProjectId) return;
-    // Already loaded for this exact session
-    if (lastLoadedSessionRef.current === activeSessionId) return;
+    // Already loaded for this exact session and history is still marked as loaded
+    if (lastLoadedSessionRef.current === activeSessionId && historyLoaded) return;
 
     // Show loading state and clear stale messages
     setHistoryLoaded(false);
@@ -143,16 +136,14 @@ const Home = () => {
         console.error('Failed to load chat history:', err);
         setHasMore(false);
       } finally {
-        if (!controller.signal.aborted) {
-          lastLoadedSessionRef.current = activeSessionId;
-          setHistoryLoaded(true);
-        }
+        lastLoadedSessionRef.current = activeSessionId;
+        setHistoryLoaded(true);
       }
     };
     loadHistory();
 
     return () => controller.abort();
-  }, [setMessages, setHistoryLoaded, userEmail, activeSessionId, activeProjectId, projectIdFromUrl]);
+  }, [setMessages, setHistoryLoaded, userEmail, activeSessionId, activeProjectId, projectIdFromUrl, historyLoaded]);
 
   // Auto-submit pending message (from ProjectDashboard quick chat)
   const pendingHandledRef = useRef(false);
