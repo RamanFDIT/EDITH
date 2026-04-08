@@ -169,7 +169,7 @@ async function getLLMForUser(userId, excludeProviders = new Set()) {
 // Tools that don't need userId (image, file) are left unwrapped.
 // ---------------------------------------------------------------------------
 
-function createToolsForUser(userId) {
+function createToolsForUser(userId, userTimezone) {
   const imageTools = [
     new DynamicStructuredTool({
       name: "generate_image_nano_banana",
@@ -352,9 +352,9 @@ function createToolsForUser(userId) {
         endDateTime: z.string().describe("End date and time in ISO format (e.g., 2026-01-15T15:00:00). Default to 1 hour after start if not specified."),
         location: z.string().optional().describe("Location of the event"),
         attendees: z.array(z.string()).optional().describe("Array of email addresses to invite"),
-        timeZone: z.string().optional().describe("Timezone for the event. Defaults to system timezone."),
+        timeZone: z.string().optional().describe("Timezone for the event (e.g., 'America/Toronto'). Defaults to user's timezone."),
       }),
-      func: (input) => createCalendarEvent(input, userId),
+      func: (input) => createCalendarEvent({ ...input, timeZone: input.timeZone || userTimezone }, userId),
     }),
     new DynamicStructuredTool({
       name: "update_calendar_event",
@@ -367,7 +367,7 @@ function createToolsForUser(userId) {
         endDateTime: z.string().optional().describe("New end date and time in ISO format"),
         location: z.string().optional().describe("New location for the event"),
       }),
-      func: (input) => updateCalendarEvent(input, userId),
+      func: (input) => updateCalendarEvent({ ...input, timeZone: input.timeZone || userTimezone }, userId),
     }),
     new DynamicStructuredTool({
       name: "delete_calendar_event",
@@ -384,7 +384,7 @@ function createToolsForUser(userId) {
         timeMin: z.string().describe("Start of time range to check in ISO format"),
         timeMax: z.string().describe("End of time range to check in ISO format"),
       }),
-      func: (input) => findFreeTime(input, userId),
+      func: (input) => findFreeTime({ ...input, timeZone: input.timeZone || userTimezone }, userId),
     }),
   ];
 
@@ -864,7 +864,8 @@ async function processWithSemanticRouting(input) {
     const history = sanitizeHistoryForTools(trimHistory(Array.isArray(chat_history) ? chat_history : []));
 
     // Get ALL tools for this user (no classification needed)
-    const allTools = createToolsForUser(userId);
+    const effectiveTimezone = timezone || 'UTC';
+    const allTools = createToolsForUser(userId, effectiveTimezone);
     const isConfirmation = isConfirmationMessage(userQuery, history);
 
     console.log(`[Agent] ${allTools.length} tools available${isConfirmation ? ' (confirmation)' : ''}`);
@@ -872,7 +873,6 @@ async function processWithSemanticRouting(input) {
     const agent = getOrCreateAgent(allTools, timezone, userId, llm, input.userPrefs);
 
     const now = new Date();
-    const effectiveTimezone = timezone || 'UTC';
     const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: effectiveTimezone };
     const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: effectiveTimezone };
     const freshTimeReminder = new HumanMessage(
@@ -935,7 +935,7 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         }
 
         // Get ALL tools for this user (no classification needed — LLM picks tools naturally)
-        const allTools = createToolsForUser(userId);
+        const allTools = createToolsForUser(userId, timezone || 'UTC');
         const isConfirmation = isConfirmationMessage(userQuery, history);
 
         console.log(`[Agent] ${allTools.length} tools available${isConfirmation ? ' (confirmation)' : ''}`);

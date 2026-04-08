@@ -23,17 +23,43 @@ async function getCalendarClient(userId) {
 }
 
 /**
- * Ensures a date string is in RFC3339 format (ISO). 
- * If the input is invalid, it returns the input as-is or throws for critical fields.
+ * Validates a date string and returns it in a format suitable for Google Calendar.
+ * IMPORTANT: Does NOT convert to UTC or append 'Z'. If the input has no timezone
+ * indicator, it is returned as-is so Google Calendar uses the event's timeZone field.
  */
 function formatRFC3339(input, defaultValue = undefined) {
     if (!input) return defaultValue;
+
+    // If input is already a clean ISO-like datetime (no timezone), validate and return as-is.
+    // Google Calendar will interpret it using the timeZone field on the event.
+    const naiveISORegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(\.\d+)?$/;
+    if (naiveISORegex.test(input)) {
+        // Validate that it's a real date by parsing it
+        const date = new Date(input + 'Z'); // append Z only for validation
+        if (isNaN(date.getTime())) {
+            console.warn(`[calendarTool] Invalid date input: ${input}. Using default.`);
+            return defaultValue;
+        }
+        return input;
+    }
+
+    // If input already has timezone info (Z or +/-offset), return as-is
+    if (/[Zz]$/.test(input) || /[+-]\d{2}:?\d{2}$/.test(input)) {
+        const date = new Date(input);
+        if (isNaN(date.getTime())) {
+            console.warn(`[calendarTool] Invalid date input: ${input}. Using default.`);
+            return defaultValue;
+        }
+        return input;
+    }
+
+    // Fallback: try to parse and validate, return original input
     const date = new Date(input);
     if (isNaN(date.getTime())) {
         console.warn(`[calendarTool] Invalid date input: ${input}. Using default.`);
         return defaultValue;
     }
-    return date.toISOString();
+    return input;
 }
 
 // --- TOOL 1: GET UPCOMING EVENTS ---
@@ -98,8 +124,13 @@ export async function createCalendarEvent(input, userId) {
         location,
         attendees,
         calendarId = 'primary',
-        timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+        timeZone
     } = input;
+
+    if (!timeZone) {
+        console.warn('[calendarTool] No timeZone provided for event creation, falling back to UTC');
+        timeZone = 'UTC';
+    }
 
     if (!summary || !startDateTime || !endDateTime) {
         throw new Error("Missing required fields: summary, startDateTime, and endDateTime are mandatory.");
@@ -161,8 +192,13 @@ export async function updateCalendarEvent(input, userId) {
         endDateTime,
         location,
         calendarId = 'primary',
-        timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+        timeZone
     } = input;
+
+    if (!timeZone) {
+        console.warn('[calendarTool] No timeZone provided for event update, falling back to UTC');
+        timeZone = 'UTC';
+    }
 
     if (!eventId) {
         throw new Error("Missing required field: eventId is mandatory.");
@@ -247,8 +283,13 @@ export async function findFreeTime(input, userId) {
         timeMin,
         timeMax,
         calendarId = 'primary',
-        timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+        timeZone
     } = input;
+
+    if (!timeZone) {
+        console.warn('[calendarTool] No timeZone provided for free time query, falling back to UTC');
+        timeZone = 'UTC';
+    }
 
     if (!timeMin || !timeMax) {
         throw new Error("Missing required fields: timeMin and timeMax are mandatory.");
