@@ -273,11 +273,14 @@ export const AppProvider = ({ children }) => {
     }, [projects, activeProjectId]);
 
     const setActiveProjectId = useCallback((id) => {
-        setActiveProjectIdRaw(id);
+        setActiveProjectIdRaw(prev => {
+            if (prev === id) return prev;
+            // Reset chat state so Home re-fetches for the new session
+            setMessages([]);
+            setHistoryLoaded(false);
+            return id;
+        });
         localStorage.setItem('edith_active_project', id);
-        // Reset chat state so Home re-fetches for the new session
-        setMessages([]);
-        setHistoryLoaded(false);
     }, []);
 
     const [projectsAvailable, setProjectsAvailable] = useState(true);
