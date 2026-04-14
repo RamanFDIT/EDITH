@@ -169,7 +169,7 @@ async function getLLMForUser(userId, excludeProviders = new Set()) {
 // Tools that don't need userId (image, file) are left unwrapped.
 // ---------------------------------------------------------------------------
 
-function createToolsForUser(userId, userTimezone) {
+function createToolsForUser(userId, userTimezone, projectContext = null) {
   const imageTools = [
     new DynamicStructuredTool({
       name: "generate_image_nano_banana",
@@ -183,44 +183,60 @@ function createToolsForUser(userId, userTimezone) {
   ];
 
   // --- JIRA TOOLS ---
+  const jiraKey = projectContext?.jiraProjectKey || '';
+
   const jiraReadTools = [
     new DynamicStructuredTool({
       name: "search_jira_issues",
-      description: "Search Jira issues using JQL. For FASTER searches, include the project key in the JQL (e.g., 'project = FDIT'). If user doesn't specify a project, call list_jira_projects first to discover available projects, then construct the JQL with the correct project key. Do NOT ask the user for the project key. Example JQL: 'project = FDIT AND status = Open'.",
+      description: jiraKey
+        ? `Search Jira issues using JQL. You are scoped to project "${jiraKey}". Always include 'project = "${jiraKey}"' in your JQL. Do NOT search other projects unless the user explicitly asks. Example JQL: 'project = "${jiraKey}" AND status = Open'.`
+        : "Search Jira issues using JQL. For FASTER searches, include the project key in the JQL (e.g., 'project = FDIT'). If user doesn't specify a project, call list_jira_projects first to discover available projects, then construct the JQL with the correct project key. Do NOT ask the user for the project key. Example JQL: 'project = FDIT AND status = Open'.",
       schema: z.object({
-        jql: z.string().describe("REQUIRED: The JQL query string. Should include 'project = KEY' for faster results. Use list_jira_projects to discover the key if not provided by the user."),
+        jql: z.string().describe(jiraKey
+          ? `REQUIRED: The JQL query string. Must include 'project = "${jiraKey}"' unless searching across all projects.`
+          : "REQUIRED: The JQL query string. Should include 'project = KEY' for faster results. Use list_jira_projects to discover the key if not provided by the user."),
       }),
-      func: (input) => getJiraIssues(input, userId),
+      func: (input) => getJiraIssues(input, userId, jiraKey),
     }),
     new DynamicStructuredTool({
       name: "list_jira_projects",
-      description: "List all Jira projects the user has access to. Returns each project's key, name, and type. Use this when the user asks to find a project, check if a project exists, or list all projects/spaces.",
+      description: jiraKey
+        ? `List Jira projects. The current workspace is scoped to project "${jiraKey}". Only use this if the user explicitly asks to see all their Jira projects.`
+        : "List all Jira projects the user has access to. Returns each project's key, name, and type. Use this when the user asks to find a project, check if a project exists, or list all projects/spaces.",
       schema: z.object({}),
-      func: (input) => listJiraProjects(input, userId),
+      func: (input) => listJiraProjects(input, userId, jiraKey),
     }),
     new DynamicStructuredTool({
       name: "list_jira_sprints",
-      description: "List all sprints for a given Jira project. Returns each sprint's ID, name, state (active, future, closed), and dates. Use this when the user asks 'what sprint is active', 'show the backlog', or 'list sprints'.",
+      description: jiraKey
+        ? `List sprints for the current project "${jiraKey}". Returns each sprint's ID, name, state (active, future, closed), and dates.`
+        : "List all sprints for a given Jira project. Returns each sprint's ID, name, state (active, future, closed), and dates. Use this when the user asks 'what sprint is active', 'show the backlog', or 'list sprints'.",
       schema: z.object({
-        projectKey: z.string().describe("REQUIRED: The Project Key (e.g., 'FDIT')."),
+        projectKey: z.string().optional().describe(jiraKey
+          ? `Project Key. Defaults to "${jiraKey}" if not specified.`
+          : "REQUIRED: The Project Key (e.g., 'FDIT')."),
         state: z.string().optional().describe("Optional filter for sprint state: 'active', 'future', or 'closed'.")
       }),
-      func: (input) => listJiraSprints(input, userId),
+      func: (input) => listJiraSprints({ ...input, projectKey: input.projectKey || jiraKey }, userId),
     }),
   ];
 
   const jiraWriteTools = [
     new DynamicStructuredTool({
       name: "create_jira_issue",
-      description: "Create a Jira ticket. REQUIRES 'projectKey'. If user doesn't specify which project/space, use list_jira_projects to find the correct project key. Only ask the user if multiple projects exist and the correct one is ambiguous. For WBS/hierarchy: create Epics first, then pass the Epic's key as 'parent' when creating Stories/Tasks underneath.",
+      description: jiraKey
+        ? `Create a Jira ticket in project "${jiraKey}". The projectKey defaults to "${jiraKey}" — do NOT use a different project unless the user explicitly specifies one. For WBS/hierarchy: create Epics first, then pass the Epic's key as 'parent' when creating Stories/Tasks underneath.`
+        : "Create a Jira ticket. REQUIRES 'projectKey'. If user doesn't specify which project/space, use list_jira_projects to find the correct project key. Only ask the user if multiple projects exist and the correct one is ambiguous. For WBS/hierarchy: create Epics first, then pass the Epic's key as 'parent' when creating Stories/Tasks underneath.",
       schema: z.object({
-        projectKey: z.string().describe("REQUIRED: Project Key (e.g., 'FDIT'). Use list_jira_projects to discover if not provided by the user."),
+        projectKey: z.string().optional().describe(jiraKey
+          ? `Project Key. Defaults to "${jiraKey}".`
+          : "REQUIRED: Project Key (e.g., 'FDIT'). Use list_jira_projects to discover if not provided by the user."),
         summary: z.string().describe("REQUIRED: Ticket title"),
         description: z.string().optional(),
         issueType: z.string().optional().describe("Issue type: 'Epic', 'Story', 'Task', 'Sub-task', or 'Bug'. Default: 'Task'."),
         parent: z.string().optional().describe("Parent issue key (e.g., 'PROJ-1') to create this issue under. Use for hierarchy: Stories under Epics, Tasks under Stories, Sub-tasks under Tasks."),
       }),
-      func: (input) => createJiraIssue(input, userId),
+      func: (input) => createJiraIssue({ ...input, projectKey: input.projectKey || jiraKey }, userId),
     }),
     new DynamicStructuredTool({
       name: "update_jira_issue",
@@ -260,15 +276,19 @@ function createToolsForUser(userId, userTimezone) {
     }),
     new DynamicStructuredTool({
       name: "create_jira_sprint",
-      description: "Create a new Jira Sprint on a project's Agile board. REQUIRES 'projectKey' and 'name'. Can optionally supply startDate, endDate, and goal.",
+      description: jiraKey
+        ? `Create a new Jira Sprint on project "${jiraKey}"'s Agile board. The projectKey defaults to "${jiraKey}". REQUIRES 'name'. Can optionally supply startDate, endDate, and goal.`
+        : "Create a new Jira Sprint on a project's Agile board. REQUIRES 'projectKey' and 'name'. Can optionally supply startDate, endDate, and goal.",
       schema: z.object({
-          projectKey: z.string().describe("REQUIRED: The Project Key (e.g., 'FDIT') where the sprint should be created."),
+          projectKey: z.string().optional().describe(jiraKey
+            ? `Project Key. Defaults to "${jiraKey}".`
+            : "REQUIRED: The Project Key (e.g., 'FDIT') where the sprint should be created."),
           name: z.string().describe("REQUIRED: The name of the sprint (e.g., 'Sprint 1')."),
           goal: z.string().optional().describe("Goal of the sprint."),
           startDate: z.string().optional().describe("Start date in ISO 8601 format (e.g., '2026-03-24T15:00:00.000Z')."),
           endDate: z.string().optional().describe("End date in ISO 8601 format (e.g., '2026-04-07T15:00:00.000Z')."),
       }),
-      func: (input) => createJiraSprint(input, userId),
+      func: (input) => createJiraSprint({ ...input, projectKey: input.projectKey || jiraKey }, userId),
     }),
     new DynamicStructuredTool({
       name: "update_jira_sprint",
@@ -935,7 +955,7 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         }
 
         // Get ALL tools for this user (no classification needed — LLM picks tools naturally)
-        const allTools = createToolsForUser(userId, timezone || 'UTC');
+        const allTools = createToolsForUser(userId, timezone || 'UTC', projectContext);
         const isConfirmation = isConfirmationMessage(userQuery, history);
 
         console.log(`[Agent] ${allTools.length} tools available${isConfirmation ? ' (confirmation)' : ''}`);

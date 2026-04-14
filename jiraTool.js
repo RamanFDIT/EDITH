@@ -64,11 +64,17 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 25000) {
 }
 
 // --- TOOL 1: SEARCH (The Fixed Version) ---
-export async function getJiraIssues(input, userId) {
+export async function getJiraIssues(input, userId, scopedProjectKey = '') {
     console.log("🔍 Jira Search Invoked:", JSON.stringify(input));
 
-    const jql = input.jql || input.query || input.jqlQuery;
+    let jql = input.jql || input.query || input.jqlQuery;
     if (!jql) throw new Error("Missing JQL query.");
+
+    // Server-side enforcement: auto-scope to project if set and JQL doesn't already filter by project
+    if (scopedProjectKey && !/\bproject\s*[=!]/i.test(jql)) {
+        jql = `project = "${scopedProjectKey}" AND (${jql})`;
+        console.log(`[Jira] Auto-scoped JQL to project ${scopedProjectKey}: ${jql}`);
+    }
 
     const { accessToken, cloudId } = await getJiraCredentials(userId);
     const url = `${getJiraBaseUrl(cloudId)}/rest/api/3/search/jql`;
@@ -354,7 +360,7 @@ export async function deleteJiraIssue(input, userId) {
 }
 
 // --- TOOL 5: LIST JIRA PROJECTS ---
-export async function listJiraProjects(input, userId) {
+export async function listJiraProjects(input, userId, scopedProjectKey = '') {
     console.log("📋 Jira List Projects Invoked");
 
     const { accessToken, cloudId } = await getJiraCredentials(userId);
@@ -374,7 +380,13 @@ export async function listJiraProjects(input, userId) {
             throw new Error(`Jira API Error ${response.status}: ${txt}`);
         }
         const data = await response.json();
-        const projects = data.map(p => ({ key: p.key, name: p.name, type: p.projectTypeKey }));
+        let projects = data.map(p => ({ key: p.key, name: p.name, type: p.projectTypeKey }));
+
+        // Filter to scoped project when inside a project workspace
+        if (scopedProjectKey) {
+            projects = projects.filter(p => p.key === scopedProjectKey);
+            console.log(`[Jira] Filtered projects to scoped key: ${scopedProjectKey}`);
+        }
 
         if (projects.length === 0) {
             return JSON.stringify({ status: "no_results_found", message: "No Jira projects found." });

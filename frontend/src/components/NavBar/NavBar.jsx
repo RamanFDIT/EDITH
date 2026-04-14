@@ -191,7 +191,7 @@ const NavBar = ({ onNewProject }) => {
               className={styles.showMoreToggle}
               onClick={() => setShowDisconnected(!showDisconnected)}
             >
-              {showDisconnected ? 'Hide available' : `+${disconnectedTools.length} available`}
+              {showDisconnected ? 'More Tools' : `+${disconnectedTools.length} Tools`}
             </button>
           )}
           {showDisconnected && (toggle || isMobile) && disconnectedTools.map((provider) => {
