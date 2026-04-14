@@ -45,7 +45,8 @@
     @apply flex w-full justify-center cursor-pointer;
 }
 .activeTools {
-    @apply w-3 h-3 rounded-full bg-colorSuccess;
+    @apply w-3 h-3 rounded-full;
+    background-color: #014d01;
 }
 .toolsContainer {
     @apply flex flex-col gap-5;
