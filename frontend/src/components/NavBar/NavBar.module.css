@@ -46,7 +46,7 @@
 }
 .activeTools {
     @apply w-3 h-3 rounded-full;
-    background-color: #014d01;
+    background-color: #003500;
 }
 .toolsContainer {
     @apply flex flex-col gap-5;
