@@ -9,9 +9,6 @@ const ChatAI = ({ message, images }) => {
 
   return (
     <div className={styles.messageContainer}>
-      <div className={styles.avatar}>
-        <Cpu size={16} className={styles.avatarIcon} />
-      </div>
       <div className={styles.bubble}>
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{cleanMessage}</ReactMarkdown>
         {images && images.length > 0 && (

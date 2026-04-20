@@ -29,6 +29,9 @@
     scroll-behavior: auto !important;
   }
 }
+body {
+  background-color : #050505;
+}
 
 /* ── Animation Foundation ── */
 

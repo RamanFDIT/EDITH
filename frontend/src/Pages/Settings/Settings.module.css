@@ -4,8 +4,8 @@
     @apply w-screen h-screen bg-bgPrimary flex;
 }
 .container {
-    @apply ml-0 md:ml-65 w-full h-full flex flex-col py-8 md:py-12 px-4 md:px-16
-           overflow-y-auto transition-all duration-300 ease-in-out pt-20 md:pt-12;
+    @apply  md:ml-65 w-full h-full flex flex-col py-8 md:py-12 px-4 md:px-16
+           overflow-y-auto duration-300 ease-in-out pt-20 md:pt-12;
 }
 .containerCompact {
     @apply ml-0 md:ml-15 w-full h-full flex flex-col py-8 md:py-12 px-4 md:px-16
