@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import styles from './Home.module.css';
 import ChatAI from '../../components/ChatAI/ChatAI.jsx';
 import ChatHuman from '../../components/ChatHuman/ChatHuman.jsx';
 import Input from '../../components/Input/Input.jsx';
+import { ease, durations } from '../../lib/motion.js';
 
 import { useNavBar } from '../../components/NavBar/NavBarContext.jsx';
 import { useApp } from '../../context/AppContext.jsx';
@@ -45,12 +47,14 @@ const Home = () => {
   const messageAreaRef = useRef(null);
   const audioQueueRef = useRef([]);
   const isPlayingRef = useRef(false);
+  const currentAudioRef = useRef(null);
   const streamAbortRef = useRef(null);
 
   // --- Audio playback queue (plays audio chunks sequentially) ---
   const playNextAudio = useCallback(() => {
     if (audioQueueRef.current.length === 0) {
       isPlayingRef.current = false;
+      currentAudioRef.current = null;
       return;
     }
     isPlayingRef.current = true;
@@ -59,13 +63,19 @@ const Home = () => {
 
     if (item.type === 'url') {
       const audio = new Audio(item.url);
-      audio.onended = playNextAudio;
+      currentAudioRef.current = audio;
+      audio.onended = () => {
+        if (currentAudioRef.current === audio) currentAudioRef.current = null;
+        playNextAudio();
+      };
       audio.onerror = (e) => {
         console.error('[Audio] Playback error:', e);
+        if (currentAudioRef.current === audio) currentAudioRef.current = null;
         playNextAudio();
       };
       audio.play().catch(err => {
         console.warn('[Audio] Autoplay blocked or error:', err);
+        if (currentAudioRef.current === audio) currentAudioRef.current = null;
         playNextAudio();
       });
     } else if (item.type === 'speech') {
@@ -78,6 +88,24 @@ const Home = () => {
     }
   }, []);
 
+  const stopAudioPlayback = useCallback(() => {
+    audioQueueRef.current = [];
+    const active = currentAudioRef.current;
+    if (active) {
+      try {
+        active.pause();
+        active.src = '';
+      } catch {
+        // no-op
+      }
+      currentAudioRef.current = null;
+    }
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    isPlayingRef.current = false;
+  }, []);
+
   const enqueueAudio = useCallback((item) => {
     if (!voiceEnabledRef.current) {
       console.log('[Audio] Voice disabled, skipping:', item.type === 'url' ? item.url : 'Web Speech');
@@ -88,14 +116,17 @@ const Home = () => {
     if (!isPlayingRef.current) playNextAudio();
   }, [playNextAudio]);
 
+  // Cut in-flight audio as soon as voice is switched off
+  useEffect(() => {
+    if (!voiceEnabled) stopAudioPlayback();
+  }, [voiceEnabled, stopAudioPlayback]);
+
   // Cleanup audio queue on unmount
   useEffect(() => {
     return () => {
-      audioQueueRef.current = [];
-      isPlayingRef.current = false;
-      window.speechSynthesis?.cancel();
+      stopAudioPlayback();
     };
-  }, []);
+  }, [stopAudioPlayback]);
 
   // Load chat history on mount and when session changes
   useEffect(() => {
@@ -226,11 +257,12 @@ const Home = () => {
 
   const handleSubmit = async (overrideText) => {
     if (isSubmittingRef.current) return;
-    
+
     const question = typeof overrideText === 'string' ? overrideText.trim() : input.trim();
     if (!question || isStreaming) return;
 
     isSubmittingRef.current = true;
+    stopAudioPlayback();
 
     const attachedFiles = [...files];
     const fileNames = attachedFiles.map(f => f.name);
@@ -440,6 +472,7 @@ const Home = () => {
 
   // --- Handle audio submission: send blob to backend /api/voice for STT + response ---
   const handleAudioSubmit = useCallback(async (audioBlob) => {
+    stopAudioPlayback();
     const voiceAbort = new AbortController();
     streamAbortRef.current = voiceAbort;
     setIsStreaming(true);
@@ -467,7 +500,7 @@ const Home = () => {
       setIsStreaming(false);
       setIsThinking(false);
     }
-  }, [activeSessionId, activeProject, userEmail, handleVoiceStream]);
+  }, [activeSessionId, activeProject, userEmail, handleVoiceStream, stopAudioPlayback]);
 
   // --- Cancel active stream ---
   const cancelStream = useCallback(() => {
@@ -475,10 +508,8 @@ const Home = () => {
       streamAbortRef.current.abort();
       streamAbortRef.current = null;
     }
-    audioQueueRef.current = [];
-    isPlayingRef.current = false;
-    window.speechSynthesis?.cancel();
-  }, []);
+    stopAudioPlayback();
+  }, [stopAudioPlayback]);
 
   return (
     <section className={styles.mainSection}>
@@ -496,18 +527,37 @@ const Home = () => {
           <div className={styles.messageArea} ref={messageAreaRef}>
             {hasMore && <div ref={topSentinelRef} style={{ height: 1 }} />}
             {loadingOlder && <p className={styles.loadingText}>Loading older messages...</p>}
-            {messages.map((msg, i) =>
-              msg.role === 'user'
-                ? <ChatHuman key={i} message={msg.content} files={msg.files} />
-                : <ChatAI key={i} message={msg.content} images={msg.images} />
-            )}
-            {isThinking && (
-              <div className={styles.thinkingBubble}>
-                <span className={styles.thinkingDot} />
-                <span className={styles.thinkingDot} />
-                <span className={styles.thinkingDot} />
-              </div>
-            )}
+            {messages.map((msg, i) => {
+              const isNewest = i === messages.length - 1;
+              return (
+                <motion.div
+                  key={i}
+                  initial={isNewest ? { opacity: 0, y: 8 } : false}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: durations.base, ease }}
+                >
+                  {msg.role === 'user'
+                    ? <ChatHuman message={msg.content} files={msg.files} />
+                    : <ChatAI message={msg.content} images={msg.images} />}
+                </motion.div>
+              );
+            })}
+            <AnimatePresence>
+              {isThinking && (
+                <motion.div
+                  key="thinking"
+                  className={styles.thinkingBubble}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 2 }}
+                  transition={{ duration: durations.fast, ease }}
+                >
+                  <span className={styles.thinkingDot} />
+                  <span className={styles.thinkingDot} />
+                  <span className={styles.thinkingDot} />
+                </motion.div>
+              )}
+            </AnimatePresence>
             <div ref={messageEndRef} />
           </div>
         )}
@@ -523,14 +573,7 @@ const Home = () => {
             isStreaming={isStreaming}
             onCancel={cancelStream}
             voiceEnabled={voiceEnabled}
-            onVoiceToggle={() => {
-              setVoiceEnabled(v => !v);
-              if (voiceEnabled) {
-                window.speechSynthesis?.cancel();
-                audioQueueRef.current = [];
-                isPlayingRef.current = false;
-              }
-            }}
+            onVoiceToggle={() => setVoiceEnabled(v => !v)}
           />
         </div>
       </div>

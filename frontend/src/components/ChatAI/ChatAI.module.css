@@ -4,13 +4,21 @@
     @apply flex items-start gap-3 w-full;
 }
 .avatar {
-    @apply w-8 h-8 rounded-full bg-bgComponents flex items-center justify-center shrink-0;
+    @apply w-8 h-8 rounded-full flex items-center justify-center shrink-0;
+    background: var(--color-bgGlass);
+    border: 1px solid var(--color-borderSubtle);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
 }
 .avatarIcon {
     @apply text-textPrimary;
 }
 .bubble {
-    @apply bg-bgComponents rounded-sm px-4 md:px-5 py-3 md:py-4 max-w-[95%] md:max-w-[85%] text-textPrimary font-fontBody text-sm md:text-base leading-relaxed;
+    @apply rounded-lg px-4 md:px-5 py-3 md:py-4 max-w-[95%] md:max-w-[85%] text-textPrimary font-fontBody text-sm md:text-base leading-relaxed;
+    background: var(--color-bgGlass);
+    border: 1px solid var(--color-borderSubtle);
+    backdrop-filter: blur(14px) saturate(1.2);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
 }
 .bubble h1 {
     @apply text-2xl font-fontDisplay font-semibold text-bgCTA mt-4 mb-2;

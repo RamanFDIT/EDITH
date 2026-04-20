@@ -10,10 +10,24 @@
   --color-colorSuccess: #014d01;
   --color-colorFail: #DF0000;
 
+  --color-bgGlass: rgba(26, 26, 26, 0.55);
+  --color-bgGlassHover: rgba(38, 38, 38, 0.65);
+  --color-borderSubtle: rgba(255, 255, 255, 0.06);
+  --color-borderGlow: rgba(255, 255, 255, 0.14);
+
   --font-fontDisplay : 'Space Grotesk', sans-serif;
   --font-fontBody: 'Inter', sans-serif;
   --font-fontMono: 'Fira Code', monospace;
 
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ── Animation Foundation ── */

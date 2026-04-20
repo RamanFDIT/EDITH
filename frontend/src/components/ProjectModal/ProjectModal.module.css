@@ -1,17 +1,17 @@
 @reference '../../index.css';
 
 .overlay {
-    @apply fixed inset-0 z-50 bg-bgPrimary/80 backdrop-blur-sm
-           flex items-center justify-center p-4;
+    @apply fixed inset-0 z-50 flex items-center justify-center p-4;
+    background: color-mix(in srgb, var(--color-bgPrimary) 72%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
 }
 .modal {
-    @apply bg-bgComponents border border-bgHover rounded-xl w-full max-w-md
-           flex flex-col shadow-2xl;
-    animation: fadeIn 0.3s ease-out both;
-}
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
+    @apply rounded-2xl w-full max-w-md flex flex-col shadow-2xl;
+    background: var(--color-bgGlass);
+    border: 1px solid var(--color-borderGlow);
+    backdrop-filter: blur(22px) saturate(1.2);
+    -webkit-backdrop-filter: blur(22px) saturate(1.2);
 }
 
 /* Header */

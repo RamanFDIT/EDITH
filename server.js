@@ -5,6 +5,7 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -58,27 +59,20 @@ const voiceUpload = multer({ storage: multer.memoryStorage() });
 // --- Middlewares ---
 app.use(express.json({ limit: '1mb' }));
 const FRONTEND_ORIGIN = process.env.CORS_ORIGIN || process.env.APP_URL || 'http://localhost:5173';
-const allowedOrigins = [
+const allowedOrigins = new Set([
   FRONTEND_ORIGIN,
   'http://localhost:5173',
   'http://localhost:3000',
-  'https://edith-1-2sxz.onrender.com'
-];
+  'https://edith-4ihs.onrender.com',
+]);
 
-app.use(cors({ 
-  origin: function (origin, callback) {
-    // allow requests with no origin (like mobile apps or curl requests)
+app.use(cors({
+  origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    // Allow any Render frontend just to be safe
-    if (origin.endsWith('.onrender.com')) {
-      return callback(null, true);
-    }
+    if (allowedOrigins.has(origin)) return callback(null, true);
     return callback(new Error('CORS blocked origin: ' + origin), false);
-  }, 
-  credentials: true 
+  },
+  credentials: true,
 }));
 app.use(express.static(path.join(__dirname, 'frontend', 'dist'))); // Only serve built frontend
 app.use('/uploads', express.static(uploadDir)); // Serve uploaded files under /uploads
@@ -131,9 +125,13 @@ async function extractUser(req, res, next) {
 const fileUpload = multer({
     storage: multer.diskStorage({
         destination: (req, file, cb) => cb(null, uploadDir),
-        filename: (req, file, cb) => cb(null, `upload-${Date.now()}-${file.originalname}`)
+        filename: (req, file, cb) => {
+            const rawExt = path.extname(file.originalname || '').toLowerCase().slice(0, 10);
+            const safeExt = /^\.[a-z0-9]+$/.test(rawExt) ? rawExt : '';
+            cb(null, `${Date.now()}-${crypto.randomUUID()}${safeExt}`);
+        },
     }),
-    limits: { fileSize: 20 * 1024 * 1024 } // 20MB
+    limits: { fileSize: 20 * 1024 * 1024, files: 10 },
 });
 
 app.post('/api/upload', fileUpload.array('files', 10), (req, res) => {
@@ -142,10 +140,11 @@ app.post('/api/upload', fileUpload.array('files', 10), (req, res) => {
     }
     const uploaded = req.files.map(f => ({
         originalName: f.originalname,
+        storedName: f.filename,
         path: path.resolve(f.path),
         size: f.size,
     }));
-    console.log(`[Server] Uploaded ${uploaded.length} file(s):`, uploaded.map(f => f.originalName));
+    console.log(`[Server] Uploaded ${uploaded.length} file(s):`, uploaded.map(f => f.storedName));
     res.json({ files: uploaded });
 });
 
@@ -160,7 +159,6 @@ import {
     fetchGoogleUserInfo,
     fetchProviderUsername
 } from './oauthService.js';
-import crypto from 'crypto';
 
 // --- API: Auth (Google Sign-In) ---
 

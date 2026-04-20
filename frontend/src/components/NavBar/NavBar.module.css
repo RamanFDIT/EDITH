@@ -2,10 +2,18 @@
 
 /* ── Desktop Sidebar (hidden on mobile) ── */
 .navBar {
-    @apply bg-bgComponents transition-all duration-300 ease-in-out w-65 h-screen fixed left-0 hidden md:flex flex-col items-center px-5 rounded-r-sm;
+    @apply transition-all duration-300 ease-in-out w-65 h-screen fixed left-0 hidden md:flex flex-col items-center px-5 rounded-r-lg;
+    background: color-mix(in srgb, var(--color-bgPrimary) 72%, transparent);
+    backdrop-filter: blur(22px) saturate(1.2);
+    -webkit-backdrop-filter: blur(22px) saturate(1.2);
+    border-right: 1px solid var(--color-borderSubtle);
 }
 .navBarCompact {
-    @apply w-15 hidden md:flex flex-col transition-all duration-300 ease-in-out items-center h-screen bg-bgComponents fixed left-0;
+    @apply w-15 hidden md:flex flex-col transition-all duration-300 ease-in-out items-center h-screen fixed left-0;
+    background: color-mix(in srgb, var(--color-bgPrimary) 72%, transparent);
+    backdrop-filter: blur(22px) saturate(1.2);
+    -webkit-backdrop-filter: blur(22px) saturate(1.2);
+    border-right: 1px solid var(--color-borderSubtle);
 }
 
 .logo {
@@ -15,7 +23,7 @@
     @apply w-full h-1/7 flex justify-between items-center;
 }
 .activeToolContainer {
-    @apply h-6/7 bg-bgComponents w-full rounded-sm py-2 flex flex-col justify-between;
+    @apply h-6/7 w-full rounded-sm py-2 flex flex-col justify-between;
 }
 .hamburger {
     @apply text-white cursor-pointer transition-transform duration-300;
@@ -145,17 +153,30 @@
     @apply flex flex-col gap-1 max-h-48 overflow-y-auto;
 }
 .projectItem {
-    @apply flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer
-           text-textPrimary/70 hover:bg-bgHover hover:text-textPrimary
-           transition-colors text-sm font-fontBody relative;
+    @apply flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer
+           text-textPrimary/70 hover:text-textPrimary
+           text-sm font-fontBody relative border border-transparent;
+    transition: background-color 180ms ease, color 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+.projectItem:hover {
+    background: var(--color-bgGlassHover);
+    border-color: var(--color-borderSubtle);
+    transform: translateX(2px);
 }
 .projectItemCompact {
-    @apply flex items-center justify-center py-1.5 rounded cursor-pointer
-           text-textPrimary/70 hover:bg-bgHover hover:text-textPrimary
-           transition-colors;
+    @apply flex items-center justify-center py-1.5 rounded-md cursor-pointer
+           text-textPrimary/70 hover:text-textPrimary border border-transparent;
+    transition: background-color 180ms ease, color 180ms ease, border-color 180ms ease;
+}
+.projectItemCompact:hover {
+    background: var(--color-bgGlassHover);
+    border-color: var(--color-borderSubtle);
 }
 .projectItemActive {
-    @apply bg-bgHover text-textPrimary;
+    @apply text-textPrimary;
+    background: var(--color-bgGlassHover);
+    border-color: var(--color-borderGlow);
+    box-shadow: inset 2px 0 0 0 var(--color-bgCTA);
 }
 .projectIcon {
     @apply shrink-0;

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useApp } from '../../context/AppContext.jsx';
 import { useNavBar } from '../../components/NavBar/NavBarContext.jsx';
 import DonutChart from '../../components/DonutChart/DonutChart.jsx';
@@ -7,6 +8,15 @@ import ProjectModal from '../../components/ProjectModal/ProjectModal.jsx';
 import { API_URL } from '../../apiConfig';
 import { MessageSquare, Settings as SettingsIcon, Github, ExternalLink, Send } from 'lucide-react';
 import styles from './ProjectDashboard.module.css';
+import { ease, durations } from '../../lib/motion.js';
+
+const gridStagger = {
+  animate: { transition: { staggerChildren: 0.08, delayChildren: 0.05 } },
+};
+const cardItem = {
+  initial: { opacity: 0, y: 12 },
+  animate: { opacity: 1, y: 0, transition: { duration: durations.slow, ease } },
+};
 
 const GITHUB_COLORS = {
   'Open PRs': '#3b82f6',
@@ -224,9 +234,14 @@ const ProjectDashboard = () => {
       </div>
 
       {/* Dashboard Charts */}
-      <div className={styles.chartsGrid}>
+      <motion.div
+        className={styles.chartsGrid}
+        variants={gridStagger}
+        initial="initial"
+        animate="animate"
+      >
         {/* GitHub Chart */}
-        <div className={styles.chartCard}>
+        <motion.div className={styles.chartCard} variants={cardItem}>
           {githubLoading ? (
             <p className={styles.loading}>Loading GitHub data...</p>
           ) : !oauthStatus.github?.connected ? (
@@ -267,10 +282,10 @@ const ProjectDashboard = () => {
               centerLabel="Items"
             />
           )}
-        </div>
+        </motion.div>
 
         {/* Jira Chart */}
-        <div className={styles.chartCard}>
+        <motion.div className={styles.chartCard} variants={cardItem}>
           {jiraLoading ? (
             <p className={styles.loading}>Loading Jira data...</p>
           ) : !oauthStatus.jira?.connected ? (
@@ -311,8 +326,8 @@ const ProjectDashboard = () => {
               centerLabel="Tickets"
             />
           )}
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
 
       {/* Quick Chat Input */}
       <div className={styles.quickChatContainer}>
@@ -344,17 +359,20 @@ const ProjectDashboard = () => {
         </form>
       </div>
 
-      {showEditModal && (
-        <ProjectModal
-          existingProject={project}
-          onClose={() => {
-            setShowEditModal(false);
-            // Re-fetch stats in case repo/key changed
-            fetchGithubStats();
-            fetchJiraStats();
-          }}
-        />
-      )}
+      <AnimatePresence>
+        {showEditModal && (
+          <ProjectModal
+            key="edit-modal"
+            existingProject={project}
+            onClose={() => {
+              setShowEditModal(false);
+              // Re-fetch stats in case repo/key changed
+              fetchGithubStats();
+              fetchJiraStats();
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };

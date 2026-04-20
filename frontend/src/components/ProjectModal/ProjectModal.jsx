@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { useApp } from '../../context/AppContext.jsx';
 import { API_URL } from '../../apiConfig.js';
 import { X, Github, ExternalLink } from 'lucide-react';
 import styles from './ProjectModal.module.css';
+import { ease, durations } from '../../lib/motion.js';
 
 const ProjectModal = ({ onClose, existingProject = null }) => {
   const { userEmail, oauthStatus, refreshOauthStatus, createProject, updateProject, deleteProject, setActiveProjectId } = useApp();
@@ -127,8 +129,22 @@ const ProjectModal = ({ onClose, existingProject = null }) => {
   }, [onClose]);
 
   return (
-    <div className={styles.overlay} onClick={onClose}>
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+    <motion.div
+      className={styles.overlay}
+      onClick={onClose}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: durations.fast, ease }}
+    >
+      <motion.div
+        className={styles.modal}
+        onClick={(e) => e.stopPropagation()}
+        initial={{ opacity: 0, scale: 0.96, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.97, y: 4 }}
+        transition={{ duration: durations.modal, ease }}
+      >
         <div className={styles.header}>
           <h2 className={styles.title}>{isEdit ? 'Edit Project' : 'New Project'}</h2>
           <button className={styles.closeBtn} onClick={onClose}>
@@ -225,8 +241,8 @@ const ProjectModal = ({ onClose, existingProject = null }) => {
             </button>
           </div>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };
 

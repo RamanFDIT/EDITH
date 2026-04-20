@@ -1,7 +1,17 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { Github, Figma, Calendar, MessageSquare, CheckCircle2, Plug, Unplug, Wifi, LogOut, Shield, User, AlertTriangle, RefreshCw } from 'lucide-react';
 import styles from './Settings.module.css';
+import { ease, durations } from '../../lib/motion.js';
+
+const cardStagger = {
+  animate: { transition: { staggerChildren: 0.06, delayChildren: 0.04 } },
+};
+const cardItem = {
+  initial: { opacity: 0, y: 10 },
+  animate: { opacity: 1, y: 0, transition: { duration: durations.base, ease } },
+};
 import { useNavBar } from '../../components/NavBar/NavBarContext.jsx';
 import BackButton from '../../components/BackButton/BackButton.jsx';
 import { useApp } from '../../context/AppContext.jsx';
@@ -244,12 +254,22 @@ const Settings = () => {
           Integrations
         </h2>
 
-        <div className={styles.cardGrid}>
+        <motion.div
+          className={styles.cardGrid}
+          variants={cardStagger}
+          initial="initial"
+          animate="animate"
+        >
           {providers.map(({ key, label, description, icon: Icon }) => {
             const isConnected = oauthStatus[key]?.connected;
             const isConnecting = connecting === key;
             return (
-              <div key={key} className={isConnected ? styles.oauthCardConnected : styles.oauthCard}>
+              <motion.div
+                key={key}
+                layout
+                variants={cardItem}
+                className={isConnected ? styles.oauthCardConnected : styles.oauthCard}
+              >
                 <div className={styles.cardInfo}>
                   <Icon size={24} className={isConnected ? styles.cardIconConnected : styles.cardIcon} />
                   <div>
@@ -294,10 +314,10 @@ const Settings = () => {
                     </button>
                   )}
                 </div>
-              </div>
+              </motion.div>
             );
           })}
-        </div>
+        </motion.div>
       </div>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
     </section>

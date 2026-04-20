@@ -26,8 +26,12 @@
     @apply flex flex-wrap gap-2;
 }
 .badge {
-    @apply flex items-center gap-1.5 px-3 py-1 rounded-full bg-bgComponents
-           text-xs font-fontBody text-textPrimary/60 border border-bgHover;
+    @apply flex items-center gap-1.5 px-3 py-1 rounded-full
+           text-xs font-fontBody text-textPrimary/60;
+    background: var(--color-bgGlass);
+    border: 1px solid var(--color-borderSubtle);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
 }
 .headerActions {
     @apply flex items-center gap-3;
@@ -47,8 +51,16 @@
     @apply grid grid-cols-1 lg:grid-cols-2 gap-6;
 }
 .chartCard {
-    @apply bg-bgComponents rounded-xl p-6 border border-bgHover min-h-[320px]
-           flex items-center justify-center;
+    @apply rounded-2xl p-6 min-h-[320px] flex items-center justify-center;
+    background: var(--color-bgGlass);
+    border: 1px solid var(--color-borderSubtle);
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    transition: border-color 220ms ease, transform 220ms ease, box-shadow 220ms ease;
+}
+.chartCard:hover {
+    border-color: var(--color-borderGlow);
+    box-shadow: 0 12px 40px -20px rgba(0, 0, 0, 0.6);
 }
 
 /* Connect prompts */
@@ -71,8 +83,15 @@
     @apply mt-auto pt-6;
 }
 .quickChatForm {
-    @apply flex items-center gap-3 bg-bgComponents rounded-xl border border-bgHover
-           px-4 py-3;
+    @apply flex items-center gap-3 rounded-2xl px-4 py-3;
+    background: var(--color-bgGlass);
+    border: 1px solid var(--color-borderSubtle);
+    backdrop-filter: blur(14px) saturate(1.2);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    transition: border-color 180ms ease;
+}
+.quickChatForm:focus-within {
+    border-color: var(--color-borderGlow);
 }
 .quickChatInput {
     @apply flex-1 bg-transparent text-textPrimary font-fontBody text-sm

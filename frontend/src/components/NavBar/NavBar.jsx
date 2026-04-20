@@ -1,11 +1,21 @@
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useRef, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import styles from "./NavBar.module.css";
 import Logo from '../../assets/EDITH.svg?react';
 import { Github, Figma, MessageSquare, Plus, LogOut, Menu, X, FolderOpen, Trash2, ChevronRight, Settings as SettingsIcon } from 'lucide-react';
 import { useNavBar } from './NavBarContext.jsx';
 import { useApp } from '../../context/AppContext.jsx';
 import { useOauthConnect } from '../../hooks/useOauthConnect.js';
+import { ease, durations } from '../../lib/motion.js';
+
+const listStagger = {
+  animate: { transition: { staggerChildren: 0.04, delayChildren: 0.02 } },
+};
+const listItem = {
+  initial: { opacity: 0, x: -6 },
+  animate: { opacity: 1, x: 0, transition: { duration: durations.fast, ease } },
+};
 
 const toolDisplayNames = {
   google: 'Google',
@@ -118,13 +128,19 @@ const NavBar = ({ onNewProject }) => {
           <Plus size={16} />
         </button>
       </div>
-      <div className={styles.projectList}>
+      <motion.div
+        className={styles.projectList}
+        variants={listStagger}
+        initial="initial"
+        animate="animate"
+      >
         {projects.map((project) => {
           const isActive = project._id === activeProjectId;
           const isCurrentRoute = location.pathname.includes(`/project/${project._id}`);
           return (
-            <div
+            <motion.div
               key={project._id}
+              variants={listItem}
               className={`${(toggle || isMobile) ? styles.projectItem : styles.projectItemCompact} ${(isActive || isCurrentRoute) ? styles.projectItemActive : ''}`}
               onClick={() => handleProjectClick(project, isMobile)}
               title={project.name}
@@ -152,10 +168,10 @@ const NavBar = ({ onNewProject }) => {
                   {project.name.charAt(0).toUpperCase()}
                 </span>
               )}
-            </div>
+            </motion.div>
           );
         })}
-      </div>
+      </motion.div>
     </div>
   );
 

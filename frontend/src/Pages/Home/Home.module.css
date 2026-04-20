@@ -31,7 +31,10 @@
 }
 .thinkingBubble {
     @apply flex items-center gap-1.5 px-4 py-3 rounded-2xl w-fit;
-    background: #1a1a1a;
+    background: var(--color-bgGlass);
+    border: 1px solid var(--color-borderSubtle);
+    backdrop-filter: blur(14px) saturate(1.2);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
 }
 .thinkingDot {
     @apply w-2 h-2 rounded-full bg-textPrimary/40;

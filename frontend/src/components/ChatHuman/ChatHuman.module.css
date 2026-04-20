@@ -4,7 +4,11 @@
     @apply flex items-start justify-end w-full;
 }
 .bubble {
-    @apply bg-bgHover rounded-sm px-4 md:px-5 py-3 md:py-4 max-w-[95%] md:max-w-[80%] text-textPrimary font-fontBody text-sm md:text-base leading-relaxed;
+    @apply rounded-lg px-4 md:px-5 py-3 md:py-4 max-w-[95%] md:max-w-[80%] text-textPrimary font-fontBody text-sm md:text-base leading-relaxed;
+    background: color-mix(in srgb, var(--color-bgHover) 82%, transparent);
+    border: 1px solid var(--color-borderSubtle);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
 }
 .fileList {
     @apply flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-textPrimary/10;

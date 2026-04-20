@@ -42,14 +42,33 @@
     @apply flex flex-col gap-4;
 }
 .oauthCard {
-    @apply bg-bgComponents rounded-sm px-4 md:px-6 py-4 md:py-5
+    @apply rounded-xl px-4 md:px-6 py-4 md:py-5
            flex flex-col sm:flex-row items-start sm:items-center
            gap-3 sm:justify-between;
+    background: var(--color-bgGlass);
+    border: 1px solid var(--color-borderSubtle);
+    backdrop-filter: blur(14px) saturate(1.2);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    transition: border-color 200ms ease, background 200ms ease, transform 200ms ease;
+}
+.oauthCard:hover {
+    background: var(--color-bgGlassHover);
+    border-color: var(--color-borderGlow);
+    transform: translateY(-1px);
 }
 .oauthCardConnected {
-    @apply bg-bgComponents rounded-sm px-4 md:px-6 py-4 md:py-5
+    @apply rounded-xl px-4 md:px-6 py-4 md:py-5
            flex flex-col sm:flex-row items-start sm:items-center
-           gap-3 sm:justify-between border border-colorSuccess/20;
+           gap-3 sm:justify-between;
+    background: var(--color-bgGlass);
+    border: 1px solid color-mix(in srgb, var(--color-colorSuccess) 35%, var(--color-borderSubtle));
+    backdrop-filter: blur(14px) saturate(1.2);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    transition: border-color 200ms ease, background 200ms ease, transform 200ms ease;
+}
+.oauthCardConnected:hover {
+    background: var(--color-bgGlassHover);
+    transform: translateY(-1px);
 }
 .cardInfo {
     @apply flex items-center gap-4;
@@ -93,9 +112,12 @@
            hover:text-yellow-300 hover:cursor-pointer bg-transparent border-none p-0;
 }
 .accountCard {
-    @apply bg-bgComponents rounded-sm px-4 md:px-6 py-4 md:py-5 mb-8
-           flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:justify-between
-           border border-bgHover;
+    @apply rounded-xl px-4 md:px-6 py-4 md:py-5 mb-8
+           flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:justify-between;
+    background: var(--color-bgGlass);
+    border: 1px solid var(--color-borderSubtle);
+    backdrop-filter: blur(14px) saturate(1.2);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
 }
 .accountInfo {
     @apply flex items-center gap-3;
@@ -118,8 +140,12 @@
     @apply ml-2 text-xs font-fontBody font-normal text-bgCTA/80 bg-bgCTA/10 px-2 py-0.5 rounded-sm;
 }
 .prefsCard {
-    @apply bg-bgComponents rounded-sm px-4 md:px-6 py-4 md:py-5 mb-8
-           flex flex-col gap-5 border border-bgHover;
+    @apply rounded-xl px-4 md:px-6 py-4 md:py-5 mb-8
+           flex flex-col gap-5;
+    background: var(--color-bgGlass);
+    border: 1px solid var(--color-borderSubtle);
+    backdrop-filter: blur(14px) saturate(1.2);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
 }
 .prefsField {
     @apply flex flex-col gap-2;

@@ -89,14 +89,13 @@ All 36 tools are given to the LLM on every request — no intent classification 
 
 Audio flows through multiple systems across frontend and backend:
 
-**Speech-to-Text (frontend-side):**
+**Speech-to-Text (frontend capture):**
 - `Input.jsx` records via MediaRecorder (`audio/webm`), with silence detection (AudioContext frequency analysis, auto-stops after 2s silence).
-- Audio sent to in-browser **Whisper Worker** (`workers/whisperWorker.js`) using `@huggingface/transformers` for client-side transcription at 16kHz.
-- Shows "Loading local AI Model..." during first load; blocks send/record until ready.
+- The recorded blob is posted as multipart form data to `/api/voice`; no in-browser model runs.
 
 **Speech-to-Text (server-side, `/api/voice`):**
-- `POST /api/voice` receives multipart audio, transcribes via `audioTool.js` using Gemini `generateContent()` with audio data.
-- Returns `{ type: "user_text" }` SSE event with transcription, then streams normal response.
+- `POST /api/voice` receives the multipart audio, transcribes via `audioTool.js` using Gemini `generateContent()` with audio data.
+- Returns `{ type: "user_text" }` SSE event with transcription, then streams the normal response.
 
 **Text-to-Speech (server-side):**
 - Priority: Edge TTS (Microsoft neural voices, free) → ElevenLabs (API key) → `tts_fallback` event (browser Web Speech API).

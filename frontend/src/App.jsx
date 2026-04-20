@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { AnimatePresence } from 'framer-motion';
 import ErrorBoundary from './components/ErrorBoundary/ErrorBoundary.jsx';
 import NavBar from './components/NavBar/NavBar.jsx';
 import { NavBarProvider } from './components/NavBar/NavBarContext.jsx';
@@ -43,9 +44,11 @@ function AppContent() {
 
             <Route path="*" element={<NotFound />} />
           </Routes>
-          {showProjectModal && (
-            <ProjectModal onClose={() => setShowProjectModal(false)} />
-          )}
+          <AnimatePresence>
+            {showProjectModal && (
+              <ProjectModal key="new-project-modal" onClose={() => setShowProjectModal(false)} />
+            )}
+          </AnimatePresence>
         </div>
       </NavBarProvider>
     </AppProvider>
