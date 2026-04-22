@@ -104,7 +104,15 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onAu
   // --- Voice Recording ---
   const startRecording = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+          sampleRate: 48000,
+        },
+      });
 
       // Setup AudioContext for silence detection
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -126,11 +134,11 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onAu
         for (let i = 0; i < dataArray.length; i++) {
           if (dataArray[i] > maxVolume) maxVolume = dataArray[i];
         }
-        if (maxVolume > 15) {
+        if (maxVolume > 35) {
           lastAudioTimeRef.current = Date.now();
         }
-        // Auto-stop after 2 seconds of silence
-        if (Date.now() - lastAudioTimeRef.current > 2000) {
+        // Auto-stop after 2.5 seconds of silence
+        if (Date.now() - lastAudioTimeRef.current > 2500) {
           if (stopRecordingRef.current) stopRecordingRef.current();
           return;
         }
@@ -144,7 +152,7 @@ const Input = ({ value, onChange, onSubmit, disabled, files, onFilesChange, onAu
       // MEDIA RECORDER — collect audio blobs for backend transcription
       // -----------------------------------------------------------------------
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
-      const mediaRecorder = new MediaRecorder(stream, { mimeType });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 128000 });
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
 

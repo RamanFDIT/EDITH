@@ -42,6 +42,43 @@ connectDB().then(() => ensureEncryptionKey()).catch(err => {
 
 const execAsync = promisify(exec);
 
+// --- TTS sentence flusher ---
+// Splits a streaming buffer into TTS-friendly chunks. Avoids splitting on
+// abbreviations ("Dr."), decimals ("4.7.2"), and ellipses by requiring a
+// terminator + whitespace + capital-letter / quote / EOL boundary. Forces a
+// flush past MAX_LEN even without a terminator so long replies don't sit in
+// the buffer for seconds.
+const TTS_MIN_LEN = 40;
+const TTS_MAX_LEN = 180;
+const TTS_BOUNDARY = /[.!?](?:["'\)\]]?)(\s+)(?=["'\(\[]?[A-Z0-9]|$)/g;
+function extractTTSChunks(buffer) {
+    const chunks = [];
+    let remaining = buffer;
+    let safety = 0;
+    while (remaining.length > 0 && safety++ < 64) {
+        let cutAt = -1;
+        if (remaining.length >= TTS_MIN_LEN) {
+            TTS_BOUNDARY.lastIndex = 0;
+            let match;
+            while ((match = TTS_BOUNDARY.exec(remaining)) !== null) {
+                const candidate = match.index + match[0].length;
+                if (candidate >= TTS_MIN_LEN) { cutAt = candidate; break; }
+            }
+        }
+        if (cutAt === -1 && remaining.length > TTS_MAX_LEN) {
+            // No clean sentence break — fall back to the last whitespace before MAX_LEN.
+            const slice = remaining.slice(0, TTS_MAX_LEN);
+            const ws = slice.lastIndexOf(' ');
+            cutAt = ws > TTS_MIN_LEN ? ws + 1 : TTS_MAX_LEN;
+        }
+        if (cutAt === -1) break;
+        const piece = remaining.slice(0, cutAt).trim();
+        if (piece) chunks.push(piece);
+        remaining = remaining.slice(cutAt);
+    }
+    return { chunks, remainder: remaining };
+}
+
 const app = express();
 const port = 3000;
 
@@ -797,6 +834,14 @@ app.post('/api/ask', extractUser, async (req, res) => {
     const sessionId = clientSessionId || 'session-general';
     console.log(`[Server] User: ${req.user.email}, Q: ${question} (Timezone: ${timezone || 'UTC'}, Session: ${sessionId})`);
 
+    // Persist the latest browser timezone so endpoints without one (e.g. /api/voice
+    // before this lands on the client) can fall back to it.
+    if (timezone && timezone !== req.user.timezone) {
+        User.updateOne({ _id: req.user._id }, { $set: { timezone } }).catch(err => {
+            console.warn('[Server] Failed to persist user timezone:', err.message);
+        });
+    }
+
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -922,10 +967,9 @@ app.post('/api/ask', extractUser, async (req, res) => {
             if (content) {
                 res.write(`data: ${JSON.stringify({ type: "token", content })}\n\n`);
                 sentenceBuffer += content;
-                if (/[.?!](\s|$)/.test(sentenceBuffer) && sentenceBuffer.length > 20) {
-                    queueAudioChunk(sentenceBuffer.trim());
-                    sentenceBuffer = "";
-                }
+                const { chunks, remainder } = extractTTSChunks(sentenceBuffer);
+                for (const chunk of chunks) queueAudioChunk(chunk);
+                sentenceBuffer = remainder;
             }
         } else if (eventType === "on_tool_start") {
              res.write(`data: ${JSON.stringify({ type: "tool_start", name: event.name, input: event.data?.input })}\n\n`);
@@ -995,6 +1039,12 @@ app.post('/api/voice', extractUser, voiceUpload.single('audio'), async (req, res
 
     const voiceUserPrefs = { preferredName: req.user.preferredName || '', titlePreference: req.user.titlePreference || 'Sir' };
     const voiceSessionId = req.body?.sessionId || 'session-general';
+    const voiceTimezone = req.body?.timezone || req.user.timezone || undefined;
+    if (req.body?.timezone && req.body.timezone !== req.user.timezone) {
+        User.updateOne({ _id: req.user._id }, { $set: { timezone: req.body.timezone } }).catch(err => {
+            console.warn('[Voice] Failed to persist user timezone:', err.message);
+        });
+    }
     let voiceProjectContext = null;
     if (req.body?.projectId) {
         try {
@@ -1004,7 +1054,7 @@ app.post('/api/voice', extractUser, voiceUpload.single('audio'), async (req, res
             }
         } catch (err) { /* ignore */ }
     }
-    const stream = streamWithSemanticRouting(userText, req.user._id.toString(), undefined, voiceUserPrefs, voiceSessionId, voiceProjectContext);
+    const stream = streamWithSemanticRouting(userText, req.user._id.toString(), voiceTimezone, voiceUserPrefs, voiceSessionId, voiceProjectContext);
     let sentenceBuffer = "";
     
     // --- Audio Queue System (properly awaited) ---
@@ -1050,10 +1100,9 @@ app.post('/api/voice', extractUser, voiceUpload.single('audio'), async (req, res
         if (content) {
           res.write(`data: ${JSON.stringify({ type: 'token', content })}\n\n`);
           sentenceBuffer += content;
-          if (/[.?!](\s|$)/.test(sentenceBuffer) && sentenceBuffer.length > 20) {
-            queueAudioChunk(sentenceBuffer.trim());
-            sentenceBuffer = '';
-          }
+          const { chunks, remainder } = extractTTSChunks(sentenceBuffer);
+          for (const chunk of chunks) queueAudioChunk(chunk);
+          sentenceBuffer = remainder;
         }
       } else if (eventType === 'on_tool_start') {
         res.write(`data: ${JSON.stringify({ type: 'tool_start', name: event.name, input: event.data?.input })}\n\n`);

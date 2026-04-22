@@ -13,6 +13,49 @@ import { getValidToken } from './oauthService.js';
 // Default voice: American female (Ava), modern, energetic and clear
 const DEFAULT_EDGE_VOICE = "en-US-AvaNeural";
 
+// --- TTS TEXT SANITIZER ---
+// Strip markdown / non-speakable characters so the TTS engine reads only words.
+export function stripForTTS(input) {
+    if (!input || typeof input !== 'string') return '';
+    let text = input;
+
+    // Code fences and inline code: keep the inner text but drop the backticks.
+    text = text.replace(/```[\w-]*\n?([\s\S]*?)```/g, '$1');
+    text = text.replace(/`([^`]+)`/g, '$1');
+
+    // Markdown links: [label](url) -> label
+    text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1');
+    // Bare image syntax ![alt](url) -> alt
+    text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '$1');
+
+    // Headings, blockquotes, list markers at the start of a line
+    text = text.replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, '');
+    text = text.replace(/^[ \t]{0,3}>[ \t]?/gm, '');
+    text = text.replace(/^[ \t]*[-*+][ \t]+/gm, '');
+    text = text.replace(/^[ \t]*\d+\.[ \t]+/gm, '');
+
+    // Bold / italic / strikethrough: drop the markers, keep the words
+    text = text.replace(/\*\*([^*]+)\*\*/g, '$1');
+    text = text.replace(/__([^_]+)__/g, '$1');
+    text = text.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1$2');
+    text = text.replace(/(^|[^_])_([^_\n]+)_/g, '$1$2');
+    text = text.replace(/~~([^~]+)~~/g, '$1');
+
+    // Strip raw URLs (http/https) — they sound terrible read aloud.
+    text = text.replace(/https?:\/\/\S+/gi, '');
+
+    // Emojis and other pictographs.
+    try {
+        text = text.replace(/\p{Extended_Pictographic}/gu, '');
+    } catch {
+        // Older runtimes without unicode property escapes — skip silently.
+    }
+
+    // Collapse whitespace.
+    text = text.replace(/[ \t]+/g, ' ').replace(/\s*\n\s*/g, ' ').trim();
+    return text;
+}
+
 // --- SPEECH TO TEXT ---
 export async function transcribeAudio(args) {
 
@@ -46,7 +89,16 @@ export async function transcribeAudio(args) {
                 model: "gemini-2.5-flash",
                 contents: [
                     { inlineData: { data: base64Audio, mimeType } },
-                    'Transcribe this audio accurately. Return ONLY the transcribed text, nothing else.'
+                    [
+                      'You are a speech-to-text transcriber for a voice assistant.',
+                      'Transcribe the audio verbatim into a single line of plain text.',
+                      'Rules:',
+                      '- Use natural punctuation and sentence casing.',
+                      '- For unclear words, choose the closest plausible word phonetically — do NOT write [unintelligible], [inaudible], or any bracketed placeholder.',
+                      '- Preserve filler words ("uh", "um") only if clearly enunciated; otherwise omit them.',
+                      '- If the audio contains no discernible speech, return an empty string. Do NOT describe what you hear (no "[silence]", no "(background noise)", no narration).',
+                      '- Output ONLY the transcribed text. No quotes, no commentary, no labels.'
+                    ].join('\n')
                 ]
             });
             return response.candidates[0].content.parts[0].text;
@@ -63,7 +115,12 @@ export async function transcribeAudio(args) {
 
 // --- TEXT TO SPEECH (Gemini TTS → Edge TTS fallback → Web Speech API) ---
 export async function generateSpeech(args) {
-    const { text, voiceId } = args;
+    const { voiceId } = args;
+    const rawText = args.text;
+    const text = stripForTTS(rawText);
+    if (!text) {
+        return JSON.stringify({ fallback: 'web-speech-api', text: '' });
+    }
     console.log(`🗣️ Generating Speech for: "${text.substring(0, 40)}..."`);
 
     // Strategy 1: Gemini TTS via @google/genai (uses bundled GOOGLE_API_KEY)
@@ -107,7 +164,7 @@ export async function generateSpeech(args) {
         const tts = new EdgeTTS({
             voice: voice,
             lang: voice.substring(0, 5) || 'en-US',
-            rate: '+15%',
+            rate: '+5%',
             outputFormat: 'audio-24khz-48kbitrate-mono-mp3'
         });
 

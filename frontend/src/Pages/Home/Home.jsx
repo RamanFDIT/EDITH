@@ -481,6 +481,7 @@ const Home = () => {
       const formData = new FormData();
       formData.append('audio', audioBlob, 'recording.webm');
       formData.append('sessionId', activeSessionId);
+      formData.append('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone);
       if (activeProject?._id) formData.append('projectId', activeProject._id);
       if (voiceEnabledRef.current) formData.append('voiceEnabled', 'true');
 

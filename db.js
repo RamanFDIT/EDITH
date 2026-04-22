@@ -37,6 +37,7 @@ const userSchema = new mongoose.Schema({
   },
   preferredName: { type: String, default: '' },
   titlePreference: { type: String, enum: ['Sir', "Ma'am", 'name'], default: 'Sir' },
+  timezone: { type: String, default: '' },
   settings: {
     llmProvider: { type: String, default: 'auto' },
     githubModel: { type: String, default: 'gpt-4o' },

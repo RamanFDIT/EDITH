@@ -890,13 +890,13 @@ async function processWithSemanticRouting(input) {
 
     console.log(`[Agent] ${allTools.length} tools available${isConfirmation ? ' (confirmation)' : ''}`);
 
-    const agent = getOrCreateAgent(allTools, timezone, userId, llm, input.userPrefs);
+    const agent = getOrCreateAgent(allTools, effectiveTimezone, userId, llm, input.userPrefs);
 
     const now = new Date();
     const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: effectiveTimezone };
     const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: effectiveTimezone };
     const freshTimeReminder = new HumanMessage(
-        `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', timeOptions)} on ${now.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
+        `[TIME UPDATE] Current time is now: ${now.toLocaleTimeString('en-US', timeOptions)} on ${now.toLocaleDateString('en-US', dateOptions)} (${effectiveTimezone}). Any times mentioned in previous messages are outdated — use ONLY this time.`
     );
     let toolNudge;
     if (isConfirmation) {
@@ -944,9 +944,11 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         const fullHistory = await messageHistory.getMessages();
         const history = sanitizeHistoryForTools(trimHistory(fullHistory));
 
+        const effectiveTimezone = timezone || 'UTC';
+
         // Pre-flight: Check if request is too large for GitHub Models
         if (activeProvider === 'github') {
-            const systemPromptText = getSystemPrompt(timezone, userPrefs);
+            const systemPromptText = getSystemPrompt(effectiveTimezone, userPrefs);
             if (wouldExceedGitHubLimit(systemPromptText.content || systemPromptText, history, userQuery)) {
                 console.warn(`[LLM] Request too large for GitHub Models (~${estimateTokens(userQuery)} query tokens). Routing to Gemini.`);
                 excludeProviders.add('github');
@@ -955,20 +957,20 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         }
 
         // Get ALL tools for this user (no classification needed — LLM picks tools naturally)
-        const allTools = createToolsForUser(userId, timezone || 'UTC', projectContext);
+        const allTools = createToolsForUser(userId, effectiveTimezone, projectContext);
         const isConfirmation = isConfirmationMessage(userQuery, history);
 
         console.log(`[Agent] ${allTools.length} tools available${isConfirmation ? ' (confirmation)' : ''}`);
 
         // Create agent with all tools
-        const agent = getOrCreateAgent(allTools, timezone, userId, llm, userPrefs, projectContext);
+        const agent = getOrCreateAgent(allTools, effectiveTimezone, userId, llm, userPrefs, projectContext);
 
         // Stream events from the agent (inject fresh time reminder before user query)
         const agentNow = new Date();
-        const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: timezone };
-        const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: timezone };
+        const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: effectiveTimezone };
+        const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: effectiveTimezone };
         const agentTimeReminder = new HumanMessage(
-            `[TIME UPDATE] Current time is now: ${agentNow.toLocaleTimeString('en-US', timeOptions)} on ${agentNow.toLocaleDateString('en-US', dateOptions)}. Any times mentioned in previous messages are outdated — use ONLY this time.`
+            `[TIME UPDATE] Current time is now: ${agentNow.toLocaleTimeString('en-US', timeOptions)} on ${agentNow.toLocaleDateString('en-US', dateOptions)} (${effectiveTimezone}). Any times mentioned in previous messages are outdated — use ONLY this time.`
         );
         // Conditional guard: CONTINUATION for confirmations, FRESHNESS GUARD for new requests
         let toolNudge;
