@@ -18,7 +18,7 @@ import { generateImage } from "./imageTool.js";
 import { getJiraIssues, createJiraIssue, updateJiraIssue, deleteJiraIssue, createJiraProject, listJiraProjects, createJiraSprint, updateJiraSprint, addIssuesToSprint, listJiraSprints } from "./jiraTool.js";
 import { getCalendarEvents, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent, findFreeTime } from "./calendarTool.js";
 import { sendSlackMessage, sendSlackAnnouncement, sendSlackLink } from "./slackTool.js";
-import { createRepository, getRepoIssues, createRepoIssue, listCommits, listPullRequests, getPullRequest, getCommit, getRepoChecks, listBranches, getRepoInfo, listRepositories } from "./githubTool.js";
+import { createRepository, getRepoIssues, createRepoIssue, closeIssue, reopenIssue, listCommits, listPullRequests, getPullRequest, getCommit, getRepoChecks, listBranches, getRepoInfo, listRepositories } from "./githubTool.js";
 import { getFigmaFileStructure, getFigmaComments, postFigmaComment } from "./figmaTool.js";
 import { sendGmail, searchGmailContacts, getRecentEmails } from "./gmailTool.js";
 import { readFile } from "./fileTool.js";
@@ -522,6 +522,26 @@ function createToolsForUser(userId, userTimezone, projectContext = null) {
       }),
       func: (input) => createRepoIssue(input, userId),
     }),
+    new DynamicStructuredTool({
+      name: "close_issue",
+      description: "Close a GitHub issue. Use this when the user confirms a commit fixes/resolves a referenced issue, or asks to close one explicitly.",
+      schema: z.object({
+        owner: z.string().optional().describe("Repository owner. Defaults to the authenticated user's GitHub username."),
+        repo: z.string().describe("Repository name."),
+        issueNumber: z.number().describe("The issue number to close."),
+      }),
+      func: (input) => closeIssue(input, userId),
+    }),
+    new DynamicStructuredTool({
+      name: "reopen_issue",
+      description: "Reopen a previously closed GitHub issue.",
+      schema: z.object({
+        owner: z.string().optional().describe("Repository owner. Defaults to the authenticated user's GitHub username."),
+        repo: z.string().describe("Repository name."),
+        issueNumber: z.number().describe("The issue number to reopen."),
+      }),
+      func: (input) => reopenIssue(input, userId),
+    }),
   ];
 
   // --- FIGMA TOOLS (custom) ---
@@ -838,25 +858,46 @@ function getMessageHistory(sessionId, userId) {
 // =============================================================================
 
 // Create agent with fresh timestamp each time (don't cache system prompt)
-function getOrCreateAgent(tools, userTimezone, userId, userLLM, userPrefs, projectContext = null) {
+function getOrCreateAgent(tools, userTimezone, userId, userLLM, userPrefs, projectContext = null, ideContext = null, mode = 'chat') {
     // Always get fresh system prompt with current time
     let systemPrompt = getSystemPrompt(userTimezone, userPrefs);
 
+    let appended = '';
+
     // Inject project context into the system prompt if available
     if (projectContext) {
-        let projectBlock = '\n\n[PROJECT CONTEXT]\nThe user is working within a project workspace.';
+        appended += '\n\n[PROJECT CONTEXT]\nThe user is working within a project workspace.';
         if (projectContext.jiraProjectKey) {
-            projectBlock += `\n- Jira Project Key: ${projectContext.jiraProjectKey} (use as default for all Jira queries)`;
+            appended += `\n- Jira Project Key: ${projectContext.jiraProjectKey} (use as default for all Jira queries)`;
         }
         if (projectContext.githubRepo) {
-            projectBlock += `\n- GitHub Repository: ${projectContext.githubRepo} (use as default owner/repo for all GitHub queries)`;
+            appended += `\n- GitHub Repository: ${projectContext.githubRepo} (use as default owner/repo for all GitHub queries)`;
         }
-        projectBlock += '\nWhen the user asks about issues, PRs, tickets without specifying a project or repo, default to these values.';
-        // systemPrompt is a SystemMessage — append to its content
+        appended += '\nWhen the user asks about issues, PRs, tickets without specifying a project or repo, default to these values.';
+    }
+
+    // Inject IDE context (sent by the VS Code extension)
+    if (ideContext) {
+        appended += '\n\n[IDE CONTEXT]\nThe user is working inside their IDE. Treat IDE-originated events as authoritative signals about what they just did.';
+        if (ideContext.currentFile) appended += `\n- Active file: ${ideContext.currentFile}`;
+        if (ideContext.branch) appended += `\n- Current branch: ${ideContext.branch}`;
+        if (ideContext.openTicketKey) appended += `\n- Linked ticket: ${ideContext.openTicketKey} (treat as the default Jira issue for this conversation)`;
+        if (ideContext.recentDiffSummary) appended += `\n- Recent staged/committed diff:\n${ideContext.recentDiffSummary}`;
+    }
+
+    // Prediction mode: respond with structured suggestion JSON only
+    if (mode === 'predict') {
+        appended += '\n\n[PREDICTION MODE]\nRespond with ONLY a JSON array of 1–3 suggestions and nothing else — no prose, no markdown fences. ' +
+                    'Each item: { "action": "<short verb phrase>", "prompt": "<runnable follow-up question>", "confidence": <0.0–1.0> }. ' +
+                    'The "prompt" field must be a complete user-style request that, if sent back through chat, would execute the suggestion. ' +
+                    'Do NOT call any tools. Do NOT execute the suggestions. Only enumerate likely next actions based on the IDE context and recent conversation.';
+    }
+
+    if (appended) {
         if (typeof systemPrompt === 'string') {
-            systemPrompt = systemPrompt + projectBlock;
+            systemPrompt = systemPrompt + appended;
         } else if (systemPrompt.content) {
-            systemPrompt = new SystemMessage(systemPrompt.content + projectBlock);
+            systemPrompt = new SystemMessage(systemPrompt.content + appended);
         }
     }
 
@@ -928,7 +969,7 @@ async function processWithSemanticRouting(input) {
 }
 
 // Streaming version for the server to use
-export async function* streamWithSemanticRouting(userQuery, userId, timezone, userPrefs, sessionId = 'session-general', projectContext = null) {
+export async function* streamWithSemanticRouting(userQuery, userId, timezone, userPrefs, sessionId = 'session-general', projectContext = null, ideContext = null, mode = 'chat') {
     process.env.ACTIVE_REQUEST = 'true';
 
     let excludeProviders = new Set();
@@ -963,7 +1004,7 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         console.log(`[Agent] ${allTools.length} tools available${isConfirmation ? ' (confirmation)' : ''}`);
 
         // Create agent with all tools
-        const agent = getOrCreateAgent(allTools, effectiveTimezone, userId, llm, userPrefs, projectContext);
+        const agent = getOrCreateAgent(allTools, effectiveTimezone, userId, llm, userPrefs, projectContext, ideContext, mode);
 
         // Stream events from the agent (inject fresh time reminder before user query)
         const agentNow = new Date();
@@ -972,9 +1013,15 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
         const agentTimeReminder = new HumanMessage(
             `[TIME UPDATE] Current time is now: ${agentNow.toLocaleTimeString('en-US', timeOptions)} on ${agentNow.toLocaleDateString('en-US', dateOptions)} (${effectiveTimezone}). Any times mentioned in previous messages are outdated — use ONLY this time.`
         );
-        // Conditional guard: CONTINUATION for confirmations, FRESHNESS GUARD for new requests
+        // Conditional guard: CONTINUATION for confirmations, FRESHNESS GUARD for new requests.
+        // Prediction mode bypasses the nudge — we never want it to call tools.
         let toolNudge;
-        if (isConfirmation) {
+        if (mode === 'predict') {
+            toolNudge = new HumanMessage(
+                `[PREDICTION REQUEST] Generate 1–3 next-action suggestions per the [PREDICTION MODE] block in your instructions. ` +
+                `Output JSON only. Do NOT call any tools.`
+            );
+        } else if (isConfirmation) {
             toolNudge = new HumanMessage(
                 `[CONTINUATION] The user is confirming/approving a plan you previously proposed. ` +
                 `Review your most recent message in the conversation history and EXECUTE the action(s) you described. ` +
@@ -1090,10 +1137,13 @@ export async function* streamWithSemanticRouting(userQuery, userId, timezone, us
           }
         }
 
-        // Save to history after streaming completes
-        await messageHistory.addMessage(new HumanMessage(userQuery));
-        if (completeResponse) {
-            await messageHistory.addMessage(new AIMessage(completeResponse));
+        // Save to history after streaming completes.
+        // Prediction mode never persists — predictions are ephemeral and would otherwise pollute future turns.
+        if (mode !== 'predict') {
+            await messageHistory.addMessage(new HumanMessage(userQuery));
+            if (completeResponse) {
+                await messageHistory.addMessage(new AIMessage(completeResponse));
+            }
         }
 
         process.env.ACTIVE_REQUEST = 'false';

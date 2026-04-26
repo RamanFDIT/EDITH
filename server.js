@@ -802,7 +802,7 @@ app.get('/api/projects/:id/jira-stats', extractUser, async (req, res) => {
 app.post('/api/ask', extractUser, async (req, res) => {
   let heartbeatInterval;
   try {
-    const { question, files, timezone, voiceEnabled, sessionId: clientSessionId, projectId } = req.body;
+    const { question, files, timezone, voiceEnabled, sessionId: clientSessionId, projectId, ideContext, mode } = req.body;
 
     if (!question) {
       return res.status(400).json({ error: 'Question is required' });
@@ -918,7 +918,17 @@ app.post('/api/ask', extractUser, async (req, res) => {
     }
     // --- END /help INTERCEPTOR ---
 
-    const stream = streamWithSemanticRouting(fullQuestion, req.user._id.toString(), timezone, userPrefs, sessionId, projectContext);
+    const effectiveMode = mode === 'predict' ? 'predict' : 'chat';
+    const stream = streamWithSemanticRouting(
+        fullQuestion,
+        req.user._id.toString(),
+        timezone,
+        userPrefs,
+        sessionId,
+        projectContext,
+        ideContext || null,
+        effectiveMode
+    );
 
     let sentenceBuffer = "";
 

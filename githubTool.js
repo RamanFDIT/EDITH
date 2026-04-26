@@ -162,6 +162,60 @@ export async function createRepoIssue(args, userId) {
     }
 }
 
+async function patchIssueState(args, userId, state) {
+    let { owner, repo, issueNumber } = args;
+    const token = await getGitHubToken(userId);
+    owner = await resolveOwner(owner, userId);
+    if (!repo || !issueNumber) throw new Error('Repo and issueNumber are required.');
+
+    try {
+        const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}`, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Accept': 'application/vnd.github.v3+json',
+                'X-GitHub-Api-Version': '2022-11-28',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ state })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            if (response.status === 403) {
+                throw new Error(
+                    `GitHub 403 Forbidden: You don't have permission to modify issue #${issueNumber} in ${owner}/${repo}. ` +
+                    `Reconnect GitHub in Settings to refresh the 'repo' scope.`
+                );
+            }
+            if (response.status === 404) {
+                throw new Error(`GitHub 404: Issue #${issueNumber} not found in ${owner}/${repo}.`);
+            }
+            throw new Error(`GitHub API Error (${response.status}): ${errorText}`);
+        }
+        const data = await response.json();
+        return JSON.stringify({
+            status: "success",
+            message: `Issue #${data.number} in ${owner}/${repo} is now ${data.state}.`,
+            issueNumber: data.number,
+            state: data.state,
+            url: data.html_url
+        });
+    } catch (error) {
+        return JSON.stringify({ status: "error", message: `Error updating issue #${issueNumber}: ${error.message}` });
+    }
+}
+
+export async function closeIssue(args, userId) {
+    console.log("📝 GitHub Close Issue Invoked:", JSON.stringify(args));
+    return patchIssueState(args, userId, 'closed');
+}
+
+export async function reopenIssue(args, userId) {
+    console.log("📝 GitHub Reopen Issue Invoked:", JSON.stringify(args));
+    return patchIssueState(args, userId, 'open');
+}
+
 // --- COMMITS & PRs ---
 export async function listCommits(args, userId) {
     let { owner, repo, limit = 5 } = args;

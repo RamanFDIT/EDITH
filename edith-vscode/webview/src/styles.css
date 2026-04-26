@@ -1,0 +1,197 @@
+:root {
+  color-scheme: light dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--vscode-sideBar-background, transparent);
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+.loading,
+.signin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 1rem;
+  text-align: center;
+  gap: 0.75rem;
+}
+
+.signin h2 {
+  margin: 0;
+}
+
+.signin button,
+.input button,
+.chip {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: 1px solid var(--vscode-button-border, transparent);
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.signin button:hover,
+.input button:hover,
+.chip:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.topbar .title {
+  font-weight: 600;
+}
+
+.topbar .email {
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60%;
+}
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.empty {
+  opacity: 0.5;
+  text-align: center;
+  padding: 2rem 0.5rem;
+}
+
+.msg .role {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.6;
+  margin-bottom: 2px;
+}
+
+.msg .content {
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+.msg-user .content {
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+
+.msg-ai .content {
+  padding: 0 2px;
+}
+
+.msg-system .content {
+  font-size: 12px;
+  opacity: 0.85;
+  border-left: 2px solid var(--vscode-activityBar-activeBorder, var(--vscode-focusBorder));
+  padding: 2px 0 2px 8px;
+}
+
+.suggestions {
+  border-top: 1px solid var(--vscode-panel-border);
+  padding: 6px 10px;
+}
+
+.suggestions-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.chip-dismiss {
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  border-color: var(--vscode-panel-border);
+}
+
+.input {
+  border-top: 1px solid var(--vscode-panel-border);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.input textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 50px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 3px;
+  padding: 6px 8px;
+  font: inherit;
+}
+
+.input textarea:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.input-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.input button[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

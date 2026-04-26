@@ -1,0 +1,117 @@
+{
+  "name": "edith-vscode",
+  "displayName": "EDITH",
+  "description": "Even Dead I'm The Hero — chat, commit-aware ticket management, and proactive suggestions inside VS Code.",
+  "version": "0.1.0",
+  "publisher": "raman",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "AI",
+    "SCM Providers"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "edith",
+          "title": "EDITH",
+          "icon": "media/edith.svg"
+        }
+      ]
+    },
+    "views": {
+      "edith": [
+        {
+          "id": "edith.chat",
+          "name": "Chat",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "edith.signIn",
+        "title": "EDITH: Sign In",
+        "category": "EDITH"
+      },
+      {
+        "command": "edith.signOut",
+        "title": "EDITH: Sign Out",
+        "category": "EDITH"
+      },
+      {
+        "command": "edith.predictNow",
+        "title": "EDITH: Suggest next action",
+        "category": "EDITH"
+      },
+      {
+        "command": "edith.generateCommitMessage",
+        "title": "EDITH: Generate commit message",
+        "category": "EDITH",
+        "icon": "$(sparkle)"
+      }
+    ],
+    "menus": {
+      "scm/title": [
+        {
+          "command": "edith.generateCommitMessage",
+          "when": "scmProvider == git",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "EDITH",
+      "properties": {
+        "edith.apiUrl": {
+          "type": "string",
+          "default": "https://edith-4ihs.onrender.com",
+          "description": "Base URL of the EDITH backend API."
+        },
+        "edith.activeProjectId": {
+          "type": "string",
+          "default": "",
+          "description": "EDITH project ID to scope chat to (set via the sidebar)."
+        },
+        "edith.predictionEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show next-action suggestions after each chat turn and commit."
+        },
+        "edith.commitWatchEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Detect commits that reference issues/tickets and ask before closing them."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build:extension": "tsc -p tsconfig.json",
+    "build:webview": "vite build --config vite.config.ts",
+    "build": "npm run build:webview && npm run build:extension",
+    "watch:extension": "tsc -p tsconfig.json --watch",
+    "watch:webview": "vite build --config vite.config.ts --watch",
+    "vscode:prepublish": "npm run build"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@types/vscode": "^1.85.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.4.5",
+    "vite": "^5.4.0"
+  }
+}
