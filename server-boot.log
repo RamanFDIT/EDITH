@@ -1,0 +1,18 @@
+[dotenv@17.3.1] injecting env (30) from .env -- tip: 🛡️ auth for agents: https://vestauth.com
+[Config] Loaded environment variables from .env
+ Tactical Systems Ready.
+[BOOT] __dirname: C:\Dev\EDITH Core - Capstone
+[BOOT] cwd: C:\Dev\EDITH Core - Capstone
+[BOOT] dist path: C:\Dev\EDITH Core - Capstone\frontend\dist
+[BOOT] dist exists: false
+[BOOT] index.html exists: false
+[BOOT] frontend exists: true
+[BOOT] frontend contents: .env, .gitignore, eslint.config.js, index.html, node_modules, package-lock.json, package.json, public, README.md, src, vite.config.js
+Server is listening at http://localhost:3000
+[Static] Serving frontend from: C:\Dev\EDITH Core - Capstone\frontend\dist
+[Static] index.html exists: false
+
+[CRITICAL] Port 3000 is already in use!
+[CRITICAL] Another instance of EDITH or node is likely running.
+[CRITICAL] Please kill the zombie process and restart.
+

@@ -2,8 +2,9 @@
 .vscode-test/**
 src/**
 webview/**
-node_modules/.cache/**
+node_modules/**
 .gitignore
 tsconfig.json
 vite.config.ts
 **/*.map
+**/tsconfig*.json

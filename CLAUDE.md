@@ -123,6 +123,10 @@ Audio flows through multiple systems across frontend and backend:
 ### ENCRYPTION_KEY auto-generation
 `oauthService.js` auto-generates a random 32-byte hex key on first run if missing. Stored in MongoDB `AppConfig` collection (survives Render redeploys). Changing the key invalidates all stored OAuth tokens.
 
+**Key resolution precedence** (`ensureEncryptionKey`, oauthService.js:34): `process.env.ENCRYPTION_KEY` (from `.env`) **wins over** the AppConfig DB value. If unset, it loads from AppConfig; if that's empty, it generates a new one. Consequence: a local `.env` with its own `ENCRYPTION_KEY` will *shadow* the shared AppConfig key and be unable to decrypt tokens that another server (e.g. Render production) encrypted. `.env` is gitignored and **not** deployed to Render, so production uses the AppConfig key. To make a local server decrypt the same tokens as production, leave `ENCRYPTION_KEY` unset in local `.env` so it falls back to the shared AppConfig key.
+
+**Connected status = decryptability** (`getConnectionStatus`, oauthService.js:327-329): a provider shows `connected: true` only if its stored `access_token` *decrypts* with the current key — not merely if a token exists. **Orphaned tokens**: if the key was ever regenerated, all previously stored tokens become permanently undecryptable (the old key is gone) and every integration reports offline. The fix is **not** to hunt for the old key — it's to **reconnect the tools** (re-OAuth via the web Settings page), which re-encrypts fresh tokens with the current key.
+
 ### Dual storage pattern
 User preferences and OAuth status live in both localStorage (instant frontend render) and MongoDB (persistent). `AppContext` initializes from localStorage, then syncs from API on mount.
 
@@ -142,3 +146,13 @@ Google OAuth sign-in (basic scopes: openid, email, profile) is separate from too
 - **Removed pages still on disk**: `UserSetup`, `Onboarding`, `ConnectionPage` exist but aren't routed. Safe to delete.
 - **CORS origins**: `server.js` line 38 defines `FRONTEND_ORIGIN` (default `http://localhost:5173`). Production uses Render URL. Both must match for OAuth callbacks and API calls.
 - **Production URL**: Backend deployed to `https://edith-4ihs.onrender.com`. Frontend apiConfig auto-detects dev vs prod.
+
+## VS Code Extension (`edith-vscode/`)
+
+The extension is a chat client that talks to the same backend as the web app. It has **no connections UI of its own** — OAuth tools are connected via the web Settings page and shared through the DB by email.
+
+- **Server target**: `edith.apiUrl` VS Code setting (default `https://edith-4ihs.onrender.com`, see `credentials.ts:9`). Set to `http://localhost:3000` to hit a local dev server.
+- **Identity**: stored email in VS Code SecretStorage, sent as `X-User-Email` (credentials.ts). Must match the web login email exactly — `extractUser` auto-creates an empty user for any unseen email, which then shows zero connections.
+- **"Tools offline" / "not connected"** is EDITH's own reply from `getConnectionStatus` — it means tokens didn't decrypt (see ENCRYPTION_KEY notes above), **not** that the email or server is wrong.
+- **vscode-webview CORS**: the extension webview fetches from a `vscode-webview://<guid>` origin. `server.js` CORS must allow it (regex at the `cors()` origin callback, ~line 111). This fix is required on whatever server the extension targets.
+- **Testing checklist (catch-22 to watch for)**: local server has the latest IDE features + CORS fix but may use a shadowing `.env` key; production has the right shared key but only whatever's on the deployed branch. To test the extension end-to-end against **local**: (1) ensure `server.js` has the vscode-webview CORS rule, (2) unset `ENCRYPTION_KEY` in local `.env` so it shares production's AppConfig key, (3) reconnect tools on the web app, (4) point `edith.apiUrl` at `localhost:3000`.
